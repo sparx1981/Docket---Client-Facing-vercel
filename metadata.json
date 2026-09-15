@@ -1,0 +1,8 @@
+{
+  "name": "The Docket · Sports Qualifier System",
+  "description": "Audited sports fixture verification and rule-based qualifying engine for football and tennis value betting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
