@@ -189,6 +189,44 @@ export default function App() {
     setActiveUserContext(null);
   };
 
+  // Shared by every real fetch path (initial load, post-login hydration,
+  // settings save, "Run Daily Scan") so the header count and the Stop
+  // control are never specific to just one of them — a user watching
+  // "Auditing…" doesn't care which code path started it.
+  //
+  // openModal is false for background loads (initial mount, post-login
+  // hydration, settings save) — those must never block the whole UI behind
+  // a modal the user didn't ask for. They still drive the header's live
+  // count via isScanRunning, and the header button stays clickable so the
+  // user can open the modal on demand to see progress or stop it.
+  const beginFeedFetch = (openModal: boolean) => {
+    if (openModal) setIsScanModalOpen(true);
+    setScanEvents([]);
+    setScanFootballRecords(0);
+    setScanTennisRecords(0);
+    setIsScanFinished(false);
+    setIsScanCancelled(false);
+    setIsScanRunning(true);
+
+    const controller = new AbortController();
+    scanAbortControllerRef.current = controller;
+
+    const onProgress = (evt: FeedProgressEvent) => {
+      setScanEvents((prev) => [...prev, evt]);
+      if (evt.sport === 'football') setScanFootballRecords(evt.recordsSoFar);
+      else setScanTennisRecords(evt.recordsSoFar);
+    };
+
+    return { signal: controller.signal, onProgress };
+  };
+
+  const endFeedFetch = (outcome: 'finished' | 'cancelled') => {
+    setIsScanRunning(false);
+    if (outcome === 'cancelled') setIsScanCancelled(true);
+    else setIsScanFinished(true);
+    scanAbortControllerRef.current = null;
+  };
+
   const loadFixtures = async (currentSettings: AppSettings) => {
     if (!hasAnyProviderKey(currentSettings)) {
       setFixtures([]);
@@ -197,11 +235,15 @@ export default function App() {
       );
       return;
     }
+    // Don't clobber an already-running fetch's progress state (e.g. the
+    // post-login hydration effect and the initial-mount effect both firing).
+    if (isScanRunning) return;
 
     setFixturesLoading(true);
     setFixturesError(null);
+    const { signal, onProgress } = beginFeedFetch(false);
     try {
-      const { fixtures: fetched, error } = await fetchCandidateFixtures(currentSettings);
+      const { fixtures: fetched, error } = await fetchCandidateFixtures(currentSettings, onProgress, signal);
       const withAudits = fetched.map((fixture) => ({
         ...fixture,
         verificationCard: runVerificationAudit(fixture, currentSettings.ruleThresholds, undefined),
@@ -209,11 +251,17 @@ export default function App() {
       setFixtures(withAudits);
       setFixturesError(error || null);
       setProviderHealth({ ok: !error, checkedAt: new Date().toISOString() });
+      endFeedFetch('finished');
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        endFeedFetch('cancelled');
+        return;
+      }
       setFixtures([]);
       const message = err instanceof Error ? err.message : 'Failed to load fixtures';
       setFixturesError(message);
       setProviderHealth({ ok: false, checkedAt: new Date().toISOString() });
+      endFeedFetch('finished');
     } finally {
       setFixturesLoading(false);
     }
@@ -372,25 +420,16 @@ export default function App() {
   // fixed-length animation standing in for work that (under provider rate
   // limits) can take well over a minute.
   const handleRunScan = () => {
-    if (isScanRunning) return;
-    setIsScanModalOpen(true);
-    setScanEvents([]);
-    setScanFootballRecords(0);
-    setScanTennisRecords(0);
-    setIsScanFinished(false);
-    setIsScanCancelled(false);
-    setIsScanRunning(true);
+    if (isScanRunning) {
+      // A background load (mount, login, settings save) is already
+      // fetching — reveal its real progress and the Stop control instead
+      // of starting a second, duplicate fetch.
+      setIsScanModalOpen(true);
+      return;
+    }
+    const { signal, onProgress } = beginFeedFetch(true);
 
-    const controller = new AbortController();
-    scanAbortControllerRef.current = controller;
-
-    const onProgress = (evt: FeedProgressEvent) => {
-      setScanEvents((prev) => [...prev, evt]);
-      if (evt.sport === 'football') setScanFootballRecords(evt.recordsSoFar);
-      else setScanTennisRecords(evt.recordsSoFar);
-    };
-
-    executeBackgroundScan(settings, false, onProgress, controller.signal)
+    executeBackgroundScan(settings, false, onProgress, signal)
       .then((result) => {
         setFixtures(result.refreshedFixtures);
         setHistoricalBets(result.updatedHistoricalBets);
@@ -398,23 +437,18 @@ export default function App() {
         setLastScanTimestamp(result.scanTimestamp);
         setProviderHealth({ ok: !result.fetchError, checkedAt: result.scanTimestamp });
         setFixturesError(result.fetchError || null);
-        setIsScanRunning(false);
-        setIsScanFinished(true);
+        endFeedFetch('finished');
       })
       .catch((err) => {
         // A user-requested stop rejects every in-flight call with
         // AbortError — that's the one outcome we don't treat as a scan
         // failure, since nothing was actually wrong with the provider.
         if (err instanceof DOMException && err.name === 'AbortError') {
-          setIsScanRunning(false);
-          setIsScanCancelled(true);
+          endFeedFetch('cancelled');
           return;
         }
-        setIsScanRunning(false);
         setFixturesError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        scanAbortControllerRef.current = null;
+        endFeedFetch('finished');
       });
   };
 
@@ -508,7 +542,8 @@ export default function App() {
         priceWatchCount={priceWatchItems.length}
         analytics={analytics}
         settings={settings}
-        isScanning={isScanModalOpen || fixturesLoading}
+        isScanning={isScanModalOpen || fixturesLoading || isScanRunning}
+        scanModalOpen={isScanModalOpen}
         scanRecordsSoFar={isScanRunning ? scanFootballRecords + scanTennisRecords : undefined}
         onRunScan={handleRunScan}
         lastScanTimestamp={lastScanTimestamp}

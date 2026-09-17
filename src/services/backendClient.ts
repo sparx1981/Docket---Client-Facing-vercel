@@ -27,11 +27,17 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
 // Some dev/preview hosts (e.g. an AI Studio container whose backend process
 // is still booting or has just restarted) answer every path with a 200
-// "Starting Server..." placeholder page instead of a real response, for a
-// few seconds at a time. That's transient — worth a few short retries
-// before treating it as "no backend here at all".
-const MAX_STARTING_SERVER_RETRIES = 5;
-const STARTING_SERVER_RETRY_DELAY_MS = 1500;
+// "Starting Server..." placeholder page instead of a real response. This has
+// been observed taking well over 10 seconds in practice, so a handful of
+// quick retries isn't enough — back off with increasing delays and allow up
+// to roughly a minute of total patience before giving up.
+const MAX_STARTING_SERVER_RETRIES = 10;
+const STARTING_SERVER_RETRY_BASE_MS = 1500;
+const STARTING_SERVER_RETRY_MAX_MS = 6000;
+
+function startingServerRetryDelay(attempt: number): number {
+  return Math.min(STARTING_SERVER_RETRY_BASE_MS * (attempt + 1), STARTING_SERVER_RETRY_MAX_MS);
+}
 
 function looksLikeStartingServerPage(text: string): boolean {
   return /<title>\s*starting server/i.test(text);
@@ -41,7 +47,7 @@ function looksLikeHtml(text: string): boolean {
   return /^\s*<(!doctype html|html)/i.test(text);
 }
 
-export async function apiGet(path: string, providerKey: string, signal?: AbortSignal): Promise<any> {
+async function performApiGet(path: string, providerKey: string, signal?: AbortSignal): Promise<any> {
   for (let attempt = 0; attempt <= MAX_STARTING_SERVER_RETRIES; attempt++) {
     console.log(`[api] → GET ${path}`);
 
@@ -77,10 +83,11 @@ export async function apiGet(path: string, providerKey: string, signal?: AbortSi
 
     if (parseFailed) {
       if (looksLikeStartingServerPage(rawText) && attempt < MAX_STARTING_SERVER_RETRIES) {
+        const wait = startingServerRetryDelay(attempt);
         console.warn(
-          `[api] ⧗ backend still starting for ${path} — retrying in ${STARTING_SERVER_RETRY_DELAY_MS}ms (attempt ${attempt + 1}/${MAX_STARTING_SERVER_RETRIES})`
+          `[api] ⧗ backend still starting for ${path} — retrying in ${wait}ms (attempt ${attempt + 1}/${MAX_STARTING_SERVER_RETRIES})`
         );
-        await sleep(STARTING_SERVER_RETRY_DELAY_MS, signal);
+        await sleep(wait, signal);
         continue;
       }
 
@@ -105,4 +112,51 @@ export async function apiGet(path: string, providerKey: string, signal?: AbortSi
 
   // Unreachable — the loop above always returns or throws.
   throw new Error(`${path}: exhausted retries waiting for the backend to start.`);
+}
+
+// Different call sites can legitimately want the exact same data at the
+// same time — e.g. the app's own fixture load and Settings' "Live Data Feed
+// Impact" preview both requesting today's football fixtures on mount. Left
+// alone, that doubles real load against a rate-limited (or still-booting)
+// backend for no benefit, since the answer is identical either way. The
+// first caller for a given (path, key) becomes the "owner" of the real
+// fetch; later callers for the same in-flight request just await its
+// result — and can still bail out early via their own AbortSignal without
+// disturbing the owner's request.
+const inFlight = new Map<string, Promise<any>>();
+
+export function apiGet(path: string, providerKey: string, signal?: AbortSignal): Promise<any> {
+  const key = `${path}::${providerKey}`;
+  const existing = inFlight.get(key);
+
+  if (!existing) {
+    const owned = performApiGet(path, providerKey, signal);
+    inFlight.set(key, owned);
+    owned.finally(() => {
+      if (inFlight.get(key) === owned) inFlight.delete(key);
+    });
+    return owned;
+  }
+
+  console.log(`[api] ⇄ reusing in-flight request for ${path}`);
+  if (!signal) return existing;
+
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const onAbort = () => reject(new DOMException('Aborted', 'AbortError'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    existing.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (err) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      }
+    );
+  });
 }

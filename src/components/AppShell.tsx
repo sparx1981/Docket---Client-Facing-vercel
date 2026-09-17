@@ -69,6 +69,8 @@ interface AppShellProps {
   analytics: SystemAnalytics;
   settings: AppSettings;
   isScanning: boolean;
+  /** True only while the progress modal itself is open — narrower than isScanning, so the button stays clickable (to reveal the modal) during a background load that hasn't opened it yet. */
+  scanModalOpen: boolean;
   /** Live count of records pulled so far — shown on the button while a scan runs so it never looks hung. */
   scanRecordsSoFar?: number;
   onRunScan: () => void;
@@ -111,6 +113,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   analytics,
   settings,
   isScanning,
+  scanModalOpen,
   scanRecordsSoFar,
   onRunScan,
   lastScanTimestamp,
@@ -360,7 +363,8 @@ export const AppShell: React.FC<AppShellProps> = ({
               <button
                 id="btn-run-daily-scan"
                 onClick={onRunScan}
-                disabled={isScanning}
+                disabled={scanModalOpen}
+                title={isScanning && !scanModalOpen ? 'A fetch is already running — click to view progress' : undefined}
                 className="inline-flex min-h-[40px] items-center gap-2 rounded-lg bg-cta px-3.5 text-[13px] font-extrabold text-on-cta shadow-plate transition-all duration-200 hover:bg-cta-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-text-3 disabled:shadow-none sm:px-4"
               >
                 <RotateCw
