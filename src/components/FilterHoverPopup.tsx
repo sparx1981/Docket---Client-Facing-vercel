@@ -259,7 +259,7 @@ export const FilterHoverPopup: React.FC<FilterHoverPopupProps> = ({
           updatePosition();
           setIsOpen((prev) => !prev);
         }}
-        className={`inline-flex items-center gap-1.5 rounded-md font-semibold transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand/40 shadow-xs bg-brand text-on-brand hover:bg-brand-hover cursor-pointer ${
+        className={`inline-flex items-center gap-1.5 rounded-md font-semibold transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand/40 shadow-xs bg-brand text-on-brand hover:bg-brand-hover cursor-pointer whitespace-nowrap shrink-0 ${
           size === 'sm'
             ? 'px-2 py-0.5 text-[11px]'
             : 'px-2.5 py-1 text-xs'
@@ -275,7 +275,7 @@ export const FilterHoverPopup: React.FC<FilterHoverPopupProps> = ({
           <Activity className="w-3.5 h-3.5 text-white shrink-0" />
         )}
 
-        <span className="text-white font-semibold tracking-tight">
+        <span className="text-white font-semibold tracking-tight whitespace-nowrap">
           {label ||
             (activeStep
               ? `Impact: -${activeStep.standaloneReductionPct}%`

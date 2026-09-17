@@ -315,14 +315,14 @@ export const Field: React.FC<{
   action?: React.ReactNode;
 }> = ({ label, hint, children, htmlFor, action }) => (
   <div className="space-y-1.5">
-    <div className="flex items-center justify-between gap-2">
+    <div className="flex items-start justify-between gap-2">
       <label
         htmlFor={htmlFor}
         className="block text-[12px] font-semibold text-text"
       >
         {label}
       </label>
-      {action}
+      {action && <span className="shrink-0">{action}</span>}
     </div>
     {children}
     {hint && <p className="text-[11px] leading-snug text-text-3">{hint}</p>}
