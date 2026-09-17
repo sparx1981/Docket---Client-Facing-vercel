@@ -17,11 +17,38 @@ export async function apiGet(path: string, providerKey: string): Promise<any> {
       `Could not reach the backend at ${path}: ${err instanceof Error ? err.message : String(err)}`
     );
   }
-  const body = await response.json().catch(() => null);
+
+  const rawText = await response.text();
+  let body: any = null;
+  let parseFailed = false;
+  if (rawText) {
+    try {
+      body = JSON.parse(rawText);
+    } catch {
+      parseFailed = true;
+    }
+  }
+
   if (!response.ok) {
-    console.error(`[api] ✗ ${response.status} for ${path}:`, body);
+    console.error(`[api] ✗ ${response.status} for ${path}:`, parseFailed ? rawText.slice(0, 300) : body);
     throw new Error(body?.error || `Request to ${path} failed with status ${response.status}`);
   }
+
+  if (parseFailed) {
+    // A 200 with a non-JSON body almost always means there's no real API
+    // server answering this path — e.g. a dev/preview host that falls back
+    // to serving the SPA's index.html for every unmatched route. Surface
+    // this honestly instead of silently treating it as "0 records", which
+    // has no visible cause anywhere in the UI.
+    const looksLikeHtml = /^\s*<(!doctype html|html)/i.test(rawText);
+    console.error(`[api] ✗ non-JSON response for ${path}:`, rawText.slice(0, 300));
+    throw new Error(
+      looksLikeHtml
+        ? `${path} returned an HTML page instead of JSON — the backend API server (server/index.ts) doesn't appear to be running behind this URL.`
+        : `${path} returned a response that could not be parsed as JSON.`
+    );
+  }
+
   console.log(`[api] ← ${response.status} for ${path}:`, body);
   return body;
 }
