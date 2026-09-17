@@ -22,6 +22,15 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Never let a provider API key reach the console — redact it before logging a URL. */
+function redactUrl(url: URL): string {
+  const redacted = new URL(url.toString());
+  for (const key of ['api_key', 'api_token']) {
+    if (redacted.searchParams.has(key)) redacted.searchParams.set(key, '***');
+  }
+  return redacted.toString();
+}
+
 /** Minimum gap between the *start* of consecutive requests to a given provider. */
 function minIntervalMs(provider: string): number {
   const normalized = provider.toLowerCase();
@@ -103,9 +112,12 @@ export async function fetchJson(
 
   const throttle = throttleFor(provider);
   let lastRateLimitError: ProviderError | undefined;
+  const loggedUrl = redactUrl(fullUrl);
 
   for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {
     await throttle.acquire();
+
+    console.log(`[api] → ${provider} GET ${loggedUrl}`);
 
     let response: Response;
     try {
@@ -113,6 +125,7 @@ export async function fetchJson(
         headers: { Accept: 'application/json' },
       });
     } catch (err) {
+      console.error(`[api] ✗ ${provider} network error for ${loggedUrl}:`, err);
       throw new ProviderError(
         provider,
         0,
@@ -122,6 +135,7 @@ export async function fetchJson(
 
     if (response.status === 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
       const wait = retryAfterMs(response.headers.get('Retry-After')) ?? backoffMs(attempt);
+      console.warn(`[api] ⧗ ${provider} 429 for ${loggedUrl} — retrying in ${Math.round(wait)}ms (attempt ${attempt + 1}/${MAX_RATE_LIMIT_RETRIES})`);
       lastRateLimitError = new ProviderError(
         provider,
         429,
@@ -143,6 +157,7 @@ export async function fetchJson(
         // keep raw text
       }
       const status = response.status;
+      console.error(`[api] ✗ ${provider} ${status} for ${loggedUrl}${detail ? ` — ${detail.slice(0, 300)}` : ''}`);
       throw new ProviderError(
         provider,
         status,
@@ -152,11 +167,17 @@ export async function fetchJson(
       );
     }
 
-    if (!text) return null;
+    if (!text) {
+      console.log(`[api] ← ${provider} ${response.status} for ${loggedUrl}: empty body`);
+      return null;
+    }
 
     try {
-      return JSON.parse(text);
+      const data = JSON.parse(text);
+      console.log(`[api] ← ${provider} ${response.status} for ${loggedUrl}:`, JSON.stringify(data));
+      return data;
     } catch (err) {
+      console.error(`[api] ✗ ${provider} returned non-JSON for ${loggedUrl}`);
       throw new ProviderError(
         provider,
         response.status,
