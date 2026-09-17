@@ -10,6 +10,29 @@ import {
   RuleThresholds,
 } from '../types';
 import { backfillHistoricalResults } from './historyBackfill';
+import {
+  fetchUserCloudData,
+  persistUserSettingsToCloud,
+  persistUserHistoricalBetsToCloud,
+  persistUserSyncDataToCloud,
+} from './firebase';
+
+export interface ActiveUserContext {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+}
+
+let activeUserContext: ActiveUserContext | null = null;
+
+export function setActiveUserContext(user: ActiveUserContext | null): void {
+  activeUserContext = user;
+}
+
+export function getActiveUserContext(): ActiveUserContext | null {
+  return activeUserContext;
+}
 
 const SETTINGS_KEY = 'sports_selection_settings_v2';
 const HISTORICAL_BETS_KEY = 'sports_selection_historical_v2';
@@ -106,6 +129,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   tennisAbstractApiKey: '',
   betfairAppKey: '',
   betfairSessionToken: '',
+  sportradarFootballApiKey: '',
+  sportradarTennisApiKey: '',
   sportradarApiKey: '',
   sportmonksApiKey: '',
   useFallbackProviders: true,
@@ -126,9 +151,14 @@ export function getStoredSettings(): AppSettings {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return DEFAULT_SETTINGS;
     const parsed = JSON.parse(raw);
+    const footballKey = parsed?.sportradarFootballApiKey || parsed?.sportradarApiKey || '';
+    const tennisKey = parsed?.sportradarTennisApiKey || parsed?.sportradarApiKey || '';
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
+      sportradarFootballApiKey: footballKey,
+      sportradarTennisApiKey: tennisKey,
+      sportradarApiKey: footballKey || tennisKey || '',
       // Deep-merge one level so a settings blob saved before this feature
       // existed (or missing a newly-added sub-field) still gets sane
       // defaults for whichever systems it doesn't have an override for.
@@ -146,6 +176,11 @@ export function getStoredSettings(): AppSettings {
 export function saveStoredSettings(settings: AppSettings): void {
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    if (activeUserContext) {
+      persistUserSettingsToCloud(activeUserContext.uid, settings, activeUserContext).catch((err) =>
+        console.error('Failed to sync settings to Firestore in background:', err)
+      );
+    }
   } catch (err) {
     console.error('Failed to save settings to localStorage', err);
   }
@@ -206,6 +241,11 @@ export async function syncPastHistoricalRecords(
 export function saveHistoricalBets(bets: HistoricalBetRecord[]): void {
   try {
     localStorage.setItem(HISTORICAL_BETS_KEY, JSON.stringify(bets));
+    if (activeUserContext) {
+      persistUserHistoricalBetsToCloud(activeUserContext.uid, bets).catch((err) =>
+        console.error('Failed to sync historical bets to Firestore in background:', err)
+      );
+    }
   } catch (err) {
     console.error('Failed to save historical bets', err);
   }
@@ -348,6 +388,11 @@ export function getStoredLastScanTimestamp(): string | null {
 
 export function setStoredLastScanTimestamp(iso: string): void {
   localStorage.setItem(LAST_SCAN_KEY, iso);
+  if (activeUserContext) {
+    persistUserSyncDataToCloud(activeUserContext.uid, getStoredSyncLogs(), iso).catch((err) =>
+      console.error('Failed to sync last scan timestamp to Firestore:', err)
+    );
+  }
 }
 
 export function getStoredSyncLogs(): SyncLogRecord[] {
@@ -364,6 +409,11 @@ export function getStoredSyncLogs(): SyncLogRecord[] {
 export function saveStoredSyncLogs(logs: SyncLogRecord[]): void {
   try {
     localStorage.setItem(SYNC_LOGS_KEY, JSON.stringify(logs));
+    if (activeUserContext) {
+      persistUserSyncDataToCloud(activeUserContext.uid, logs, getStoredLastScanTimestamp()).catch(
+        (err) => console.error('Failed to sync logs to Firestore in background:', err)
+      );
+    }
   } catch (err) {
     console.error('Failed to save sync logs to localStorage', err);
   }
@@ -374,4 +424,100 @@ export function appendSyncLog(log: SyncLogRecord): SyncLogRecord[] {
   const updated = [log, ...current];
   saveStoredSyncLogs(updated);
   return updated;
+}
+
+/**
+ * Hydrates local state from user's remote Firestore document upon login.
+ * If user has no existing Firestore data, uploads current local configuration
+ * and archive so work is preserved and linked to their account.
+ */
+export async function hydrateUserDataFromCloud(
+  userId: string,
+  userProfile?: { email?: string | null; displayName?: string | null; photoURL?: string | null }
+): Promise<{
+  settings: AppSettings;
+  historicalBets: HistoricalBetRecord[];
+  syncLogs: SyncLogRecord[];
+  lastScanTimestamp: string | null;
+}> {
+  try {
+    const cloudData = await fetchUserCloudData(userId);
+
+    if (!cloudData || !cloudData.settings) {
+      // First-time login for this Google account: persist existing local state to Firestore
+      const currentSettings = getStoredSettings();
+      const currentBets = getHistoricalBets();
+      const currentLogs = getStoredSyncLogs();
+      const currentLastScan = getStoredLastScanTimestamp();
+
+      await persistUserSettingsToCloud(userId, currentSettings, userProfile);
+      if (currentBets.length > 0) {
+        await persistUserHistoricalBetsToCloud(userId, currentBets);
+      }
+      if (currentLogs.length > 0 || currentLastScan) {
+        await persistUserSyncDataToCloud(userId, currentLogs, currentLastScan);
+      }
+
+      return {
+        settings: currentSettings,
+        historicalBets: currentBets,
+        syncLogs: currentLogs,
+        lastScanTimestamp: currentLastScan,
+      };
+    }
+
+    // Hydrate state from Firestore document
+    const cloudFootballKey =
+      cloudData.settings?.sportradarFootballApiKey || cloudData.settings?.sportradarApiKey || '';
+    const cloudTennisKey =
+      cloudData.settings?.sportradarTennisApiKey || cloudData.settings?.sportradarApiKey || '';
+    const cloudSettings: AppSettings = {
+      ...DEFAULT_SETTINGS,
+      ...cloudData.settings,
+      sportradarFootballApiKey: cloudFootballKey,
+      sportradarTennisApiKey: cloudTennisKey,
+      sportradarApiKey: cloudFootballKey || cloudTennisKey || '',
+      ruleThresholds: {
+        footballOver15: {
+          ...DEFAULT_RULE_THRESHOLDS.footballOver15,
+          ...cloudData.settings?.ruleThresholds?.footballOver15,
+        },
+        footballUnder35: {
+          ...DEFAULT_RULE_THRESHOLDS.footballUnder35,
+          ...cloudData.settings?.ruleThresholds?.footballUnder35,
+        },
+        tennisStraightSets: {
+          ...DEFAULT_RULE_THRESHOLDS.tennisStraightSets,
+          ...cloudData.settings?.ruleThresholds?.tennisStraightSets,
+        },
+      },
+    };
+
+    const cloudBets = Array.isArray(cloudData.historicalBets) ? cloudData.historicalBets : [];
+    const cloudLogs = Array.isArray(cloudData.syncLogs) ? cloudData.syncLogs : [];
+    const cloudLastScan = cloudData.lastScanTimestamp || null;
+
+    // Cache locally for instantaneous rendering & resilience
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(cloudSettings));
+    localStorage.setItem(HISTORICAL_BETS_KEY, JSON.stringify(cloudBets));
+    localStorage.setItem(SYNC_LOGS_KEY, JSON.stringify(cloudLogs));
+    if (cloudLastScan) {
+      localStorage.setItem(LAST_SCAN_KEY, cloudLastScan);
+    }
+
+    return {
+      settings: cloudSettings,
+      historicalBets: cloudBets,
+      syncLogs: cloudLogs,
+      lastScanTimestamp: cloudLastScan,
+    };
+  } catch (err) {
+    console.error('Error hydrating user cloud data from Firestore:', err);
+    return {
+      settings: getStoredSettings(),
+      historicalBets: getHistoricalBets(),
+      syncLogs: getStoredSyncLogs(),
+      lastScanTimestamp: getStoredLastScanTimestamp(),
+    };
+  }
 }

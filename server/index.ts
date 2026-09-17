@@ -15,7 +15,7 @@ import * as sportmonks from './providers/sportmonks';
  */
 
 const app = express();
-const PORT = Number(process.env.PORT) || 8787;
+const PORT = Number(process.env.API_PORT) || 8787;
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   res.header('Access-Control-Allow-Origin', '*');
@@ -214,6 +214,6 @@ app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-app.listen(PORT, () => {
-  console.log(`[server] Provider proxy listening on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`[server] Provider proxy listening on http://0.0.0.0:${PORT}`);
 });

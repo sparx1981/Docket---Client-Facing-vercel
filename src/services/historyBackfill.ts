@@ -147,12 +147,13 @@ export interface BackfillResult {
 }
 
 export async function backfillHistoricalResults(settings: AppSettings): Promise<BackfillResult> {
-  const footballProvider = settings.sportradarApiKey
-    ? { provider: 'sportradar', key: settings.sportradarApiKey }
+  const footballKey = settings.sportradarFootballApiKey || settings.sportradarApiKey;
+  const footballProvider = footballKey
+    ? { provider: 'sportradar', key: footballKey }
     : settings.sportmonksApiKey
     ? { provider: 'sportmonks', key: settings.sportmonksApiKey }
     : null;
-  const tennisKey = settings.sportradarApiKey || null;
+  const tennisKey = settings.sportradarTennisApiKey || settings.sportradarApiKey || null;
 
   if (!footballProvider && !tennisKey) {
     return { records: [], error: 'No provider configured — nothing to backfill.' };

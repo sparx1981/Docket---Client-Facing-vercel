@@ -49,21 +49,39 @@ export const CollapsibleSection: React.FC<{
   defaultOpen?: boolean;
   children: React.ReactNode;
   className?: string;
-}> = ({ title, icon, action, defaultOpen = true, children, className = '' }) => {
+  id?: string;
+  buttonId?: string;
+}> = ({
+  title,
+  icon,
+  action,
+  defaultOpen = true,
+  children,
+  className = '',
+  id,
+  buttonId,
+}) => {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <Plate className={className}>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface-2 px-4 py-3">
+    <Plate className={className} id={id}>
+      <div
+        className={`flex flex-wrap items-center justify-between gap-3 bg-surface-2 px-4 py-3 transition-colors ${
+          open ? 'border-b border-line' : ''
+        }`}
+      >
         <button
+          id={buttonId}
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          className="flex min-w-0 items-center gap-2.5 text-left cursor-pointer"
+          className="flex min-w-0 items-center gap-2.5 text-left cursor-pointer hover:text-brand-ink transition-colors"
         >
           {icon && <span className="text-brand-ink shrink-0">{icon}</span>}
           <h2 className="rule-head text-text truncate">{title}</h2>
           <ChevronDown
-            className={`h-4 w-4 shrink-0 text-text-3 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+            className={`h-4 w-4 shrink-0 text-text-3 transition-transform duration-200 ${
+              open ? 'rotate-180 text-brand-ink' : ''
+            }`}
             strokeWidth={2.5}
           />
         </button>

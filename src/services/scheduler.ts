@@ -108,7 +108,8 @@ function extractProviderId(fixtureId: string): string {
 }
 
 function footballProviderFor(settings: AppSettings): { provider: 'sportradar' | 'sportmonks'; key: string } | null {
-  if (settings.sportradarApiKey) return { provider: 'sportradar', key: settings.sportradarApiKey };
+  const footballKey = settings.sportradarFootballApiKey || settings.sportradarApiKey;
+  if (footballKey) return { provider: 'sportradar', key: footballKey };
   if (settings.sportmonksApiKey) return { provider: 'sportmonks', key: settings.sportmonksApiKey };
   return null;
 }
@@ -141,8 +142,9 @@ async function trySettleBet(bet: HistoricalBetRecord, settings: AppSettings): Pr
     }
 
     if (bet.sport === 'tennis') {
-      if (!settings.sportradarApiKey) return bet;
-      const body = await apiGet(`/api/tennis/results?from=${bet.date}&to=${bet.date}`, settings.sportradarApiKey);
+      const tennisKey = settings.sportradarTennisApiKey || settings.sportradarApiKey;
+      if (!tennisKey) return bet;
+      const body = await apiGet(`/api/tennis/results?from=${bet.date}&to=${bet.date}`, tennisKey);
       const result = (body?.results || []).find((r: any) => String(r.providerId) === providerId);
       if (!result || !result.winner) return bet;
 
@@ -246,7 +248,7 @@ export async function executeBackgroundScan(
   const rejectedCount = Math.max(0, totalRecordsScanned - qualifiersCount - priceWatchCount);
 
   const footballProvider = footballProviderFor(settings);
-  const tennisAvailable = Boolean(settings.sportradarApiKey);
+  const tennisAvailable = Boolean(settings.sportradarTennisApiKey || settings.sportradarApiKey);
   const anyProviderConfigured = Boolean(footballProvider || tennisAvailable);
 
   const newLog: SyncLogRecord = {

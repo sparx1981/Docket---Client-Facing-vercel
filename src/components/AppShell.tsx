@@ -7,6 +7,9 @@ import {
   TrendingDown,
   Info,
   History,
+  LogOut,
+  Cloud,
+  Database,
 } from 'lucide-react';
 import { AppSettings, SystemAnalytics } from '../types';
 
@@ -74,6 +77,9 @@ interface AppShellProps {
   banner: React.ReactNode;
   autoScanNotice?: { message: string; timestamp: string } | null;
   onDismissAutoScanNotice?: () => void;
+  user?: { email?: string | null; displayName?: string | null; photoURL?: string | null; uid?: string } | null;
+  onSignOut?: () => void;
+  isCloudConnected?: boolean;
 }
 
 const TITLES: Record<TabKey, { title: string; strap: string }> = {
@@ -111,6 +117,9 @@ export const AppShell: React.FC<AppShellProps> = ({
   banner,
   autoScanNotice,
   onDismissAutoScanNotice,
+  user = null,
+  onSignOut,
+  isCloudConnected = true,
 }) => {
   const items: NavItem[] = [
     {
@@ -229,6 +238,53 @@ export const AppShell: React.FC<AppShellProps> = ({
             Scheduled {settings.dailyScanScheduleUtc} UTC
           </div>
         </div>
+
+        {/* User Account & Cloud Sync Status */}
+        {user && (
+          <div className="mx-3 mb-3 rounded-xl border border-brand-line bg-surface/90 p-3 shadow-2xs space-y-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              {user.photoURL ? (
+                <img
+                  src={user.photoURL}
+                  alt={user.displayName || 'User'}
+                  className="h-7 w-7 rounded-full object-cover border border-line"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="h-7 w-7 rounded-full bg-brand text-white flex items-center justify-center font-bold text-xs shrink-0">
+                  {(user.displayName || user.email || 'U')[0].toUpperCase()}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-bold text-text">
+                  {user.displayName || 'Google Account'}
+                </p>
+                <p className="truncate text-[10px] text-text-3 font-mono">
+                  {user.email || 'Connected'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between border-t border-line/60 pt-2 text-[10px]">
+              <div className="inline-flex items-center gap-1 font-mono text-ok-ink">
+                <Database className="h-3 w-3" />
+                <span>Firestore Synced</span>
+              </div>
+              {onSignOut && (
+                <button
+                  id="btn-sidebar-sign-out"
+                  type="button"
+                  onClick={onSignOut}
+                  className="inline-flex items-center gap-1 font-bold text-text-3 hover:text-bad-ink transition-colors cursor-pointer"
+                  title="Sign out of your account"
+                >
+                  <LogOut className="h-3 w-3" />
+                  <span>Sign out</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </aside>
 
       {/* ---------------- Main column ---------------- */}
@@ -313,6 +369,19 @@ export const AppShell: React.FC<AppShellProps> = ({
                 </span>
                 <span className="sm:hidden">{isScanning ? '…' : 'Scan'}</span>
               </button>
+
+              {user && onSignOut && (
+                <button
+                  id="btn-header-sign-out"
+                  type="button"
+                  onClick={onSignOut}
+                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-2.5 text-[12px] font-semibold text-text-2 hover:bg-surface-3 hover:text-bad-ink transition-colors cursor-pointer"
+                  title={`Sign out (${user.email || user.displayName})`}
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  <span className="hidden md:inline">Sign Out</span>
+                </button>
+              )}
             </div>
           </div>
         </header>

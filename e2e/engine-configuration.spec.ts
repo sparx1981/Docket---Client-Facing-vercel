@@ -25,22 +25,40 @@ const SEEDED_BET = {
 
 test.describe('Engine Configuration — collapsible sections & storage disclosure', () => {
   test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      sessionStorage.setItem('sports_selection_guest_mode', 'true');
+    });
     await page.goto('/');
     await page.click('#nav-settings');
   });
 
-  test('storage callout states plainly that data is local-only', async ({ page }) => {
+  test('storage callout is collapsible, defaults to collapsed, and explains Firebase cloud database persistence vs browser cache', async ({ page }) => {
+    const toggleButton = page.getByRole('button', { name: /Cloud-Persisted Engine & Synced Betting Data/i });
+    await expect(toggleButton).toBeVisible();
+
+    // Starts collapsed by default
+    await expect(page.getByText('Browser cache vs Firestore cloud database')).toBeHidden();
+
+    // Expands on click
+    await toggleButton.click();
+    await expect(page.getByText('Browser cache vs Firestore cloud database')).toBeVisible();
     const settingsView = page.locator('#settings-view');
-    await expect(settingsView).toContainText('stored only in this browser');
-    await expect(settingsView).toContainText('Export CSV');
+    await expect(settingsView).toContainText('Firebase Firestore cloud database');
+    await expect(settingsView).toContainText('Browser cache vs Firestore');
+
+    // Collapses again on second click
+    await toggleButton.click();
+    await expect(page.getByText('Browser cache vs Firestore cloud database')).toBeHidden();
   });
 
-  test('all four sections start collapsed', async ({ page }) => {
+  test('all five sections start collapsed', async ({ page }) => {
     // A field inside each section should not be present/visible until its
     // header is clicked — this is the literal requirement: collapsed by
     // default, not just visually de-emphasized.
+    await expect(page.getByText('Browser cache vs Firestore cloud database')).toBeHidden();
     await expect(page.locator('#scan-time')).toBeHidden();
-    await expect(page.locator('#key-sportradar')).toBeHidden();
+    await expect(page.locator('#key-sportradar-football')).toBeHidden();
+    await expect(page.locator('#key-sportradar-tennis')).toBeHidden();
     await expect(page.locator('#key-flashscore')).toBeHidden();
     await expect(page.locator('#over15-odds')).toBeHidden();
   });
@@ -59,7 +77,8 @@ test.describe('Engine Configuration — collapsible sections & storage disclosur
   test('other sections stay collapsed while one is open (independent state)', async ({ page }) => {
     await page.getByRole('button', { name: /filter thresholds/i }).click();
     await expect(page.locator('#over15-odds')).toBeVisible();
-    await expect(page.locator('#key-sportradar')).toBeHidden();
+    await expect(page.locator('#key-sportradar-football')).toBeHidden();
+    await expect(page.locator('#key-sportradar-tennis')).toBeHidden();
     await expect(page.locator('#scan-time')).toBeHidden();
   });
 
@@ -71,8 +90,11 @@ test.describe('Engine Configuration — collapsible sections & storage disclosur
     // since two independently-collapsible sections both being open makes
     // DOM order (JSX source order, not click order) an easy thing to get
     // wrong when asserting by index.
-    const sportradarLink = page.locator('#key-sportradar').locator('..').getByRole('link');
-    await expect(sportradarLink).toHaveAttribute('href', 'https://developer.sportradar.com/');
+    const sportradarFootballLink = page.locator('#key-sportradar-football').locator('..').getByRole('link');
+    await expect(sportradarFootballLink).toHaveAttribute('href', 'https://developer.sportradar.com/');
+
+    const sportradarTennisLink = page.locator('#key-sportradar-tennis').locator('..').getByRole('link');
+    await expect(sportradarTennisLink).toHaveAttribute('href', 'https://developer.sportradar.com/');
 
     const sportmonksLink = page.locator('#key-sportmonks').locator('..').getByRole('link');
     await expect(sportmonksLink).toHaveAttribute('href', /sportmonks\.com/);
@@ -92,6 +114,9 @@ test.describe('Engine Configuration — collapsible sections & storage disclosur
 
 test.describe('Engine Configuration — Filter Thresholds reflect saved config live', () => {
   test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      sessionStorage.setItem('sports_selection_guest_mode', 'true');
+    });
     await page.goto('/');
     await page.click('#nav-settings');
     await page.getByRole('button', { name: /filter thresholds/i }).click();

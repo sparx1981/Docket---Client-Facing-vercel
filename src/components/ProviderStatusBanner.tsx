@@ -17,7 +17,12 @@ export const ProviderStatusBanner: React.FC<ProviderStatusBannerProps> = ({
   providerHealth,
   fixturesError,
 }) => {
-  const hasAnyKey = Boolean(settings.sportradarApiKey || settings.sportmonksApiKey);
+  const hasAnyKey = Boolean(
+    settings.sportradarFootballApiKey ||
+    settings.sportradarTennisApiKey ||
+    settings.sportradarApiKey ||
+    settings.sportmonksApiKey
+  );
 
   let tone: 'warn' | 'ok' | 'bad' = 'warn';
   let icon = <AlertTriangle className="h-4 w-4" strokeWidth={2.5} />;

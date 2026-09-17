@@ -103,10 +103,14 @@ async function mockBackend(page: Page) {
 }
 
 async function configureSportradarKey(page: Page) {
+  await page.addInitScript(() => {
+    sessionStorage.setItem('sports_selection_guest_mode', 'true');
+  });
   await page.goto('/');
   await page.click('#nav-settings');
   await page.getByRole('button', { name: /sportradar.*sportmonks/i }).click();
-  await page.fill('#key-sportradar', 'e2e-test-fake-key');
+  await page.fill('#key-sportradar-football', 'e2e-test-fake-key');
+  await page.fill('#key-sportradar-tennis', 'e2e-test-fake-key');
   await page.click('#btn-save-settings');
   await expect(page.getByText('Configuration saved')).toBeVisible();
 }

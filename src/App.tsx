@@ -19,7 +19,15 @@ import {
   markHistoricalBackfillAttempted,
   saveStoredSettings,
   syncPastHistoricalRecords,
+  setActiveUserContext,
+  hydrateUserDataFromCloud,
 } from './services/storage';
+import {
+  signInWithGoogle,
+  logOut,
+  subscribeToAuthChanges,
+  persistUserSettingsToCloud,
+} from './services/firebase';
 import {
   autoSettleAllPendingBets,
   executeBackgroundScan,
@@ -35,12 +43,41 @@ import { SettingsView } from './components/SettingsView';
 import { ScanProgressModal } from './components/ScanProgressModal';
 import { SectionInfoModal } from './components/SectionInfoModal';
 import { SyncHistoryModal } from './components/SyncHistoryModal';
+import { LoginScreen } from './components/LoginScreen';
 
 /** True once at least one real provider key is configured — governs whether we attempt any network call at all. */
 const hasAnyProviderKey = (settings: AppSettings) =>
-  Boolean(settings.sportradarApiKey || settings.sportmonksApiKey);
+  Boolean(
+    settings.sportradarFootballApiKey ||
+    settings.sportradarTennisApiKey ||
+    settings.sportradarApiKey ||
+    settings.sportmonksApiKey
+  );
+
+export interface UserProfile {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+}
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [isGuest, setIsGuest] = useState<boolean>(() => {
+    try {
+      return (
+        sessionStorage.getItem('sports_selection_guest_mode') === 'true' ||
+        localStorage.getItem('sports_selection_guest_mode') === 'true'
+      );
+    } catch {
+      return false;
+    }
+  });
+  const [authChecking, setAuthChecking] = useState(true);
+  const [authActionLoading, setAuthActionLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+
   const [activeTab, setActiveTab] = useState<TabKey>('verified');
   const [settings, setSettings] = useState<AppSettings>(() => getStoredSettings());
   const [historicalBets, setHistoricalBets] = useState<HistoricalBetRecord[]>(() =>
@@ -59,9 +96,6 @@ export default function App() {
   } | null>(null);
   const [fixturesLoading, setFixturesLoading] = useState(false);
   const [fixturesError, setFixturesError] = useState<string | null>(null);
-  // Guard rapid repeat clicks on these three async actions from firing
-  // overlapping requests — each reads-then-writes localStorage, so two
-  // in-flight calls can race and silently drop one write.
   const [isSyncingHistory, setIsSyncingHistory] = useState(false);
   const [isAutoSettling, setIsAutoSettling] = useState(false);
   const [isAutoScanTesting, setIsAutoScanTesting] = useState(false);
@@ -69,21 +103,84 @@ export default function App() {
   const [providerHealth, setProviderHealth] = useState<{ ok: boolean; checkedAt: string } | null>(null);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [selectedFixture, setSelectedFixture] = useState<CandidateFixture | null>(
-    null
-  );
-  const [selectedAudit, setSelectedAudit] =
-    useState<VerificationAuditCard | null>(null);
+  const [selectedFixture, setSelectedFixture] = useState<CandidateFixture | null>(null);
+  const [selectedAudit, setSelectedAudit] = useState<VerificationAuditCard | null>(null);
 
   const [fixtures, setFixtures] = useState<CandidateFixture[]>([]);
 
   const backfillAttemptedRef = useRef(false);
-  // Guards the scheduled-scan interval against overlapping runs: a real
-  // network scan can take longer than the 30s poll interval, and the
-  // interval's closure only sees `lastScanTimestamp` update after the scan
-  // it's already running finishes — without this, a slow scan gets
-  // re-triggered by the next tick before it's done.
   const scheduledScanInFlightRef = useRef(false);
+
+  // Monitor Firebase Auth state
+  useEffect(() => {
+    const unsubscribe = subscribeToAuthChanges(async (firebaseUser) => {
+      if (firebaseUser) {
+        const userProfile: UserProfile = {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email,
+          displayName: firebaseUser.displayName,
+          photoURL: firebaseUser.photoURL,
+        };
+        setCurrentUser(userProfile);
+        setActiveUserContext(userProfile);
+        setIsGuest(false);
+
+        try {
+          const hydrated = await hydrateUserDataFromCloud(firebaseUser.uid, userProfile);
+          setSettings(hydrated.settings);
+          setHistoricalBets(hydrated.historicalBets);
+          setSyncLogs(hydrated.syncLogs);
+          setLastScanTimestamp(hydrated.lastScanTimestamp);
+          loadFixtures(hydrated.settings);
+        } catch (err) {
+          console.error('Failed to hydrate user data from cloud on login:', err);
+        }
+      } else {
+        setCurrentUser(null);
+        setActiveUserContext(null);
+      }
+      setAuthChecking(false);
+    });
+
+    return () => unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSignInWithGoogle = async () => {
+    setAuthActionLoading(true);
+    setAuthError(null);
+    try {
+      await signInWithGoogle();
+    } catch (err: any) {
+      console.error('Google Sign In failed:', err);
+      setAuthError(err?.message || 'Failed to sign in with Google.');
+      throw err;
+    } finally {
+      setAuthActionLoading(false);
+    }
+  };
+
+  const handleContinueAsGuest = () => {
+    try {
+      sessionStorage.setItem('sports_selection_guest_mode', 'true');
+    } catch {}
+    setIsGuest(true);
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await logOut();
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+    try {
+      sessionStorage.removeItem('sports_selection_guest_mode');
+      localStorage.removeItem('sports_selection_guest_mode');
+    } catch {}
+    setIsGuest(false);
+    setCurrentUser(null);
+    setActiveUserContext(null);
+  };
 
   const loadFixtures = async (currentSettings: AppSettings) => {
     if (!hasAnyProviderKey(currentSettings)) {
@@ -246,9 +343,18 @@ export default function App() {
     setSelectedAudit(null);
   };
 
-  const handleSaveSettings = (newSettings: AppSettings) => {
+  const handleSaveSettings = async (newSettings: AppSettings) => {
+    setIsSavingSettings(true);
     setSettings(newSettings);
     saveStoredSettings(newSettings);
+    if (currentUser) {
+      try {
+        await persistUserSettingsToCloud(currentUser.uid, newSettings, currentUser);
+      } catch (err) {
+        console.error('Failed to sync updated settings to Firestore:', err);
+      }
+    }
+    setIsSavingSettings(false);
     loadFixtures(newSettings);
   };
 
@@ -315,6 +421,28 @@ export default function App() {
     setHistoricalBets(getHistoricalBets());
   };
 
+  if (authChecking) {
+    return (
+      <div className="min-h-screen bg-canvas flex flex-col items-center justify-center p-6">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-brand border-t-transparent shadow-xs" />
+          <p className="font-mono text-xs text-text-3 font-medium">Initializing The Docket…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser && !isGuest) {
+    return (
+      <LoginScreen
+        onSignInWithGoogle={handleSignInWithGoogle}
+        onContinueAsGuest={handleContinueAsGuest}
+        isLoading={authActionLoading}
+        error={authError}
+      />
+    );
+  }
+
   return (
     <>
       <AppShell
@@ -331,6 +459,9 @@ export default function App() {
         onOpenSectionInfo={(section) => setInfoModalSection(section)}
         autoScanNotice={autoScanNotice}
         onDismissAutoScanNotice={() => setAutoScanNotice(null)}
+        user={currentUser}
+        onSignOut={currentUser || isGuest ? handleSignOut : undefined}
+        isCloudConnected={Boolean(currentUser)}
         banner={
           <ProviderStatusBanner
             settings={settings}
@@ -376,6 +507,12 @@ export default function App() {
             onSaveSettings={handleSaveSettings}
             onTriggerAutoScanTest={handleTriggerAutoScanTest}
             isAutoScanTesting={isAutoScanTesting}
+            user={currentUser}
+            isSavingToCloud={isSavingSettings}
+            fixtures={fixtures}
+            fixturesLoading={fixturesLoading}
+            fixturesError={fixturesError || undefined}
+            onRefreshFixtures={() => loadFixtures(settings)}
           />
         )}
       </AppShell>

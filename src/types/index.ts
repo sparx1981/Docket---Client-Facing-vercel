@@ -175,6 +175,8 @@ export interface CandidateFixture {
   // as a crash or a reason to fabricate a number.
   betfairMarket?: BetfairExchangeMarket;
   verificationCard?: VerificationAuditCard;
+  /** Total count of raw records received from the relevant provider API in this scan */
+  rawFeedTotal?: number;
 }
 
 export interface HistoricalBetRecord {
@@ -276,7 +278,9 @@ export interface AppSettings {
   tennisAbstractApiKey: string;
   betfairAppKey: string;
   betfairSessionToken: string;
-  sportradarApiKey: string;
+  sportradarFootballApiKey: string;
+  sportradarTennisApiKey: string;
+  sportradarApiKey?: string;
   sportmonksApiKey: string;
   useFallbackProviders: boolean;
   dailyScanScheduleUtc: string; // e.g., "06:00"
@@ -290,3 +294,50 @@ export interface AppSettings {
   autoSettleCompleted?: boolean; // automatically resolve outcomes for concluded matches
   ruleThresholds: RuleThresholds;
 }
+
+export interface FeedSummaryRecord {
+  sport: Sport;
+  provider: DataProviderType;
+  totalRecordsReceived: number;
+  fetchedAt: string;
+  queryDates: string[];
+  error?: string;
+}
+
+export interface FilterReductionStep {
+  filterId: string;
+  filterName: string;
+  targetRule: string;
+  targetValue: string;
+  /** Number of matches in the feed that pass this filter independently */
+  standalonePassedCount: number;
+  /** Number of matches in the feed eliminated by this filter independently */
+  standaloneEliminatedCount: number;
+  /** Reduction percentage in feed when evaluated standalone */
+  standaloneReductionPct: number;
+  /** Cumulative matches remaining in pipeline after applying this step */
+  pipelineRemainingCount: number;
+  /** Matches eliminated at this step in the sequential pipeline */
+  pipelineEliminatedCount: number;
+  /** Cumulative reduction from initial feed count */
+  cumulativeReductionPct: number;
+}
+
+export interface SystemFeedBreakdown {
+  sport: Sport;
+  system: SystemType;
+  ruleTitle: string;
+  provider: DataProviderType | 'NONE';
+  isConfigured: boolean;
+  isLoading: boolean;
+  error?: string;
+  totalFeedRecords: number;
+  enrichedRecordsCount: number;
+  incompleteDataCount: number;
+  filterSteps: FilterReductionStep[];
+  preliminaryQualifiersCount: number;
+  verifiedQualifiersCount: number;
+  priceWatchCount: number;
+  fetchedAt?: string;
+}
+

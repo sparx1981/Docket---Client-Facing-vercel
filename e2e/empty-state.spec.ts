@@ -24,6 +24,9 @@ test.describe('Fresh install — no provider configured', () => {
       }
     });
     (page as any)._collectedErrors = errors;
+    await page.addInitScript(() => {
+      sessionStorage.setItem('sports_selection_guest_mode', 'true');
+    });
     await page.goto('/');
   });
 
