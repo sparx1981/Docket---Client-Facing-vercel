@@ -4,7 +4,7 @@ import {
   HistoricalBetRecord,
   SyncLogRecord,
 } from '../types';
-import { fetchCandidateFixtures } from './dataFeed';
+import { FeedProgressCallback, fetchCandidateFixtures } from './dataFeed';
 import { apiGet } from './backendClient';
 import { runVerificationAudit } from './verificationEngine';
 import {
@@ -189,7 +189,8 @@ function settleWithOutcome(
  */
 export async function executeBackgroundScan(
   settings: AppSettings,
-  isAutomatic: boolean = true
+  isAutomatic: boolean = true,
+  onProgress?: FeedProgressCallback
 ): Promise<{
   refreshedFixtures: CandidateFixture[];
   updatedHistoricalBets: HistoricalBetRecord[];
@@ -203,7 +204,7 @@ export async function executeBackgroundScan(
   const scanTimestamp = new Date().toISOString();
   setStoredLastScanTimestamp(scanTimestamp);
 
-  const { fixtures, error: fetchError } = await fetchCandidateFixtures(settings);
+  const { fixtures, error: fetchError } = await fetchCandidateFixtures(settings, onProgress);
 
   let autoArchivedCount = 0;
   const refreshedFixtures = fixtures.map((fixture) => {

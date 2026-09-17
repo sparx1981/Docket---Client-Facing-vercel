@@ -29,6 +29,21 @@ export interface FixtureFetchResult {
   tennisFeedInfo?: FeedSummaryRecord;
 }
 
+/**
+ * Real-time progress event emitted while a scan is in flight, so the UI can
+ * show what's actually happening (which date/sport is being requested, how
+ * many records have come back so far) instead of a fixed-length animation
+ * that has no relationship to the real network calls underneath it.
+ */
+export interface FeedProgressEvent {
+  sport: 'football' | 'tennis';
+  message: string;
+  /** Running total of raw fixtures received for this sport so far. */
+  recordsSoFar: number;
+}
+
+export type FeedProgressCallback = (event: FeedProgressEvent) => void;
+
 type FootballProvider = 'sportradar' | 'sportmonks';
 
 // Bounded enrichment: how many fixtures we enrich with team/player/H2H lookups
@@ -95,21 +110,39 @@ async function buildFootballCandidates(
   provider: FootballProvider,
   key: string,
   dates: string[],
-  thresholds: RuleThresholds
+  thresholds: RuleThresholds,
+  onProgress?: FeedProgressCallback
 ): Promise<{ candidates: CandidateFixture[]; rawTotal: number; partialError?: string }> {
   const allRawFixtures: RawFootballFixture[] = [];
   const dateErrors: string[] = [];
   for (const date of dates) {
+    onProgress?.({
+      sport: 'football',
+      message: `Requesting football fixtures for ${date}…`,
+      recordsSoFar: allRawFixtures.length,
+    });
     try {
       const body = await apiGet(`/api/football/fixtures?date=${date}&provider=${provider}`, key);
-      for (const f of body?.fixtures || []) {
+      const received = body?.fixtures || [];
+      for (const f of received) {
         allRawFixtures.push(f);
       }
+      onProgress?.({
+        sport: 'football',
+        message: `Received ${received.length} football fixture(s) for ${date} (${allRawFixtures.length} total so far).`,
+        recordsSoFar: allRawFixtures.length,
+      });
     } catch (err) {
       // A single day's schedule call failing (rate limit exhausted, transient
       // upstream error) shouldn't blank out the whole feed — keep whatever
       // other days succeeded and surface this one as a partial-data note.
-      dateErrors.push(`${date}: ${err instanceof Error ? err.message : String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      dateErrors.push(`${date}: ${msg}`);
+      onProgress?.({
+        sport: 'football',
+        message: `Could not fetch football fixtures for ${date}: ${msg}`,
+        recordsSoFar: allRawFixtures.length,
+      });
     }
   }
   if (dateErrors.length === dates.length) {
@@ -118,12 +151,20 @@ async function buildFootballCandidates(
 
   const rawTotal = allRawFixtures.length;
   const candidates: CandidateFixture[] = [];
+  const enrichTotal = Math.min(MAX_ENRICHED_FIXTURES_PER_SPORT, allRawFixtures.length);
 
   // We enrich up to MAX_ENRICHED_FIXTURES_PER_SPORT with full historical/H2H stats
   // to stay within trial API rate limits, while keeping ALL fixtures in the feed
   // and CSV export so the record count and export row count match exactly.
   for (let i = 0; i < allRawFixtures.length; i++) {
     const fx = allRawFixtures[i];
+    if (i < enrichTotal) {
+      onProgress?.({
+        sport: 'football',
+        message: `Enriching football fixture ${i + 1} of ${enrichTotal} (${fx.homeOrPlayer1} vs ${fx.awayOrPlayer2})…`,
+        recordsSoFar: rawTotal,
+      });
+    }
     let footballDetails: CandidateFixture['footballDetails'] | undefined;
     if (i < MAX_ENRICHED_FIXTURES_PER_SPORT && fx.homeId && fx.awayId) {
       try {
@@ -258,18 +299,36 @@ interface RawTennisFixture {
 async function buildTennisCandidates(
   key: string,
   dates: string[],
-  thresholds: RuleThresholds
+  thresholds: RuleThresholds,
+  onProgress?: FeedProgressCallback
 ): Promise<{ candidates: CandidateFixture[]; rawTotal: number; partialError?: string }> {
   const allRawFixtures: RawTennisFixture[] = [];
   const dateErrors: string[] = [];
   for (const date of dates) {
+    onProgress?.({
+      sport: 'tennis',
+      message: `Requesting tennis fixtures for ${date}…`,
+      recordsSoFar: allRawFixtures.length,
+    });
     try {
       const body = await apiGet(`/api/tennis/fixtures?date=${date}`, key);
-      for (const f of body?.fixtures || []) {
+      const received = body?.fixtures || [];
+      for (const f of received) {
         allRawFixtures.push(f);
       }
+      onProgress?.({
+        sport: 'tennis',
+        message: `Received ${received.length} tennis fixture(s) for ${date} (${allRawFixtures.length} total so far).`,
+        recordsSoFar: allRawFixtures.length,
+      });
     } catch (err) {
-      dateErrors.push(`${date}: ${err instanceof Error ? err.message : String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      dateErrors.push(`${date}: ${msg}`);
+      onProgress?.({
+        sport: 'tennis',
+        message: `Could not fetch tennis fixtures for ${date}: ${msg}`,
+        recordsSoFar: allRawFixtures.length,
+      });
     }
   }
   if (dateErrors.length === dates.length) {
@@ -278,12 +337,21 @@ async function buildTennisCandidates(
 
   const rawTotal = allRawFixtures.length;
   const candidates: CandidateFixture[] = [];
+  const enrichTotal = Math.min(MAX_ENRICHED_FIXTURES_PER_SPORT, allRawFixtures.length);
 
   // Enrich up to MAX_ENRICHED_FIXTURES_PER_SPORT to stay within trial API rate limits,
   // while keeping ALL fixtures in the feed and CSV export so row count and record count match.
   for (let i = 0; i < allRawFixtures.length; i++) {
     const fx = allRawFixtures[i];
     let tennisDetails: CandidateFixture['tennisDetails'] | undefined;
+
+    if (i < enrichTotal) {
+      onProgress?.({
+        sport: 'tennis',
+        message: `Enriching tennis fixture ${i + 1} of ${enrichTotal} (${fx.homeOrPlayer1} vs ${fx.awayOrPlayer2})…`,
+        recordsSoFar: rawTotal,
+      });
+    }
 
     if (i < MAX_ENRICHED_FIXTURES_PER_SPORT && fx.homeId && fx.awayId) {
       try {
@@ -388,7 +456,10 @@ function buildTennisCandidate(
 
 /* =============================== Entry point ============================ */
 
-export async function fetchCandidateFixtures(settings: AppSettings): Promise<FixtureFetchResult> {
+export async function fetchCandidateFixtures(
+  settings: AppSettings,
+  onProgress?: FeedProgressCallback
+): Promise<FixtureFetchResult> {
   const football = choosefootballProvider(settings);
   const tennis = chooseTennisProvider(settings);
 
@@ -409,7 +480,7 @@ export async function fetchCandidateFixtures(settings: AppSettings): Promise<Fix
 
   if (football && (thresholds.footballOver15.enabled || thresholds.footballUnder35.enabled)) {
     try {
-      const fbResult = await buildFootballCandidates(football.provider, football.key, dates, thresholds);
+      const fbResult = await buildFootballCandidates(football.provider, football.key, dates, thresholds, onProgress);
       fixtures.push(...fbResult.candidates);
       footballFeedInfo = {
         sport: 'football',
@@ -437,7 +508,7 @@ export async function fetchCandidateFixtures(settings: AppSettings): Promise<Fix
     // System disabled in Engine Configuration — skip the calls entirely.
   } else if (tennis) {
     try {
-      const tnResult = await buildTennisCandidates(tennis.key, dates, thresholds);
+      const tnResult = await buildTennisCandidates(tennis.key, dates, thresholds, onProgress);
       fixtures.push(...tnResult.candidates);
       tennisFeedInfo = {
         sport: 'tennis',

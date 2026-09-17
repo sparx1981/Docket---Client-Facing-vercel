@@ -6,7 +6,7 @@ import {
   VerificationAuditCard,
   SyncLogRecord,
 } from './types';
-import { fetchCandidateFixtures } from './services/dataFeed';
+import { FeedProgressEvent, fetchCandidateFixtures } from './services/dataFeed';
 import { runVerificationAudit } from './services/verificationEngine';
 import {
   calculateSystemAnalytics,
@@ -87,6 +87,11 @@ export default function App() {
     getStoredLastScanTimestamp()
   );
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  const [isScanRunning, setIsScanRunning] = useState(false);
+  const [isScanFinished, setIsScanFinished] = useState(false);
+  const [scanEvents, setScanEvents] = useState<FeedProgressEvent[]>([]);
+  const [scanFootballRecords, setScanFootballRecords] = useState(0);
+  const [scanTennisRecords, setScanTennisRecords] = useState(0);
   const [isSyncHistoryOpen, setIsSyncHistoryOpen] = useState(false);
   const [infoModalSection, setInfoModalSection] = useState<TabKey | null>(null);
   const [syncLogs, setSyncLogs] = useState<SyncLogRecord[]>(() => getStoredSyncLogs());
@@ -358,14 +363,37 @@ export default function App() {
     loadFixtures(newSettings);
   };
 
-  const handleScanCompleted = async () => {
-    const result = await executeBackgroundScan(settings, false);
-    setFixtures(result.refreshedFixtures);
-    setHistoricalBets(result.updatedHistoricalBets);
-    setSyncLogs(getStoredSyncLogs());
-    setLastScanTimestamp(result.scanTimestamp);
-    setProviderHealth({ ok: !result.fetchError, checkedAt: result.scanTimestamp });
-    setFixturesError(result.fetchError || null);
+  // Triggered directly from the "Run Daily Scan" click (never from a
+  // useEffect keyed on isScanModalOpen — React 18 StrictMode double-invokes
+  // effects in development, which would fire the real provider calls twice).
+  // Streams real progress into the modal as it happens, rather than a
+  // fixed-length animation standing in for work that (under provider rate
+  // limits) can take well over a minute.
+  const handleRunScan = () => {
+    if (isScanRunning) return;
+    setIsScanModalOpen(true);
+    setScanEvents([]);
+    setScanFootballRecords(0);
+    setScanTennisRecords(0);
+    setIsScanFinished(false);
+    setIsScanRunning(true);
+
+    const onProgress = (evt: FeedProgressEvent) => {
+      setScanEvents((prev) => [...prev, evt]);
+      if (evt.sport === 'football') setScanFootballRecords(evt.recordsSoFar);
+      else setScanTennisRecords(evt.recordsSoFar);
+    };
+
+    executeBackgroundScan(settings, false, onProgress).then((result) => {
+      setFixtures(result.refreshedFixtures);
+      setHistoricalBets(result.updatedHistoricalBets);
+      setSyncLogs(getStoredSyncLogs());
+      setLastScanTimestamp(result.scanTimestamp);
+      setProviderHealth({ ok: !result.fetchError, checkedAt: result.scanTimestamp });
+      setFixturesError(result.fetchError || null);
+      setIsScanRunning(false);
+      setIsScanFinished(true);
+    });
   };
 
   const handleTriggerAutoScanTest = async () => {
@@ -453,7 +481,7 @@ export default function App() {
         analytics={analytics}
         settings={settings}
         isScanning={isScanModalOpen || fixturesLoading}
-        onRunScan={() => setIsScanModalOpen(true)}
+        onRunScan={handleRunScan}
         lastScanTimestamp={lastScanTimestamp}
         onOpenSyncHistory={() => setIsSyncHistoryOpen(true)}
         onOpenSectionInfo={(section) => setInfoModalSection(section)}
@@ -475,7 +503,7 @@ export default function App() {
           <VerifiedQualifiersTable
             fixtures={verifiedQualifiers}
             onSelectFixture={handleOpenDrawer}
-            onRunScan={() => setIsScanModalOpen(true)}
+            onRunScan={handleRunScan}
             loadError={fixtures.length === 0 ? fixturesError : null}
           />
         )}
@@ -527,8 +555,12 @@ export default function App() {
 
       <ScanProgressModal
         isOpen={isScanModalOpen}
+        isRunning={isScanRunning}
+        isFinished={isScanFinished}
+        events={scanEvents}
+        footballRecords={scanFootballRecords}
+        tennisRecords={scanTennisRecords}
         onClose={() => setIsScanModalOpen(false)}
-        onComplete={handleScanCompleted}
       />
 
       <SyncHistoryModal
@@ -538,7 +570,7 @@ export default function App() {
         settings={settings}
         onTriggerScan={() => {
           setIsSyncHistoryOpen(false);
-          setIsScanModalOpen(true);
+          handleRunScan();
         }}
         isScanning={isScanModalOpen}
         onSyncHistoricalRecords={handleSyncHistoricalRecords}
