@@ -96,13 +96,24 @@ async function buildFootballCandidates(
   key: string,
   dates: string[],
   thresholds: RuleThresholds
-): Promise<{ candidates: CandidateFixture[]; rawTotal: number }> {
+): Promise<{ candidates: CandidateFixture[]; rawTotal: number; partialError?: string }> {
   const allRawFixtures: RawFootballFixture[] = [];
+  const dateErrors: string[] = [];
   for (const date of dates) {
-    const body = await apiGet(`/api/football/fixtures?date=${date}&provider=${provider}`, key);
-    for (const f of body?.fixtures || []) {
-      allRawFixtures.push(f);
+    try {
+      const body = await apiGet(`/api/football/fixtures?date=${date}&provider=${provider}`, key);
+      for (const f of body?.fixtures || []) {
+        allRawFixtures.push(f);
+      }
+    } catch (err) {
+      // A single day's schedule call failing (rate limit exhausted, transient
+      // upstream error) shouldn't blank out the whole feed — keep whatever
+      // other days succeeded and surface this one as a partial-data note.
+      dateErrors.push(`${date}: ${err instanceof Error ? err.message : String(err)}`);
     }
+  }
+  if (dateErrors.length === dates.length) {
+    throw new Error(dateErrors.join(' · '));
   }
 
   const rawTotal = allRawFixtures.length;
@@ -168,7 +179,11 @@ async function buildFootballCandidates(
     }
   }
 
-  return { candidates, rawTotal };
+  return {
+    candidates,
+    rawTotal,
+    partialError: dateErrors.length > 0 ? `Some dates could not be fetched: ${dateErrors.join(' · ')}` : undefined,
+  };
 }
 
 function buildFootballCandidate(
@@ -244,13 +259,21 @@ async function buildTennisCandidates(
   key: string,
   dates: string[],
   thresholds: RuleThresholds
-): Promise<{ candidates: CandidateFixture[]; rawTotal: number }> {
+): Promise<{ candidates: CandidateFixture[]; rawTotal: number; partialError?: string }> {
   const allRawFixtures: RawTennisFixture[] = [];
+  const dateErrors: string[] = [];
   for (const date of dates) {
-    const body = await apiGet(`/api/tennis/fixtures?date=${date}`, key);
-    for (const f of body?.fixtures || []) {
-      allRawFixtures.push(f);
+    try {
+      const body = await apiGet(`/api/tennis/fixtures?date=${date}`, key);
+      for (const f of body?.fixtures || []) {
+        allRawFixtures.push(f);
+      }
+    } catch (err) {
+      dateErrors.push(`${date}: ${err instanceof Error ? err.message : String(err)}`);
     }
+  }
+  if (dateErrors.length === dates.length) {
+    throw new Error(dateErrors.join(' · '));
   }
 
   const rawTotal = allRawFixtures.length;
@@ -296,7 +319,11 @@ async function buildTennisCandidates(
     candidates.push(buildTennisCandidate(fx, tennisDetails, thresholds, rawTotal));
   }
 
-  return { candidates, rawTotal };
+  return {
+    candidates,
+    rawTotal,
+    partialError: dateErrors.length > 0 ? `Some dates could not be fetched: ${dateErrors.join(' · ')}` : undefined,
+  };
 }
 
 function buildTennisCandidate(
@@ -390,6 +417,7 @@ export async function fetchCandidateFixtures(settings: AppSettings): Promise<Fix
         totalRecordsReceived: fbResult.rawTotal,
         fetchedAt: new Date().toISOString(),
         queryDates: dates,
+        error: fbResult.partialError,
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -417,6 +445,7 @@ export async function fetchCandidateFixtures(settings: AppSettings): Promise<Fix
         totalRecordsReceived: tnResult.rawTotal,
         fetchedAt: new Date().toISOString(),
         queryDates: dates,
+        error: tnResult.partialError,
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -480,6 +509,7 @@ export async function fetchLiveFeedSummary(settings: AppSettings): Promise<{
         totalRecordsReceived: fbResult.rawTotal,
         fetchedAt: new Date().toISOString(),
         queryDates: dates,
+        error: fbResult.partialError,
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -505,6 +535,7 @@ export async function fetchLiveFeedSummary(settings: AppSettings): Promise<{
         totalRecordsReceived: tnResult.rawTotal,
         fetchedAt: new Date().toISOString(),
         queryDates: dates,
+        error: tnResult.partialError,
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
