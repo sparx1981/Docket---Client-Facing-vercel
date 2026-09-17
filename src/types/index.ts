@@ -339,5 +339,6 @@ export interface SystemFeedBreakdown {
   verifiedQualifiersCount: number;
   priceWatchCount: number;
   fetchedAt?: string;
+  rawMatches?: CandidateFixture[];
 }
 

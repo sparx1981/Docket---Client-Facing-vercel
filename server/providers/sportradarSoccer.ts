@@ -27,7 +27,10 @@ function competitorName(
   competitors: any[] | undefined,
   qualifier: 'home' | 'away'
 ): { name?: string; id?: string } {
-  const c = competitors?.find((x) => x?.qualifier === qualifier);
+  let c = competitors?.find((x) => x?.qualifier === qualifier);
+  if (!c && competitors && competitors.length >= 2) {
+    c = qualifier === 'home' ? competitors[0] : competitors[1];
+  }
   return { name: c?.name, id: c?.id };
 }
 
@@ -38,17 +41,22 @@ export async function getDailySchedule(
 ): Promise<NormalizedFixture[]> {
   const data = await fetchJson(
     PROVIDER,
-    `${baseUrl(accessLevel)}/schedules/${date}/schedule.json`,
+    `${baseUrl(accessLevel)}/schedules/${date}/schedules.json`,
     { api_key: apiKey }
   );
 
-  const events: any[] = data?.sport_events || [];
+  // In Sportradar Soccer v4, the daily schedule feed returns either:
+  // - schedules: [ { sport_event: { id, start_time, scheduled, competitors: [...] }, sport_event_status: {...} } ]
+  // - sport_events: [ { id, start_time, scheduled, competitors: [...] } ]
+  const rawList: any[] = data?.schedules || data?.sport_events || [];
+  const events = rawList.map((item) => (item?.sport_event ? item.sport_event : item));
 
   return events
     .map((event): NormalizedFixture | null => {
       const home = competitorName(event?.competitors, 'home');
       const away = competitorName(event?.competitors, 'away');
-      if (!home.name || !away.name || !event?.id || !event?.start_time) return null;
+      const matchTime = event?.start_time || event?.scheduled;
+      if (!home.name || !away.name || !event?.id || !matchTime) return null;
 
       return {
         providerId: String(event.id),
@@ -61,7 +69,7 @@ export async function getDailySchedule(
           event?.sport_event_context?.competition?.name ||
           event?.tournament?.name ||
           'Unknown competition',
-        matchTime: event.start_time,
+        matchTime,
         venue: event?.venue?.name,
       };
     })
@@ -120,20 +128,22 @@ export async function getResultsForDate(
 ): Promise<NormalizedResult[]> {
   const data = await fetchJson(
     PROVIDER,
-    `${baseUrl(accessLevel)}/schedules/${date}/schedule.json`,
+    `${baseUrl(accessLevel)}/schedules/${date}/schedules.json`,
     { api_key: apiKey }
   );
 
-  const events: any[] = data?.sport_events || [];
+  const rawList: any[] = data?.schedules || data?.sport_events || [];
   const results: NormalizedResult[] = [];
 
-  for (const event of events) {
+  for (const item of rawList) {
+    const event = item?.sport_event ? item.sport_event : item;
+    const status = item?.sport_event_status || item?.status || event?.sport_event_status;
     const home = competitorName(event?.competitors, 'home');
     const away = competitorName(event?.competitors, 'away');
-    const status = event?.sport_event_status;
     const homeScore: number | undefined = status?.home_score;
     const awayScore: number | undefined = status?.away_score;
     const isCompleted = status?.status === 'closed' || status?.status === 'ended';
+    const matchTime = event?.start_time || event?.scheduled;
 
     if (!home.name || !away.name || !event?.id) continue;
     if (!isCompleted || typeof homeScore !== 'number' || typeof awayScore !== 'number') continue;
@@ -143,7 +153,7 @@ export async function getResultsForDate(
       homeOrPlayer1: home.name,
       awayOrPlayer2: away.name,
       competition: event?.sport_event_context?.competition?.name || 'Unknown competition',
-      matchTime: event.start_time,
+      matchTime,
       isCompleted: true,
       homeScore,
       awayScore,

@@ -31,13 +31,13 @@ export interface FixtureFetchResult {
 
 type FootballProvider = 'sportradar' | 'sportmonks';
 
-// Judgment call: cap how many raw fixtures we enrich with team/H2H lookups
-// per sport, per scan. A real daily card can run to dozens of fixtures and
-// each one needs several follow-up calls (two team profiles [+ H2H for
-// football]) to classify against the locked rules — bounding this keeps a
-// manual "Run Daily Scan" click from fanning out into a very large number of
-// requests. Raise this once real provider rate limits are known.
-const MAX_FIXTURES_PER_SPORT = 12;
+// Bounded enrichment: how many fixtures we enrich with team/player/H2H lookups
+// per sport, per scan. In order to accurately report the total records received
+// in the live data feed (for the Filter Thresholds popups and feed analysis),
+// we capture the full count of raw fixtures returned by the daily schedule API.
+// We then enrich up to MAX_ENRICHED_FIXTURES_PER_SPORT fixtures to keep requests
+// responsive and avoid tripping trial tier rate limits.
+const MAX_ENRICHED_FIXTURES_PER_SPORT = 40;
 
 // How many days ahead (including today) to pull a fixture card for.
 const DAYS_AHEAD = 3;
@@ -97,61 +97,63 @@ async function buildFootballCandidates(
   dates: string[],
   thresholds: RuleThresholds
 ): Promise<{ candidates: CandidateFixture[]; rawTotal: number }> {
-  const rawFixtures: RawFootballFixture[] = [];
+  const allRawFixtures: RawFootballFixture[] = [];
   for (const date of dates) {
     const body = await apiGet(`/api/football/fixtures?date=${date}&provider=${provider}`, key);
     for (const f of body?.fixtures || []) {
-      rawFixtures.push(f);
-      if (rawFixtures.length >= MAX_FIXTURES_PER_SPORT) break;
+      allRawFixtures.push(f);
     }
-    if (rawFixtures.length >= MAX_FIXTURES_PER_SPORT) break;
   }
 
-  const rawTotal = rawFixtures.length;
+  const rawTotal = allRawFixtures.length;
   const candidates: CandidateFixture[] = [];
 
-  for (const fx of rawFixtures) {
-    if (!fx.homeId || !fx.awayId) continue;
-
+  // We enrich up to MAX_ENRICHED_FIXTURES_PER_SPORT with full historical/H2H stats
+  // to stay within trial API rate limits, while keeping ALL fixtures in the feed
+  // and CSV export so the record count and export row count match exactly.
+  for (let i = 0; i < allRawFixtures.length; i++) {
+    const fx = allRawFixtures[i];
     let footballDetails: CandidateFixture['footballDetails'] | undefined;
-    try {
-      const [homeProfile, awayProfile, h2h] = await Promise.all([
-        apiGet(`/api/football/team/${fx.homeId}?provider=${provider}`, key),
-        apiGet(`/api/football/team/${fx.awayId}?provider=${provider}`, key),
-        apiGet(`/api/football/h2h?team1=${fx.homeId}&team2=${fx.awayId}&provider=${provider}`, key),
-      ]);
+    if (i < MAX_ENRICHED_FIXTURES_PER_SPORT && fx.homeId && fx.awayId) {
+      try {
+        const [homeProfile, awayProfile, h2h] = await Promise.all([
+          apiGet(`/api/football/team/${fx.homeId}?provider=${provider}`, key),
+          apiGet(`/api/football/team/${fx.awayId}?provider=${provider}`, key),
+          apiGet(`/api/football/h2h?team1=${fx.homeId}&team2=${fx.awayId}&provider=${provider}`, key),
+        ]);
 
-      const homePrevSeason: FootballPrevSeasonStats | undefined = homeProfile?.team?.prevSeason;
-      const awayPrevSeason: FootballPrevSeasonStats | undefined = awayProfile?.team?.prevSeason;
-      const homeRecentMatches: TeamRecentMatch[] | undefined = homeProfile?.team?.recentMatches;
-      const awayRecentMatches: TeamRecentMatch[] | undefined = awayProfile?.team?.recentMatches;
-      const h2hMatches: H2HMatchRecord[] | undefined = h2h?.h2h;
+        const homePrevSeason: FootballPrevSeasonStats | undefined = homeProfile?.team?.prevSeason;
+        const awayPrevSeason: FootballPrevSeasonStats | undefined = awayProfile?.team?.prevSeason;
+        const homeRecentMatches: TeamRecentMatch[] | undefined = homeProfile?.team?.recentMatches;
+        const awayRecentMatches: TeamRecentMatch[] | undefined = awayProfile?.team?.recentMatches;
+        const h2hMatches: H2HMatchRecord[] | undefined = h2h?.h2h;
 
-      // Only build footballDetails when every field the locked rules need is
-      // genuinely present — a partial dataset is left as "missing data"
-      // rather than padded with anything invented.
-      if (
-        homePrevSeason &&
-        awayPrevSeason &&
-        homeRecentMatches &&
-        homeRecentMatches.length > 0 &&
-        awayRecentMatches &&
-        awayRecentMatches.length > 0 &&
-        h2hMatches &&
-        h2hMatches.length > 0
-      ) {
-        footballDetails = {
-          homePrevSeason,
-          awayPrevSeason,
-          h2hMatches,
-          homeRecentMatches,
-          awayRecentMatches,
-        };
+        // Only build footballDetails when every field the locked rules need is
+        // genuinely present — a partial dataset is left as "missing data"
+        // rather than padded with anything invented.
+        if (
+          homePrevSeason &&
+          awayPrevSeason &&
+          homeRecentMatches &&
+          homeRecentMatches.length > 0 &&
+          awayRecentMatches &&
+          awayRecentMatches.length > 0 &&
+          h2hMatches &&
+          h2hMatches.length > 0
+        ) {
+          footballDetails = {
+            homePrevSeason,
+            awayPrevSeason,
+            h2hMatches,
+            homeRecentMatches,
+            awayRecentMatches,
+          };
+        }
+      } catch {
+        // Leave footballDetails undefined — the rules engine already handles
+        // that as "missing data" rather than crashing or inventing stats.
+        footballDetails = undefined;
       }
-    } catch {
-      // Leave footballDetails undefined — the rules engine already handles
-      // that as "missing data" rather than crashing or inventing stats.
-      footballDetails = undefined;
     }
 
     // The same fixture is screened against both football systems — a real
@@ -243,60 +245,55 @@ async function buildTennisCandidates(
   dates: string[],
   thresholds: RuleThresholds
 ): Promise<{ candidates: CandidateFixture[]; rawTotal: number }> {
-  const rawFixtures: RawTennisFixture[] = [];
+  const allRawFixtures: RawTennisFixture[] = [];
   for (const date of dates) {
     const body = await apiGet(`/api/tennis/fixtures?date=${date}`, key);
     for (const f of body?.fixtures || []) {
-      rawFixtures.push(f);
-      if (rawFixtures.length >= MAX_FIXTURES_PER_SPORT) break;
+      allRawFixtures.push(f);
     }
-    if (rawFixtures.length >= MAX_FIXTURES_PER_SPORT) break;
   }
 
-  const rawTotal = rawFixtures.length;
+  const rawTotal = allRawFixtures.length;
   const candidates: CandidateFixture[] = [];
 
-  for (const fx of rawFixtures) {
-    if (!fx.homeId || !fx.awayId) continue;
+  // Enrich up to MAX_ENRICHED_FIXTURES_PER_SPORT to stay within trial API rate limits,
+  // while keeping ALL fixtures in the feed and CSV export so row count and record count match.
+  for (let i = 0; i < allRawFixtures.length; i++) {
+    const fx = allRawFixtures[i];
+    let tennisDetails: CandidateFixture['tennisDetails'] | undefined;
 
-    try {
-      const [p1, p2] = await Promise.all([
-        apiGet(`/api/tennis/player/${fx.homeId}`, key),
-        apiGet(`/api/tennis/player/${fx.awayId}`, key),
-      ]);
+    if (i < MAX_ENRICHED_FIXTURES_PER_SPORT && fx.homeId && fx.awayId) {
+      try {
+        const [p1, p2] = await Promise.all([
+          apiGet(`/api/tennis/player/${fx.homeId}`, key),
+          apiGet(`/api/tennis/player/${fx.awayId}`, key),
+        ]);
 
-      const player1: TennisPlayerStats | undefined = p1?.player?.player;
-      const player2: TennisPlayerStats | undefined = p2?.player?.player;
-      // Judgment call: the "selected" player for the straight-sets system is
-      // whichever of the two carries the better (lower) official ranking —
-      // the rule requires the selection to be ranked higher than its
-      // opponent, so there is no ambiguity about which side of the match we
-      // are screening.
-      const selected = player1 && player2 ? (player1.ranking <= player2.ranking ? player1 : player2) : undefined;
-      const opponent = selected === player1 ? player2 : player1;
-      const selectedRecent: TennisRecentMatch[] | undefined =
-        selected === player1 ? p1?.player?.recentMatches : p2?.player?.recentMatches;
+        const player1: TennisPlayerStats | undefined = p1?.player?.player;
+        const player2: TennisPlayerStats | undefined = p2?.player?.player;
+        // Judgment call: the "selected" player for the straight-sets system is
+        // whichever of the two carries the better (lower) official ranking —
+        // the rule requires the selection to be ranked higher than its
+        // opponent, so there is no ambiguity about which side of the match we
+        // are screening.
+        const selected = player1 && player2 ? (player1.ranking <= player2.ranking ? player1 : player2) : undefined;
+        const opponent = selected === player1 ? player2 : player1;
+        const selectedRecent: TennisRecentMatch[] | undefined =
+          selected === player1 ? p1?.player?.recentMatches : p2?.player?.recentMatches;
 
-      if (!selected || !opponent || !selectedRecent || selectedRecent.length === 0) {
-        continue; // Not enough real data to classify this match — skip it rather than guess.
-      }
-
-      candidates.push(
-        buildTennisCandidate(
-          fx,
-          {
+        if (selected && opponent && selectedRecent && selectedRecent.length > 0) {
+          tennisDetails = {
             selectedPlayer: selected,
             opponentPlayer: opponent,
             playerRecentSingles: selectedRecent,
-          },
-          thresholds,
-          rawTotal
-        )
-      );
-    } catch {
-      // Skip this fixture — no fabricated tennis data.
-      continue;
+          };
+        }
+      } catch {
+        tennisDetails = undefined;
+      }
     }
+
+    candidates.push(buildTennisCandidate(fx, tennisDetails, thresholds, rawTotal));
   }
 
   return { candidates, rawTotal };
@@ -304,7 +301,7 @@ async function buildTennisCandidates(
 
 function buildTennisCandidate(
   fx: RawTennisFixture,
-  tennisDetails: NonNullable<CandidateFixture['tennisDetails']>,
+  tennisDetails: CandidateFixture['tennisDetails'] | undefined,
   thresholds: RuleThresholds,
   rawTotal?: number
 ): CandidateFixture {
@@ -320,6 +317,9 @@ function buildTennisCandidate(
   );
   const bestOfSets: 3 | 5 = isLikelyGrandSlam ? 5 : 3;
   const setsLabel = bestOfSets === 5 ? '3-0' : '2-0';
+  const selectedEntity = tennisDetails
+    ? `${tennisDetails.selectedPlayer.name} to Win in Straight Sets (${setsLabel})`
+    : `${fx.homeOrPlayer1} vs ${fx.awayOrPlayer2} (Straight Sets)`;
 
   const candidate: CandidateFixture = {
     id: `TN-SETS-${fx.providerId}`,
@@ -328,11 +328,11 @@ function buildTennisCandidate(
     matchTitle,
     homeOrPlayer1: fx.homeOrPlayer1,
     awayOrPlayer2: fx.awayOrPlayer2,
-    selectedEntity: `${tennisDetails.selectedPlayer.name} to Win in Straight Sets (${setsLabel})`,
+    selectedEntity,
     competition: fx.competition,
     matchTime: fx.matchTime,
     venue: fx.venue,
-    surface: fx.surface || tennisDetails.selectedPlayer.surface,
+    surface: fx.surface || tennisDetails?.selectedPlayer.surface || 'Hard',
     bestOfSets,
     betType: `Straight Sets (${setsLabel})`,
     googleVerificationUrl: googleUrl(matchTitle, fx.competition),

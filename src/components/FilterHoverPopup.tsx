@@ -6,6 +6,7 @@ import {
   ArrowDownRight,
   CheckCircle2,
   Database,
+  Download,
   Filter,
   Info,
   KeyRound,
@@ -13,6 +14,144 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { SystemFeedBreakdown } from '../types';
+
+const csvEscape = (val: unknown): string => {
+  if (val === null || val === undefined) return '""';
+  const str = String(val).replace(/"/g, '""');
+  return `"${str}"`;
+};
+
+export function exportDataFeedCsv(breakdown: SystemFeedBreakdown) {
+  const matches = breakdown.rawMatches || [];
+  if (matches.length === 0) return;
+
+  const isFootball = breakdown.sport === 'football';
+
+  const headers = isFootball
+    ? [
+        'ID',
+        'System',
+        'Sport',
+        'Competition',
+        'Match Time',
+        'Match Title',
+        'Home Team',
+        'Away Team',
+        'Selection',
+        'Bet Type',
+        'Status',
+        'Filter Evaluation / Failure Reason',
+        'Provider',
+        'Exchange Odds',
+        'Required Odds',
+        'Enriched Stats Status',
+        'Home Prev Season Scored',
+        'Away Prev Season Scored',
+        'H2H Over 1.5 Rate',
+        'Venue',
+      ]
+    : [
+        'ID',
+        'System',
+        'Sport',
+        'Competition',
+        'Match Time',
+        'Match Title',
+        'Player 1',
+        'Player 2',
+        'Selection',
+        'Bet Type',
+        'Status',
+        'Filter Evaluation / Failure Reason',
+        'Provider',
+        'Exchange Odds',
+        'Required Odds',
+        'Enriched Stats Status',
+        'Selected Player Ranking',
+        'Opponent Ranking',
+        'Ranking Delta',
+        'Surface',
+        'Venue',
+      ];
+
+  const rows = matches.map((m) => {
+    if (isFootball) {
+      const fb = m.footballDetails;
+      const h2hOver15 =
+        fb?.h2hMatches && fb.h2hMatches.length > 0
+          ? `${(
+              (fb.h2hMatches.filter((x) => x.totalGoals > 1).length /
+                fb.h2hMatches.length) *
+              100
+            ).toFixed(0)}%`
+          : 'N/A';
+      return [
+        csvEscape(m.id),
+        csvEscape(breakdown.ruleTitle),
+        csvEscape(m.sport),
+        csvEscape(m.competition),
+        csvEscape(m.matchTime),
+        csvEscape(m.matchTitle),
+        csvEscape(m.homeOrPlayer1),
+        csvEscape(m.awayOrPlayer2),
+        csvEscape(m.selectedEntity),
+        csvEscape(m.betType),
+        csvEscape(m.status),
+        csvEscape(m.failureReason || 'Passed all active thresholds'),
+        csvEscape(m.sourceProvider),
+        csvEscape(m.currentOdds || 'N/A'),
+        csvEscape(m.requiredOdds || 'N/A'),
+        csvEscape(fb ? 'Enriched' : 'Pending / Partial'),
+        csvEscape(fb?.homePrevSeason?.avgGoalsScored?.toFixed(2) ?? 'N/A'),
+        csvEscape(fb?.awayPrevSeason?.avgGoalsScored?.toFixed(2) ?? 'N/A'),
+        csvEscape(h2hOver15),
+        csvEscape(m.venue || 'N/A'),
+      ].join(',');
+    } else {
+      const tn = m.tennisDetails;
+      const delta =
+        tn && tn.opponentPlayer && tn.selectedPlayer
+          ? `${tn.opponentPlayer.ranking - tn.selectedPlayer.ranking}`
+          : 'N/A';
+      return [
+        csvEscape(m.id),
+        csvEscape(breakdown.ruleTitle),
+        csvEscape(m.sport),
+        csvEscape(m.competition),
+        csvEscape(m.matchTime),
+        csvEscape(m.matchTitle),
+        csvEscape(m.homeOrPlayer1),
+        csvEscape(m.awayOrPlayer2),
+        csvEscape(m.selectedEntity),
+        csvEscape(m.betType),
+        csvEscape(m.status),
+        csvEscape(m.failureReason || 'Passed all active thresholds'),
+        csvEscape(m.sourceProvider),
+        csvEscape(m.currentOdds || 'N/A'),
+        csvEscape(m.requiredOdds || 'N/A'),
+        csvEscape(tn ? 'Enriched' : 'Pending / Partial'),
+        csvEscape(tn?.selectedPlayer?.ranking ?? 'N/A'),
+        csvEscape(tn?.opponentPlayer?.ranking ?? 'N/A'),
+        csvEscape(delta),
+        csvEscape(m.surface || tn?.selectedPlayer?.surface || 'N/A'),
+        csvEscape(m.venue || 'N/A'),
+      ].join(',');
+    }
+  });
+
+  const csvContent = [headers.map(csvEscape).join(','), ...rows].join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const slug = breakdown.system.toLowerCase().replace(/_/g, '-');
+  const dateStr = new Date().toISOString().slice(0, 10);
+  link.href = url;
+  link.download = `data-feed-${slug}-${dateStr}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
 
 interface FilterHoverPopupProps {
   breakdown: SystemFeedBreakdown;
@@ -120,23 +259,23 @@ export const FilterHoverPopup: React.FC<FilterHoverPopupProps> = ({
           updatePosition();
           setIsOpen((prev) => !prev);
         }}
-        className={`inline-flex items-center gap-1.5 rounded-md font-medium transition-all focus:outline-none focus:ring-2 focus:ring-sky-500/40 ${
+        className={`inline-flex items-center gap-1.5 rounded-md font-semibold transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand/40 shadow-xs bg-brand text-on-brand hover:bg-brand-hover cursor-pointer ${
           size === 'sm'
-            ? 'px-1.5 py-0.5 text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-            : 'px-2.5 py-1 text-xs border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:border-sky-400 dark:hover:border-sky-500 shadow-xs'
+            ? 'px-2 py-0.5 text-[11px]'
+            : 'px-2.5 py-1 text-xs'
         }`}
       >
         {isLoading ? (
-          <RefreshCw className="w-3.5 h-3.5 text-sky-500 animate-spin" />
+          <RefreshCw className="w-3.5 h-3.5 text-white animate-spin shrink-0" />
         ) : isUnconfigured ? (
-          <KeyRound className="w-3.5 h-3.5 text-amber-500" />
+          <KeyRound className="w-3.5 h-3.5 text-white shrink-0" />
         ) : isError ? (
-          <AlertCircle className="w-3.5 h-3.5 text-rose-500" />
+          <AlertCircle className="w-3.5 h-3.5 text-white shrink-0" />
         ) : (
-          <Activity className="w-3.5 h-3.5 text-emerald-500" />
+          <Activity className="w-3.5 h-3.5 text-white shrink-0" />
         )}
 
-        <span>
+        <span className="text-white font-semibold tracking-tight">
           {label ||
             (activeStep
               ? `Impact: -${activeStep.standaloneReductionPct}%`
@@ -287,22 +426,52 @@ export const FilterHoverPopup: React.FC<FilterHoverPopupProps> = ({
               <>
                 {/* Total Feed Metric Header */}
                 <div className="rounded-lg bg-slate-50 dark:bg-slate-800/60 p-3 border border-slate-200/80 dark:border-slate-700/60">
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                      Total Data Feed Records
-                    </span>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">
+                        Total Data Feed Records
+                      </span>
+                      {breakdown.rawMatches && breakdown.rawMatches.length > 0 ? (
+                        <button
+                          type="button"
+                          id={`download-csv-${breakdown.system}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            exportDataFeedCsv(breakdown);
+                          }}
+                          className="mt-1 inline-flex items-center gap-1.5 text-[11px] font-bold text-brand hover:text-brand-hover hover:underline cursor-pointer transition-colors"
+                          title="Download these data feed records as a tabular CSV file"
+                        >
+                          <Download className="w-3.5 h-3.5 text-brand shrink-0" />
+                          <span>Download Tabular CSV ({breakdown.rawMatches.length} rows)</span>
+                        </button>
+                      ) : (
+                        <span className="mt-1 inline-flex items-center gap-1 text-[11px] text-slate-400">
+                          <Download className="w-3 h-3 shrink-0" />
+                          <span>Download CSV (0 records)</span>
+                        </span>
+                      )}
+                    </div>
                     <span className="text-lg font-bold text-slate-900 dark:text-slate-100 font-mono">
                       {breakdown.totalFeedRecords} matches
                     </span>
                   </div>
-                  <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                    <span>Enriched with historical data: {breakdown.enrichedRecordsCount}</span>
+                  <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60">
+                    <span>Enriched with statistical profile: {breakdown.enrichedRecordsCount}</span>
                     {breakdown.incompleteDataCount > 0 && (
                       <span className="text-amber-600 dark:text-amber-400">
-                        ({breakdown.incompleteDataCount} partial/missing data)
+                        ({breakdown.incompleteDataCount} partial/pending enrichment)
                       </span>
                     )}
                   </div>
+                </div>
+
+                {/* Pre-Filter / Feed Ingestion Scope Clarification */}
+                <div className="rounded-md bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 px-2.5 py-2 text-[10.5px] text-emerald-900 dark:text-emerald-300 flex items-start gap-1.5">
+                  <Info className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Feed Ingestion Pipeline:</strong> Ingests all scheduled matches across an upcoming 3-day query window from {breakdown.provider} with zero league, country, or odds pre-filtering. The first 40 matches are enriched with deep head-to-head, prior season, or ranking profiles.
+                  </span>
                 </div>
 
                 {/* Specific Hovered Filter Callout (if trigger was for a specific input field) */}

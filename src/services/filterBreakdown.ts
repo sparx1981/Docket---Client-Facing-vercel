@@ -112,6 +112,7 @@ function buildFootballOver15Breakdown(params: {
       verifiedQualifiersCount: 0,
       priceWatchCount: 0,
       fetchedAt: feedInfo?.fetchedAt,
+      rawMatches: uniqueFootballMatches,
     };
   }
 
@@ -198,6 +199,7 @@ function buildFootballOver15Breakdown(params: {
     verifiedQualifiersCount: verifiedQualifiers.length,
     priceWatchCount: priceWatch.length,
     fetchedAt: feedInfo?.fetchedAt,
+    rawMatches: uniqueFootballMatches,
   };
 }
 
@@ -241,6 +243,7 @@ function buildFootballUnder35Breakdown(params: {
       verifiedQualifiersCount: 0,
       priceWatchCount: 0,
       fetchedAt: feedInfo?.fetchedAt,
+      rawMatches: uniqueFootballMatches,
     };
   }
 
@@ -338,6 +341,7 @@ function buildFootballUnder35Breakdown(params: {
     verifiedQualifiersCount: verifiedQualifiers.length,
     priceWatchCount: priceWatch.length,
     fetchedAt: feedInfo?.fetchedAt,
+    rawMatches: uniqueFootballMatches,
   };
 }
 
@@ -381,6 +385,7 @@ function buildTennisStraightSetsBreakdown(params: {
       verifiedQualifiersCount: 0,
       priceWatchCount: 0,
       fetchedAt: feedInfo?.fetchedAt,
+      rawMatches: uniqueTennisMatches,
     };
   }
 
@@ -456,6 +461,7 @@ function buildTennisStraightSetsBreakdown(params: {
     verifiedQualifiersCount: verifiedQualifiers.length,
     priceWatchCount: priceWatch.length,
     fetchedAt: feedInfo?.fetchedAt,
+    rawMatches: uniqueTennisMatches,
   };
 }
 
