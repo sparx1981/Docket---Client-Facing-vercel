@@ -190,7 +190,8 @@ function settleWithOutcome(
 export async function executeBackgroundScan(
   settings: AppSettings,
   isAutomatic: boolean = true,
-  onProgress?: FeedProgressCallback
+  onProgress?: FeedProgressCallback,
+  signal?: AbortSignal
 ): Promise<{
   refreshedFixtures: CandidateFixture[];
   updatedHistoricalBets: HistoricalBetRecord[];
@@ -202,9 +203,13 @@ export async function executeBackgroundScan(
 }> {
   const startedAt = Date.now();
   const scanTimestamp = new Date().toISOString();
-  setStoredLastScanTimestamp(scanTimestamp);
 
-  const { fixtures, error: fetchError } = await fetchCandidateFixtures(settings, onProgress);
+  // fetchCandidateFixtures throws (rather than resolving with an error
+  // string) when the signal fires — a user-cancelled scan should propagate
+  // straight to the caller, not be recorded as "the last scan ran at this
+  // time" the way a real completed-or-failed run would be.
+  const { fixtures, error: fetchError } = await fetchCandidateFixtures(settings, onProgress, signal);
+  setStoredLastScanTimestamp(scanTimestamp);
 
   let autoArchivedCount = 0;
   const refreshedFixtures = fixtures.map((fixture) => {

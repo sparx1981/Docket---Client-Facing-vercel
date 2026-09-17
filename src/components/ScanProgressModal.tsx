@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { Terminal, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { OctagonAlert, Terminal, X } from 'lucide-react';
 import { Button } from './ui';
 import { SealMark } from './AppShell';
 import { FeedProgressEvent } from '../services/dataFeed';
@@ -10,12 +10,16 @@ interface ScanProgressModalProps {
   isRunning: boolean;
   /** True once the real scan has resolved (success or error) — never a timed guess. */
   isFinished: boolean;
+  /** True once the user has confirmed stopping the scan and the in-flight calls were aborted. */
+  isCancelled: boolean;
   /** Real progress events as they arrive from the live provider calls. */
   events: FeedProgressEvent[];
   /** Latest known "records received so far" count per sport, from real event data. */
   footballRecords: number;
   tennisRecords: number;
   onClose: () => void;
+  /** Actually cancels the in-flight provider calls — only called after the user confirms below. */
+  onStop: () => void;
 }
 
 /**
@@ -30,20 +34,28 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
   isOpen,
   isRunning,
   isFinished,
+  isCancelled,
   events,
   footballRecords,
   tennisRecords,
   onClose,
+  onStop,
 }) => {
   const logRef = useRef<HTMLDivElement>(null);
+  const [confirmingStop, setConfirmingStop] = useState(false);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [events]);
 
+  useEffect(() => {
+    if (!isOpen) setConfirmingStop(false);
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const totalRecords = footballRecords + tennisRecords;
+  const canClose = isFinished || isCancelled;
 
   return (
     <div
@@ -62,26 +74,30 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
             <div className="flex items-center gap-3">
               <span
                 className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-                  isFinished
+                  isCancelled
+                    ? 'bg-warn-soft text-warn-ink'
+                    : isFinished
                     ? 'animate-stamp bg-ok-soft text-ok-ink'
                     : 'bg-brand text-on-brand'
                 }`}
               >
-                <SealMark className="h-6 w-6" />
+                {isCancelled ? <OctagonAlert className="h-6 w-6" /> : <SealMark className="h-6 w-6" />}
               </span>
               <div>
                 <h3 className="text-[15px] font-extrabold tracking-tight text-text">
-                  {isFinished ? 'Scan complete' : 'Running daily scan'}
+                  {isCancelled ? 'Scan stopped' : isFinished ? 'Scan complete' : 'Running daily scan'}
                 </h3>
                 <p className="text-[12px] text-text-2">
-                  {isFinished
+                  {isCancelled
+                    ? 'Cancelled before finishing — no results from this run were saved.'
+                    : isFinished
                     ? 'Every candidate audited against the locked filters.'
                     : 'Requesting live fixtures from the configured provider(s) — this can take a while under rate limits.'}
                 </p>
               </div>
             </div>
 
-            {isFinished && (
+            {canClose && (
               <button
                 id="btn-close-scan-modal"
                 onClick={onClose}
@@ -113,7 +129,9 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
               measure against (dates/fixtures vary per run), so this reflects
               "still working" rather than a fabricated percentage. */}
           <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-surface-3">
-            {isFinished ? (
+            {isCancelled ? (
+              <div className="h-full w-full rounded-full bg-warn" />
+            ) : isFinished ? (
               <div className="h-full w-full rounded-full bg-ok" />
             ) : (
               <div className="animate-sweep h-full w-1/3 rounded-full bg-brand" />
@@ -130,7 +148,7 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
                 Live audit stream
               </span>
               <span className="font-mono text-[10px] text-text-3">
-                {isFinished ? 'ended' : isRunning ? 'streaming…' : 'starting…'}
+                {isCancelled ? 'stopped' : isFinished ? 'ended' : isRunning ? 'streaming…' : 'starting…'}
               </span>
             </div>
 
@@ -139,7 +157,7 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
               ref={logRef}
               className="h-64 space-y-1 overflow-y-auto rounded-lg border border-line bg-surface-2 px-3 py-2.5 font-mono text-[11px] leading-relaxed"
             >
-              {events.length === 0 && !isFinished && (
+              {events.length === 0 && !isFinished && !isCancelled && (
                 <div className="text-text-3">Connecting to configured provider(s)…</div>
               )}
               {events.map((evt, i) => (
@@ -147,10 +165,11 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
                   <span className="text-text-3">[{evt.sport}]</span> {evt.message}
                 </div>
               ))}
-              {isFinished && (
-                <div className="font-bold text-ok-ink">Scan finished — results are ready.</div>
+              {isCancelled && (
+                <div className="font-bold text-warn-ink">Scan stopped by user — remaining API calls were cancelled.</div>
               )}
-              {!isFinished && (
+              {isFinished && <div className="font-bold text-ok-ink">Scan finished — results are ready.</div>}
+              {!isFinished && !isCancelled && (
                 <div className="h-3 w-24 overflow-hidden rounded bg-surface-3">
                   <div className="animate-sweep h-full w-1/3 bg-brand-soft" />
                 </div>
@@ -159,22 +178,74 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
           </div>
         </div>
 
+        {/* Stop confirmation — replaces the footer until the user decides */}
+        {confirmingStop && (
+          <div className="shrink-0 border-t border-line bg-warn-soft px-5 py-3.5">
+            <div className="flex items-start gap-2.5">
+              <OctagonAlert className="h-4 w-4 text-warn-ink shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1 space-y-2.5">
+                <p className="text-[12px] font-semibold text-warn-ink">
+                  Stop this scan? The in-progress API calls will be cancelled and no results from this run will be
+                  saved.
+                </p>
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    id="btn-cancel-stop-scan"
+                    type="button"
+                    onClick={() => setConfirmingStop(false)}
+                    className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-text-2 hover:bg-surface-3 transition-colors"
+                  >
+                    Keep going
+                  </button>
+                  <button
+                    id="btn-confirm-stop-scan"
+                    type="button"
+                    onClick={() => {
+                      setConfirmingStop(false);
+                      onStop();
+                    }}
+                    className="px-3 py-1.5 rounded-lg text-[12px] font-bold bg-bad text-on-bad hover:bg-bad-hover transition-colors"
+                  >
+                    Yes, stop scan
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Foot */}
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-line bg-surface-2 px-5 py-3.5">
-          <span className="text-[12px] text-text-2">
-            {isFinished
-              ? 'All candidates audited and stamped.'
-              : `${totalRecords} record(s) retrieved so far…`}
-          </span>
-          <Button
-            id="btn-view-scan-results"
-            variant="primary"
-            disabled={!isFinished}
-            onClick={onClose}
-          >
-            {isFinished ? 'View qualifiers' : 'Auditing…'}
-          </Button>
-        </div>
+        {!confirmingStop && (
+          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-line bg-surface-2 px-5 py-3.5">
+            <span className="text-[12px] text-text-2">
+              {isCancelled
+                ? 'Stopped before completion.'
+                : isFinished
+                ? 'All candidates audited and stamped.'
+                : `${totalRecords} record(s) retrieved so far…`}
+            </span>
+            <div className="flex items-center gap-2">
+              {isRunning && !isFinished && !isCancelled && (
+                <button
+                  id="btn-stop-scan"
+                  type="button"
+                  onClick={() => setConfirmingStop(true)}
+                  className="px-3 py-2 rounded-lg text-[12px] font-semibold text-bad-ink border border-line hover:bg-surface-3 transition-colors"
+                >
+                  Stop scan
+                </button>
+              )}
+              <Button
+                id="btn-view-scan-results"
+                variant="primary"
+                disabled={!canClose}
+                onClick={onClose}
+              >
+                {isCancelled ? 'Close' : isFinished ? 'View qualifiers' : 'Auditing…'}
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -69,6 +69,8 @@ interface AppShellProps {
   analytics: SystemAnalytics;
   settings: AppSettings;
   isScanning: boolean;
+  /** Live count of records pulled so far — shown on the button while a scan runs so it never looks hung. */
+  scanRecordsSoFar?: number;
   onRunScan: () => void;
   lastScanTimestamp: string | null;
   onOpenSyncHistory: () => void;
@@ -109,6 +111,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   analytics,
   settings,
   isScanning,
+  scanRecordsSoFar,
   onRunScan,
   lastScanTimestamp,
   onOpenSyncHistory,
@@ -365,9 +368,15 @@ export const AppShell: React.FC<AppShellProps> = ({
                   strokeWidth={2.5}
                 />
                 <span className="hidden sm:inline">
-                  {isScanning ? 'Auditing…' : 'Run Daily Scan'}
+                  {isScanning
+                    ? scanRecordsSoFar !== undefined
+                      ? `Auditing… (${scanRecordsSoFar})`
+                      : 'Auditing…'
+                    : 'Run Daily Scan'}
                 </span>
-                <span className="sm:hidden">{isScanning ? '…' : 'Scan'}</span>
+                <span className="sm:hidden">
+                  {isScanning ? (scanRecordsSoFar !== undefined ? `…${scanRecordsSoFar}` : '…') : 'Scan'}
+                </span>
               </button>
 
               {user && onSignOut && (

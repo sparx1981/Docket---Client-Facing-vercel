@@ -89,9 +89,11 @@ export default function App() {
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
   const [isScanRunning, setIsScanRunning] = useState(false);
   const [isScanFinished, setIsScanFinished] = useState(false);
+  const [isScanCancelled, setIsScanCancelled] = useState(false);
   const [scanEvents, setScanEvents] = useState<FeedProgressEvent[]>([]);
   const [scanFootballRecords, setScanFootballRecords] = useState(0);
   const [scanTennisRecords, setScanTennisRecords] = useState(0);
+  const scanAbortControllerRef = useRef<AbortController | null>(null);
   const [isSyncHistoryOpen, setIsSyncHistoryOpen] = useState(false);
   const [infoModalSection, setInfoModalSection] = useState<TabKey | null>(null);
   const [syncLogs, setSyncLogs] = useState<SyncLogRecord[]>(() => getStoredSyncLogs());
@@ -376,7 +378,11 @@ export default function App() {
     setScanFootballRecords(0);
     setScanTennisRecords(0);
     setIsScanFinished(false);
+    setIsScanCancelled(false);
     setIsScanRunning(true);
+
+    const controller = new AbortController();
+    scanAbortControllerRef.current = controller;
 
     const onProgress = (evt: FeedProgressEvent) => {
       setScanEvents((prev) => [...prev, evt]);
@@ -384,16 +390,38 @@ export default function App() {
       else setScanTennisRecords(evt.recordsSoFar);
     };
 
-    executeBackgroundScan(settings, false, onProgress).then((result) => {
-      setFixtures(result.refreshedFixtures);
-      setHistoricalBets(result.updatedHistoricalBets);
-      setSyncLogs(getStoredSyncLogs());
-      setLastScanTimestamp(result.scanTimestamp);
-      setProviderHealth({ ok: !result.fetchError, checkedAt: result.scanTimestamp });
-      setFixturesError(result.fetchError || null);
-      setIsScanRunning(false);
-      setIsScanFinished(true);
-    });
+    executeBackgroundScan(settings, false, onProgress, controller.signal)
+      .then((result) => {
+        setFixtures(result.refreshedFixtures);
+        setHistoricalBets(result.updatedHistoricalBets);
+        setSyncLogs(getStoredSyncLogs());
+        setLastScanTimestamp(result.scanTimestamp);
+        setProviderHealth({ ok: !result.fetchError, checkedAt: result.scanTimestamp });
+        setFixturesError(result.fetchError || null);
+        setIsScanRunning(false);
+        setIsScanFinished(true);
+      })
+      .catch((err) => {
+        // A user-requested stop rejects every in-flight call with
+        // AbortError — that's the one outcome we don't treat as a scan
+        // failure, since nothing was actually wrong with the provider.
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          setIsScanRunning(false);
+          setIsScanCancelled(true);
+          return;
+        }
+        setIsScanRunning(false);
+        setFixturesError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        scanAbortControllerRef.current = null;
+      });
+  };
+
+  // Called only after the modal's own confirm step — actually cancels the
+  // in-flight provider calls rather than just hiding the progress UI.
+  const handleStopScan = () => {
+    scanAbortControllerRef.current?.abort();
   };
 
   const handleTriggerAutoScanTest = async () => {
@@ -481,6 +509,7 @@ export default function App() {
         analytics={analytics}
         settings={settings}
         isScanning={isScanModalOpen || fixturesLoading}
+        scanRecordsSoFar={isScanRunning ? scanFootballRecords + scanTennisRecords : undefined}
         onRunScan={handleRunScan}
         lastScanTimestamp={lastScanTimestamp}
         onOpenSyncHistory={() => setIsSyncHistoryOpen(true)}
@@ -557,10 +586,12 @@ export default function App() {
         isOpen={isScanModalOpen}
         isRunning={isScanRunning}
         isFinished={isScanFinished}
+        isCancelled={isScanCancelled}
         events={scanEvents}
         footballRecords={scanFootballRecords}
         tennisRecords={scanTennisRecords}
         onClose={() => setIsScanModalOpen(false)}
+        onStop={handleStopScan}
       />
 
       <SyncHistoryModal

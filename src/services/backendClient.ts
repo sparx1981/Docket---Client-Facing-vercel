@@ -6,8 +6,23 @@
  * directly from the browser.
  */
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/** Rejects with an AbortError immediately if the signal fires during the wait, so a user-requested stop is never stuck behind a retry backoff. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException('Aborted', 'AbortError'));
+      },
+      { once: true }
+    );
+  });
 }
 
 // Some dev/preview hosts (e.g. an AI Studio container whose backend process
@@ -26,14 +41,18 @@ function looksLikeHtml(text: string): boolean {
   return /^\s*<(!doctype html|html)/i.test(text);
 }
 
-export async function apiGet(path: string, providerKey: string): Promise<any> {
+export async function apiGet(path: string, providerKey: string, signal?: AbortSignal): Promise<any> {
   for (let attempt = 0; attempt <= MAX_STARTING_SERVER_RETRIES; attempt++) {
     console.log(`[api] → GET ${path}`);
 
     let response: Response;
     try {
-      response = await fetch(path, { headers: { 'x-provider-key': providerKey } });
+      response = await fetch(path, { headers: { 'x-provider-key': providerKey }, signal });
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        console.log(`[api] ⏹ cancelled ${path}`);
+        throw err;
+      }
       console.error(`[api] ✗ network error for ${path}:`, err);
       throw new Error(
         `Could not reach the backend at ${path}: ${err instanceof Error ? err.message : String(err)}`
@@ -61,7 +80,7 @@ export async function apiGet(path: string, providerKey: string): Promise<any> {
         console.warn(
           `[api] ⧗ backend still starting for ${path} — retrying in ${STARTING_SERVER_RETRY_DELAY_MS}ms (attempt ${attempt + 1}/${MAX_STARTING_SERVER_RETRIES})`
         );
-        await sleep(STARTING_SERVER_RETRY_DELAY_MS);
+        await sleep(STARTING_SERVER_RETRY_DELAY_MS, signal);
         continue;
       }
 

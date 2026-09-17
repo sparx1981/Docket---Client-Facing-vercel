@@ -57,6 +57,11 @@ const MAX_ENRICHED_FIXTURES_PER_SPORT = 40;
 // How many days ahead (including today) to pull a fixture card for.
 const DAYS_AHEAD = 3;
 
+/** True for a fetch/apiGet rejection caused by the user cancelling the scan, never a real provider failure. */
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'AbortError';
+}
+
 function nextDates(count: number): string[] {
   const dates: string[] = [];
   const cursor = new Date();
@@ -111,7 +116,8 @@ async function buildFootballCandidates(
   key: string,
   dates: string[],
   thresholds: RuleThresholds,
-  onProgress?: FeedProgressCallback
+  onProgress?: FeedProgressCallback,
+  signal?: AbortSignal
 ): Promise<{ candidates: CandidateFixture[]; rawTotal: number; partialError?: string }> {
   const allRawFixtures: RawFootballFixture[] = [];
   const dateErrors: string[] = [];
@@ -122,7 +128,7 @@ async function buildFootballCandidates(
       recordsSoFar: allRawFixtures.length,
     });
     try {
-      const body = await apiGet(`/api/football/fixtures?date=${date}&provider=${provider}`, key);
+      const body = await apiGet(`/api/football/fixtures?date=${date}&provider=${provider}`, key, signal);
       const received = body?.fixtures || [];
       for (const f of received) {
         allRawFixtures.push(f);
@@ -133,6 +139,7 @@ async function buildFootballCandidates(
         recordsSoFar: allRawFixtures.length,
       });
     } catch (err) {
+      if (isAbortError(err)) throw err;
       // A single day's schedule call failing (rate limit exhausted, transient
       // upstream error) shouldn't blank out the whole feed — keep whatever
       // other days succeeded and surface this one as a partial-data note.
@@ -169,9 +176,9 @@ async function buildFootballCandidates(
     if (i < MAX_ENRICHED_FIXTURES_PER_SPORT && fx.homeId && fx.awayId) {
       try {
         const [homeProfile, awayProfile, h2h] = await Promise.all([
-          apiGet(`/api/football/team/${fx.homeId}?provider=${provider}`, key),
-          apiGet(`/api/football/team/${fx.awayId}?provider=${provider}`, key),
-          apiGet(`/api/football/h2h?team1=${fx.homeId}&team2=${fx.awayId}&provider=${provider}`, key),
+          apiGet(`/api/football/team/${fx.homeId}?provider=${provider}`, key, signal),
+          apiGet(`/api/football/team/${fx.awayId}?provider=${provider}`, key, signal),
+          apiGet(`/api/football/h2h?team1=${fx.homeId}&team2=${fx.awayId}&provider=${provider}`, key, signal),
         ]);
 
         const homePrevSeason: FootballPrevSeasonStats | undefined = homeProfile?.team?.prevSeason;
@@ -201,7 +208,8 @@ async function buildFootballCandidates(
             awayRecentMatches,
           };
         }
-      } catch {
+      } catch (err) {
+        if (isAbortError(err)) throw err;
         // Leave footballDetails undefined — the rules engine already handles
         // that as "missing data" rather than crashing or inventing stats.
         footballDetails = undefined;
@@ -300,7 +308,8 @@ async function buildTennisCandidates(
   key: string,
   dates: string[],
   thresholds: RuleThresholds,
-  onProgress?: FeedProgressCallback
+  onProgress?: FeedProgressCallback,
+  signal?: AbortSignal
 ): Promise<{ candidates: CandidateFixture[]; rawTotal: number; partialError?: string }> {
   const allRawFixtures: RawTennisFixture[] = [];
   const dateErrors: string[] = [];
@@ -311,7 +320,7 @@ async function buildTennisCandidates(
       recordsSoFar: allRawFixtures.length,
     });
     try {
-      const body = await apiGet(`/api/tennis/fixtures?date=${date}`, key);
+      const body = await apiGet(`/api/tennis/fixtures?date=${date}`, key, signal);
       const received = body?.fixtures || [];
       for (const f of received) {
         allRawFixtures.push(f);
@@ -322,6 +331,7 @@ async function buildTennisCandidates(
         recordsSoFar: allRawFixtures.length,
       });
     } catch (err) {
+      if (isAbortError(err)) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       dateErrors.push(`${date}: ${msg}`);
       onProgress?.({
@@ -356,8 +366,8 @@ async function buildTennisCandidates(
     if (i < MAX_ENRICHED_FIXTURES_PER_SPORT && fx.homeId && fx.awayId) {
       try {
         const [p1, p2] = await Promise.all([
-          apiGet(`/api/tennis/player/${fx.homeId}`, key),
-          apiGet(`/api/tennis/player/${fx.awayId}`, key),
+          apiGet(`/api/tennis/player/${fx.homeId}`, key, signal),
+          apiGet(`/api/tennis/player/${fx.awayId}`, key, signal),
         ]);
 
         const player1: TennisPlayerStats | undefined = p1?.player?.player;
@@ -379,7 +389,8 @@ async function buildTennisCandidates(
             playerRecentSingles: selectedRecent,
           };
         }
-      } catch {
+      } catch (err) {
+        if (isAbortError(err)) throw err;
         tennisDetails = undefined;
       }
     }
@@ -458,7 +469,8 @@ function buildTennisCandidate(
 
 export async function fetchCandidateFixtures(
   settings: AppSettings,
-  onProgress?: FeedProgressCallback
+  onProgress?: FeedProgressCallback,
+  signal?: AbortSignal
 ): Promise<FixtureFetchResult> {
   const football = choosefootballProvider(settings);
   const tennis = chooseTennisProvider(settings);
@@ -480,7 +492,7 @@ export async function fetchCandidateFixtures(
 
   if (football && (thresholds.footballOver15.enabled || thresholds.footballUnder35.enabled)) {
     try {
-      const fbResult = await buildFootballCandidates(football.provider, football.key, dates, thresholds, onProgress);
+      const fbResult = await buildFootballCandidates(football.provider, football.key, dates, thresholds, onProgress, signal);
       fixtures.push(...fbResult.candidates);
       footballFeedInfo = {
         sport: 'football',
@@ -491,6 +503,7 @@ export async function fetchCandidateFixtures(
         error: fbResult.partialError,
       };
     } catch (err) {
+      if (isAbortError(err)) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(msg);
       footballFeedInfo = {
@@ -508,7 +521,7 @@ export async function fetchCandidateFixtures(
     // System disabled in Engine Configuration — skip the calls entirely.
   } else if (tennis) {
     try {
-      const tnResult = await buildTennisCandidates(tennis.key, dates, thresholds, onProgress);
+      const tnResult = await buildTennisCandidates(tennis.key, dates, thresholds, onProgress, signal);
       fixtures.push(...tnResult.candidates);
       tennisFeedInfo = {
         sport: 'tennis',
@@ -519,6 +532,7 @@ export async function fetchCandidateFixtures(
         error: tnResult.partialError,
       };
     } catch (err) {
+      if (isAbortError(err)) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(msg);
       tennisFeedInfo = {
