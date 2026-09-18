@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   BarChart3,
   RotateCw,
@@ -10,6 +10,8 @@ import {
   LogOut,
   Cloud,
   Database,
+  OctagonAlert,
+  X,
 } from 'lucide-react';
 import { AppSettings, SystemAnalytics } from '../types';
 
@@ -74,6 +76,10 @@ interface AppShellProps {
   /** Live count of records pulled so far — shown on the button while a scan runs so it never looks hung. */
   scanRecordsSoFar?: number;
   onRunScan: () => void;
+  /** Actually cancels the in-flight scan/load — only called after the header's own confirm step. Omit to hide the stop control entirely. */
+  onStopScan?: () => void;
+  /** True only while there's a real in-flight fetch to cancel — narrower than isScanning, which stays true while a finished modal is still on screen. */
+  canStopScan?: boolean;
   lastScanTimestamp: string | null;
   onOpenSyncHistory: () => void;
   onOpenSectionInfo: (section: TabKey) => void;
@@ -116,6 +122,8 @@ export const AppShell: React.FC<AppShellProps> = ({
   scanModalOpen,
   scanRecordsSoFar,
   onRunScan,
+  onStopScan,
+  canStopScan = false,
   lastScanTimestamp,
   onOpenSyncHistory,
   onOpenSectionInfo,
@@ -167,6 +175,28 @@ export const AppShell: React.FC<AppShellProps> = ({
       return 'Today';
     }
   };
+
+  // A dedicated, always-reachable stop control in the header itself — not
+  // just inside the progress modal — so a running scan/background load
+  // (from the header button showing "Auditing…") can always be stopped
+  // from right there, with its own confirm step before anything cancels.
+  const [confirmingStopFromHeader, setConfirmingStopFromHeader] = useState(false);
+  const stopPopoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!canStopScan) setConfirmingStopFromHeader(false);
+  }, [canStopScan]);
+
+  useEffect(() => {
+    if (!confirmingStopFromHeader) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (stopPopoverRef.current && !stopPopoverRef.current.contains(e.target as Node)) {
+        setConfirmingStopFromHeader(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [confirmingStopFromHeader]);
 
   const roiPositive = analytics.roiPercentage >= 0;
   const page = TITLES[activeTab];
@@ -360,28 +390,82 @@ export const AppShell: React.FC<AppShellProps> = ({
                 <History className="h-3 w-3 text-text-3 ml-0.5" />
               </button>
 
-              <button
-                id="btn-run-daily-scan"
-                onClick={onRunScan}
-                disabled={scanModalOpen}
-                title={isScanning && !scanModalOpen ? 'A fetch is already running — click to view progress' : undefined}
-                className="inline-flex min-h-[40px] items-center gap-2 rounded-lg bg-cta px-3.5 text-[13px] font-extrabold text-on-cta shadow-plate transition-all duration-200 hover:bg-cta-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-text-3 disabled:shadow-none sm:px-4"
-              >
-                <RotateCw
-                  className={`h-4 w-4 ${isScanning ? 'animate-spin' : ''}`}
-                  strokeWidth={2.5}
-                />
-                <span className="hidden sm:inline">
-                  {isScanning
-                    ? scanRecordsSoFar !== undefined
-                      ? `Auditing… (${scanRecordsSoFar})`
-                      : 'Auditing…'
-                    : 'Run Daily Scan'}
-                </span>
-                <span className="sm:hidden">
-                  {isScanning ? (scanRecordsSoFar !== undefined ? `…${scanRecordsSoFar}` : '…') : 'Scan'}
-                </span>
-              </button>
+              <div className="relative inline-flex items-stretch">
+                <button
+                  id="btn-run-daily-scan"
+                  onClick={onRunScan}
+                  disabled={scanModalOpen}
+                  title={isScanning && !scanModalOpen ? 'A fetch is already running — click to view progress' : undefined}
+                  className={`inline-flex min-h-[40px] items-center gap-2 bg-cta px-3.5 text-[13px] font-extrabold text-on-cta shadow-plate transition-all duration-200 hover:bg-cta-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-text-3 disabled:shadow-none sm:px-4 ${
+                    canStopScan && onStopScan ? 'rounded-l-lg' : 'rounded-lg'
+                  }`}
+                >
+                  <RotateCw
+                    className={`h-4 w-4 ${isScanning ? 'animate-spin' : ''}`}
+                    strokeWidth={2.5}
+                  />
+                  <span className="hidden sm:inline">
+                    {isScanning
+                      ? scanRecordsSoFar !== undefined
+                        ? `Auditing… (${scanRecordsSoFar})`
+                        : 'Auditing…'
+                      : 'Run Daily Scan'}
+                  </span>
+                  <span className="sm:hidden">
+                    {isScanning ? (scanRecordsSoFar !== undefined ? `…${scanRecordsSoFar}` : '…') : 'Scan'}
+                  </span>
+                </button>
+
+                {canStopScan && onStopScan && (
+                  <button
+                    id="btn-header-stop-scan"
+                    type="button"
+                    onClick={() => setConfirmingStopFromHeader((v) => !v)}
+                    aria-label="Stop the running scan"
+                    title="Stop the running scan"
+                    className="inline-flex min-h-[40px] items-center justify-center rounded-r-lg border-l border-cta-hover/40 bg-cta px-2.5 text-on-cta shadow-plate transition-all duration-200 hover:bg-bad hover:text-on-bad active:scale-[0.98]"
+                  >
+                    <X className="h-4 w-4" strokeWidth={2.5} />
+                  </button>
+                )}
+
+                {confirmingStopFromHeader && onStopScan && (
+                  <div
+                    ref={stopPopoverRef}
+                    role="dialog"
+                    aria-label="Confirm stop scan"
+                    className="absolute right-0 top-full z-50 mt-2 w-72 rounded-xl border border-line bg-surface p-3 shadow-drawer animate-in fade-in zoom-in-95 duration-150"
+                  >
+                    <div className="flex items-start gap-2">
+                      <OctagonAlert className="h-4 w-4 text-warn-ink shrink-0 mt-0.5" />
+                      <p className="text-[12px] font-semibold text-text leading-snug">
+                        Stop this scan? In-progress API calls will be cancelled and no results from this run will be saved.
+                      </p>
+                    </div>
+                    <div className="mt-2.5 flex items-center justify-end gap-2">
+                      <button
+                        id="btn-header-keep-going"
+                        type="button"
+                        onClick={() => setConfirmingStopFromHeader(false)}
+                        className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-text-2 hover:bg-surface-3 transition-colors"
+                      >
+                        Keep going
+                      </button>
+                      <button
+                        id="btn-header-confirm-stop"
+                        type="button"
+                        onClick={() => {
+                          setConfirmingStopFromHeader(false);
+                          onStopScan();
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-[12px] font-bold bg-bad text-on-bad hover:bg-bad-hover transition-colors"
+                      >
+                        Yes, stop scan
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {user && onSignOut && (
                 <button

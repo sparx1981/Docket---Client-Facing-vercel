@@ -29,7 +29,7 @@ import {
 import { formatTimeUntilNextRun } from '../services/scheduler';
 import { FilterHoverPopup } from './FilterHoverPopup';
 import { calculateSystemBreakdown } from '../services/filterBreakdown';
-import { fetchLiveFeedSummary } from '../services/dataFeed';
+import { checkFeedHealth, FeedHealthResult, fetchLiveFeedSummary } from '../services/dataFeed';
 
 /** A link to the real place a provider's own dashboard lets you create/view an API key or token. */
 const ProviderKeyLink: React.FC<{ href: string; children: React.ReactNode }> = ({
@@ -79,6 +79,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [formData, setFormData] = useState<AppSettings>(settings);
   const [testResult, setTestResult] = useState<string | null>(null);
   const [isTesting, setIsTesting] = useState(false);
+  const [feedHealth, setFeedHealth] = useState<FeedHealthResult[] | null>(null);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [autoScanTriggered, setAutoScanTriggered] = useState(false);
 
@@ -231,16 +232,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const handleTestFeeds = async () => {
     setIsTesting(true);
     setTestResult(null);
+    setFeedHealth(null);
     try {
       const res = await fetch('/api/health');
       if (!res.ok) throw new Error(`Backend responded with ${res.status}`);
+
       if (!hasProviderKey) {
         setTestResult('Backend reachable, but no provider API key is configured yet — add one below to pull real fixtures.');
-      } else {
-        setTestResult(
-          'Backend reachable. This only confirms our own server is up — use "Run Daily Scan" to make a real Sportradar/Sportmonks call and see whether the configured key is accepted.'
-        );
+        return;
       }
+
+      // One cheap call per configured feed (today only, no enrichment) —
+      // real evidence of whether each provider is healthy or already
+      // rate-limited, without paying for a full multi-minute scan just to
+      // find out.
+      const health = await checkFeedHealth(formData);
+      setFeedHealth(health.filter((h) => h.status !== 'not_configured'));
     } catch (err) {
       setTestResult(`Could not reach the backend: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -368,6 +375,46 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <Check className="mt-px h-3.5 w-3.5 shrink-0 text-ok-ink" strokeWidth={3} />
             {testResult}
           </p>
+        )}
+
+        {feedHealth && feedHealth.length > 0 && (
+          <div className="mt-3 space-y-2 border-t border-line pt-2.5">
+            <p className="text-[11px] font-semibold text-text-2">
+              One real call per feed, today's date only — the same real error a full scan would hit, without waiting for one.
+            </p>
+            {feedHealth.map((h) => (
+              <div
+                key={`${h.sport}-${h.provider}`}
+                className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 text-[11px] leading-relaxed ${
+                  h.status === 'ok'
+                    ? 'border-ok-line bg-ok-soft text-ok-ink'
+                    : h.status === 'rate_limited'
+                    ? 'border-warn-line bg-warn-soft text-warn-ink'
+                    : 'border-bad-line bg-bad-soft text-bad-ink'
+                }`}
+              >
+                {h.status === 'ok' ? (
+                  <ShieldCheck className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
+                ) : h.status === 'rate_limited' ? (
+                  <Clock className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
+                ) : (
+                  <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
+                )}
+                <div className="min-w-0 flex-1">
+                  <span className="font-bold uppercase tracking-wide">
+                    {h.sport === 'football' ? 'Football' : 'Tennis'} — {h.provider}
+                  </span>
+                  <span className="ml-1.5">
+                    {h.status === 'ok'
+                      ? `OK — ${h.recordCount} fixture(s) for today`
+                      : h.status === 'rate_limited'
+                      ? `Rate-limited / quota exhausted — ${h.message}`
+                      : `Error — ${h.message}`}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 

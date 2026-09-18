@@ -645,3 +645,84 @@ export async function fetchLiveFeedSummary(settings: AppSettings): Promise<{
     error: errors.length > 0 ? errors.join(' · ') : undefined,
   };
 }
+
+/* ============================== Feed health check ======================= */
+
+export interface FeedHealthResult {
+  sport: 'football' | 'tennis';
+  provider: 'SPORTRADAR' | 'SPORTMONKS' | 'NONE';
+  status: 'ok' | 'rate_limited' | 'error' | 'not_configured';
+  /** Real error text from the failed call, when status isn't 'ok'. */
+  message?: string;
+  /** Raw fixture count for today, when status is 'ok'. */
+  recordCount?: number;
+  checkedAt: string;
+}
+
+function classifyFeedError(message: string): 'rate_limited' | 'error' {
+  return /rate[\s-]?limit|429|quota|limit exceeded/i.test(message) ? 'rate_limited' : 'error';
+}
+
+/**
+ * A single cheap call per configured feed (today's date only, no
+ * enrichment) so the user can see which providers are healthy — or
+ * already rate-limited/quota-exhausted — before committing to a full
+ * multi-minute scan that would burn through dozens of calls per sport.
+ */
+export async function checkFeedHealth(settings: AppSettings): Promise<FeedHealthResult[]> {
+  const football = choosefootballProvider(settings);
+  const tennis = chooseTennisProvider(settings);
+  const today = nextDates(1)[0];
+  const results: FeedHealthResult[] = [];
+
+  if (football) {
+    const providerLabel = football.provider === 'sportradar' ? 'SPORTRADAR' : 'SPORTMONKS';
+    try {
+      const body = await apiGet(`/api/football/fixtures?date=${today}&provider=${football.provider}`, football.key);
+      results.push({
+        sport: 'football',
+        provider: providerLabel,
+        status: 'ok',
+        recordCount: (body?.fixtures || []).length,
+        checkedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      results.push({
+        sport: 'football',
+        provider: providerLabel,
+        status: classifyFeedError(message),
+        message,
+        checkedAt: new Date().toISOString(),
+      });
+    }
+  } else {
+    results.push({ sport: 'football', provider: 'NONE', status: 'not_configured', checkedAt: new Date().toISOString() });
+  }
+
+  if (tennis) {
+    try {
+      const body = await apiGet(`/api/tennis/fixtures?date=${today}`, tennis.key);
+      results.push({
+        sport: 'tennis',
+        provider: 'SPORTRADAR',
+        status: 'ok',
+        recordCount: (body?.fixtures || []).length,
+        checkedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      results.push({
+        sport: 'tennis',
+        provider: 'SPORTRADAR',
+        status: classifyFeedError(message),
+        message,
+        checkedAt: new Date().toISOString(),
+      });
+    }
+  } else {
+    results.push({ sport: 'tennis', provider: 'NONE', status: 'not_configured', checkedAt: new Date().toISOString() });
+  }
+
+  return results;
+}

@@ -546,6 +546,8 @@ export default function App() {
         scanModalOpen={isScanModalOpen}
         scanRecordsSoFar={isScanRunning ? scanFootballRecords + scanTennisRecords : undefined}
         onRunScan={handleRunScan}
+        onStopScan={handleStopScan}
+        canStopScan={isScanRunning}
         lastScanTimestamp={lastScanTimestamp}
         onOpenSyncHistory={() => setIsSyncHistoryOpen(true)}
         onOpenSectionInfo={(section) => setInfoModalSection(section)}
