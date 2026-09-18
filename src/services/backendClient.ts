@@ -135,6 +135,13 @@ export function apiGet(path: string, providerKey: string, signal?: AbortSignal):
     owned.finally(() => {
       if (inFlight.get(key) === owned) inFlight.delete(key);
     });
+    // Callers commonly Promise.all() three of these together (team, team,
+    // h2h) — if two reject, only one becomes the Promise.all rejection the
+    // caller actually catches, and the other is otherwise left unobserved,
+    // which the console flags as "Uncaught (in promise)" even though
+    // nothing is actually broken. This no-op catch marks it handled without
+    // affecting the real rejection any caller receives from `owned` itself.
+    owned.catch(() => {});
     return owned;
   }
 

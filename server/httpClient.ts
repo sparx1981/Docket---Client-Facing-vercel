@@ -99,6 +99,17 @@ function throttleFor(provider: string): ProviderThrottle {
 
 const MAX_RATE_LIMIT_RETRIES = 4;
 
+// A 429 that still fails after every retry, with no Retry-After header,
+// almost always means the account's real quota (not just a per-second
+// pace) is exhausted — the quota state doesn't change second to second, so
+// retrying the *next* call the same way just pays another ~8s of backoff
+// to learn the same thing again. Once we've confirmed that for a provider,
+// skip the retry dance on later calls for a short cooldown — still make
+// the one real attempt (in case it already recovered), just fail fast
+// instead of re-proving it's still down.
+const CIRCUIT_BREAKER_COOLDOWN_MS = 30_000;
+const recentlyExhausted = new Map<string, number>();
+
 /** Parses a Retry-After header (seconds, or an HTTP date) into a millisecond delay. */
 function retryAfterMs(header: string | null): number | undefined {
   if (!header) return undefined;
@@ -131,10 +142,16 @@ export async function fetchJson(
   let lastRateLimitError: ProviderError | undefined;
   const loggedUrl = redactUrl(fullUrl);
 
-  for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {
+  const breakerTrippedAt = recentlyExhausted.get(provider);
+  const circuitOpen = breakerTrippedAt !== undefined && Date.now() - breakerTrippedAt < CIRCUIT_BREAKER_COOLDOWN_MS;
+  const maxRetries = circuitOpen ? 0 : MAX_RATE_LIMIT_RETRIES;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     await throttle.acquire();
 
-    console.log(`[api] → ${provider} GET ${loggedUrl}`);
+    console.log(
+      `[api] → ${provider} GET ${loggedUrl}${circuitOpen ? ' (skipping retries — provider still rate-limited from a recent call)' : ''}`
+    );
 
     let response: Response;
     try {
@@ -150,16 +167,24 @@ export async function fetchJson(
       );
     }
 
-    if (response.status === 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
+    if (response.status === 429 && attempt < maxRetries) {
       const wait = retryAfterMs(response.headers.get('Retry-After')) ?? backoffMs(attempt);
-      console.warn(`[api] ⧗ ${provider} 429 for ${loggedUrl} — retrying in ${Math.round(wait)}ms (attempt ${attempt + 1}/${MAX_RATE_LIMIT_RETRIES})`);
+      console.warn(`[api] ⧗ ${provider} 429 for ${loggedUrl} — retrying in ${Math.round(wait)}ms (attempt ${attempt + 1}/${maxRetries})`);
       lastRateLimitError = new ProviderError(
         provider,
         429,
-        `${provider} rate limit hit — retrying in ${Math.round(wait)}ms (attempt ${attempt + 1}/${MAX_RATE_LIMIT_RETRIES})`
+        `${provider} rate limit hit — retrying in ${Math.round(wait)}ms (attempt ${attempt + 1}/${maxRetries})`
       );
       await sleep(wait);
       continue;
+    }
+
+    if (response.status === 429) {
+      recentlyExhausted.set(provider, Date.now());
+    } else if (recentlyExhausted.has(provider)) {
+      // A non-429 response means the provider recovered — stop skipping
+      // retries for it.
+      recentlyExhausted.delete(provider);
     }
 
     const text = await response.text();
@@ -179,7 +204,14 @@ export async function fetchJson(
         provider,
         status,
         status === 429
-          ? `${provider} is rate-limiting requests and did not recover after ${MAX_RATE_LIMIT_RETRIES} retries. Try again shortly, or reduce how many sports/systems are enabled at once.`
+          ? // Surface the provider's own error text (e.g. "Limit Exceeded")
+            // rather than a generic message — repeated retries never once
+            // succeeding, with no Retry-After header, usually means the
+            // account's real quota (not just a per-second cap) is used up,
+            // which no amount of backoff or pacing on our side can fix.
+            `${provider} is still rate-limiting requests${circuitOpen ? '' : ` after ${maxRetries} retries`}${
+              detail ? ` — ${detail.slice(0, 200)}` : ''
+            }. If this persists across every call, the account's trial quota is likely exhausted — check the ${provider} developer dashboard for usage limits.`
           : `${provider} request failed: ${status} ${response.statusText}${detail ? ` — ${detail.slice(0, 300)}` : ''}`
       );
     }
