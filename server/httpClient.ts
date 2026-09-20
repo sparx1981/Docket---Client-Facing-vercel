@@ -16,17 +16,12 @@ import { ProviderError } from './errors';
  * and the routes' handleError) is the graceful fallback: leave that one
  * piece of data missing rather than taking the whole feed down.
  *
- * The two providers' real limits are not the same, so their default
- * intervals below aren't either:
- *  - Sportradar trial keys are documented at a hard 1 query/second across
- *    the whole account — going faster risks 429s or the trial being
- *    revoked, so 1000ms is the floor, not a starting point to tune down.
- *  - Sportmonks' default/free plans allow 3000 calls/hour *per entity*
- *    (fixtures, teams and h2h are separate entities, each with their own
- *    budget) — https://docs.sportmonks.com/football/api/rate-limit. A
- *    typical scan makes a few hundred calls total, nowhere near the
- *    hourly cap, so Sportmonks can run several times faster than
- *    Sportradar without any real risk of tripping its limit.
+ * TheStatsAPI.com (the only provider left after the Sportradar/Sportmonks
+ * migration) exposes its real per-minute burst and monthly quota via
+ * X-RateLimit and X-Monthly-Quota response headers rather than one
+ * documented constant, so the default pace below is a conservative
+ * starting point — the 429 handling further down (which respects
+ * Retry-After) is what actually keeps a scan inside the account's limits.
  */
 
 function sleep(ms: number): Promise<void> {
@@ -45,18 +40,14 @@ function redactUrl(url: URL): string {
 /** Minimum gap between the *start* of consecutive requests to a given provider. */
 function minIntervalMs(provider: string): number {
   const normalized = provider.toLowerCase();
-  if (normalized.includes('sportradar')) {
-    // Sportradar trial: hard 1 QPS account-wide. 1000ms + a small safety
-    // margin so clock jitter never nudges us over the real limit.
-    const fromEnv = Number(process.env.SPORTRADAR_MIN_INTERVAL_MS);
-    return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 1050;
-  }
-  if (normalized.includes('sportmonks')) {
-    // Sportmonks: 3000 calls/hour per entity — a full scan (a few hundred
-    // calls) is a small fraction of that budget, so this can run much
-    // faster than Sportradar's hard per-second cap.
-    const fromEnv = Number(process.env.SPORTMONKS_MIN_INTERVAL_MS);
-    return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 350;
+  if (normalized.includes('thestatsapi')) {
+    // TheStatsAPI exposes its real per-minute burst limit via
+    // X-RateLimit-* response headers (see fetchJson's 429 handling below,
+    // which already respects Retry-After) rather than a single documented
+    // constant — this default is a conservative starting pace, not a
+    // measured ceiling.
+    const fromEnv = Number(process.env.THESTATSAPI_MIN_INTERVAL_MS);
+    return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 300;
   }
   // Unknown provider — fall back to the conservative 1 req/sec default.
   return 1100;
@@ -129,7 +120,8 @@ function backoffMs(attempt: number): number {
 export async function fetchJson(
   provider: string,
   url: string,
-  params: Record<string, string | undefined>
+  params: Record<string, string | undefined>,
+  options?: { headers?: Record<string, string> }
 ): Promise<any> {
   const fullUrl = new URL(url);
   for (const [key, value] of Object.entries(params)) {
@@ -156,7 +148,7 @@ export async function fetchJson(
     let response: Response;
     try {
       response = await fetch(fullUrl.toString(), {
-        headers: { Accept: 'application/json' },
+        headers: { Accept: 'application/json', ...options?.headers },
       });
     } catch (err) {
       console.error(`[api] ✗ ${provider} network error for ${loggedUrl}:`, err);

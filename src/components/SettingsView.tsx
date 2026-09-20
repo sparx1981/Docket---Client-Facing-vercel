@@ -17,7 +17,7 @@ import {
   Cloud,
   RefreshCw,
 } from 'lucide-react';
-import { AppSettings, CandidateFixture, FeedSummaryRecord, RuleThresholds } from '../types';
+import { AppSettings, BacktestSummary, CandidateFixture, FeedSummaryRecord, LeagueOption, RuleThresholds } from '../types';
 import {
   Button,
   Chip,
@@ -29,7 +29,8 @@ import {
 import { formatTimeUntilNextRun } from '../services/scheduler';
 import { FilterHoverPopup } from './FilterHoverPopup';
 import { calculateSystemBreakdown } from '../services/filterBreakdown';
-import { checkFeedHealth, FeedHealthResult, fetchLiveFeedSummary } from '../services/dataFeed';
+import { checkFeedHealth, FeedHealthResult, fetchLeagues, fetchLiveFeedSummary } from '../services/dataFeed';
+import { runBacktest } from '../services/backtest';
 
 /** A link to the real place a provider's own dashboard lets you create/view an API key or token. */
 const ProviderKeyLink: React.FC<{ href: string; children: React.ReactNode }> = ({
@@ -83,6 +84,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [autoScanTriggered, setAutoScanTriggered] = useState(false);
 
+  // League filter (Filter Thresholds)
+  const [leagues, setLeagues] = useState<LeagueOption[]>([]);
+  const [leaguesLoading, setLeaguesLoading] = useState(false);
+  const [leaguesError, setLeaguesError] = useState<string | null>(null);
+
+  // Backtest (Filter Thresholds)
+  const [backtestSystem, setBacktestSystem] = useState<'football_over_1_5' | 'football_under_3_5'>(
+    'football_over_1_5'
+  );
+  const [backtestLeagueId, setBacktestLeagueId] = useState<string>('');
+  const [backtestRunning, setBacktestRunning] = useState(false);
+  const [backtestResult, setBacktestResult] = useState<BacktestSummary | null>(null);
+  const [backtestError, setBacktestError] = useState<string | null>(null);
+
   // Live feed state for Filter Thresholds breakdown
   const [liveFixtures, setLiveFixtures] = useState<CandidateFixture[]>(fixtures || []);
   const [feedInfoFootball, setFeedInfoFootball] = useState<FeedSummaryRecord | undefined>(footballFeedInfo);
@@ -104,8 +119,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     if (tennisFeedInfo) setFeedInfoTennis(tennisFeedInfo);
   }, [tennisFeedInfo]);
 
-  const footballConfigured = !!(formData.sportradarFootballApiKey || formData.sportmonksApiKey);
-  const tennisConfigured = !!formData.sportradarTennisApiKey;
+  const footballConfigured = !!formData.theStatsApiKey;
+  // Tennis has no configured data supplier since the Sportradar/Sportmonks
+  // migration — kept as a constant (rather than deleted) so the tennis
+  // breakdown card below still renders its real "not configured" state.
+  const tennisConfigured = false;
 
   const handleRefreshLiveFeed = async () => {
     setIsRefreshingFeed(true);
@@ -134,12 +152,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
-  // Auto-query live feed on mount if keys are configured and no fixtures are in state yet
-  useEffect(() => {
-    if ((footballConfigured || tennisConfigured) && liveFixtures.length === 0 && !isRefreshingFeed) {
-      handleRefreshLiveFeed();
-    }
-  }, []);
+  // Deliberately no auto-fetch on mount: a live provider call must only
+  // happen at the configured schedule time or via an explicit manual
+  // trigger (the refresh button below), never just from opening this page.
 
   const over15Breakdown = useMemo(
     () =>
@@ -150,9 +165,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         feedInfo: feedInfoFootball,
         isConfigured: footballConfigured,
         isLoading: isRefreshingFeed || fixturesLoading,
-        error:
-          feedInfoFootball?.error ||
-          (footballConfigured ? undefined : 'Sportradar Football or Sportmonks API key not configured'),
+        error: feedInfoFootball?.error || (footballConfigured ? undefined : 'TheStatsAPI key not configured'),
       }),
     [formData.ruleThresholds, liveFixtures, feedInfoFootball, footballConfigured, isRefreshingFeed, fixturesLoading]
   );
@@ -166,9 +179,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         feedInfo: feedInfoFootball,
         isConfigured: footballConfigured,
         isLoading: isRefreshingFeed || fixturesLoading,
-        error:
-          feedInfoFootball?.error ||
-          (footballConfigured ? undefined : 'Sportradar Football or Sportmonks API key not configured'),
+        error: feedInfoFootball?.error || (footballConfigured ? undefined : 'TheStatsAPI key not configured'),
       }),
     [formData.ruleThresholds, liveFixtures, feedInfoFootball, footballConfigured, isRefreshingFeed, fixturesLoading]
   );
@@ -182,19 +193,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         feedInfo: feedInfoTennis,
         isConfigured: tennisConfigured,
         isLoading: isRefreshingFeed || fixturesLoading,
-        error:
-          feedInfoTennis?.error ||
-          (tennisConfigured ? undefined : 'Sportradar Tennis API key not configured'),
+        error: feedInfoTennis?.error || 'Tennis has no configured data supplier yet',
       }),
     [formData.ruleThresholds, liveFixtures, feedInfoTennis, tennisConfigured, isRefreshingFeed, fixturesLoading]
   );
 
-  const hasProviderKey = !!(
-    formData.sportradarFootballApiKey ||
-    formData.sportradarTennisApiKey ||
-    formData.sportradarApiKey ||
-    formData.sportmonksApiKey
-  );
+  const hasProviderKey = !!formData.theStatsApiKey;
   // Flashscore / Tennis Abstract have no real integration in this app (no
   // public API for either) — these fields are kept only as optional manual
   // reference links, so this just reflects "a value is typed in", not "this
@@ -252,6 +256,52 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setTestResult(`Could not reach the backend: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsTesting(false);
+    }
+  };
+
+  const handleLoadLeagues = async () => {
+    setLeaguesLoading(true);
+    setLeaguesError(null);
+    try {
+      const result = await fetchLeagues(formData);
+      setLeagues(result.sort((a, b) => a.name.localeCompare(b.name)));
+      if (result.length === 0) {
+        setLeaguesError('No competitions returned — check the TheStatsAPI key above.');
+      }
+    } catch (err) {
+      setLeaguesError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLeaguesLoading(false);
+    }
+  };
+
+  const toggleLeagueSelected = (id: string) => {
+    setFormData((prev) => {
+      const selected = new Set(prev.selectedLeagueIds);
+      if (selected.has(id)) selected.delete(id);
+      else selected.add(id);
+      return { ...prev, selectedLeagueIds: Array.from(selected) };
+    });
+  };
+
+  const handleRunBacktest = async () => {
+    setBacktestRunning(true);
+    setBacktestError(null);
+    setBacktestResult(null);
+    try {
+      const league = backtestLeagueId ? leagues.find((l) => l.id === backtestLeagueId) : undefined;
+      const result = await runBacktest(
+        formData,
+        backtestSystem,
+        backtestLeagueId || null,
+        league ? league.name : 'All leagues',
+        200
+      );
+      setBacktestResult(result);
+    } catch (err) {
+      setBacktestError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBacktestRunning(false);
     }
   };
 
@@ -693,103 +743,42 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </CollapsibleSection>
 
-      {/* ---- Sportradar / Sportmonks — the real live providers ---- */}
+      {/* ---- TheStatsAPI — the live football data provider ---- */}
       <CollapsibleSection
-        title="Sportradar &amp; Sportmonks (live provider keys)"
+        title="TheStatsAPI (live provider key)"
         icon={<ShieldCheck className="h-4 w-4" strokeWidth={2.5} />}
         defaultOpen={false}
         action={<Chip tone={hasProviderKey ? 'ok' : 'warn'}>{hasProviderKey ? 'Configured' : 'Not configured'}</Chip>}
       >
         <div className="space-y-4 px-4 py-4">
           <p className="text-[11px] leading-relaxed text-text-2">
-            These are the data providers this app calls for fixtures, results, team
-            stats and tennis rankings. The keys you paste here are sent to our own backend per
-            request (never straight to Sportradar/Sportmonks from the browser), which forwards them
-            server-to-server. Sportradar provides separate APIs for Football (Soccer v4) and Tennis (v3);
-            Sportmonks covers football only.
+            TheStatsAPI.com is this app's football data provider — fixtures, results, team
+            stats, competitions and head-to-head records all come from it. The key you paste here
+            is sent to our own backend per request (never straight to TheStatsAPI from the
+            browser), which forwards it server-to-server as a Bearer token. Sportradar and
+            Sportmonks were retired from this app over cost and are no longer called anywhere.
+            Tennis has no configured data supplier yet — it is planned to move to its own new
+            provider in a later phase.
           </p>
-          <Switch
-            id="force-fallback"
-            checked={formData.useFallbackProviders}
-            onChange={(v) => set('useFallbackProviders', v)}
-            label="Prefer these over Flashscore/Tennis Abstract once integrated"
-            hint="Reserved for when Flashscore/Tennis Abstract get a real integration in a later phase — has no effect on fixture pulls today, since those two aren't wired to any data source yet."
-          />
 
-          <div className="grid grid-cols-1 gap-4 border-t border-line pt-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 border-t border-line pt-4">
             <Field
-              label="Sportradar Football API key"
-              htmlFor="key-sportradar-football"
-              hint="Soccer v4 API. Used for football fixtures, team profiles and head-to-head records."
+              label="TheStatsAPI key"
+              htmlFor="key-thestatsapi"
+              hint="Sent as an Authorization: Bearer header. Used for football competitions, fixtures, results, team stats and head-to-head."
               action={
-                <ProviderKeyLink href="https://developer.sportradar.com/">
+                <ProviderKeyLink href="https://www.thestatsapi.com/">
                   Get a key
                 </ProviderKeyLink>
               }
             >
               <input
-                id="key-sportradar-football"
+                id="key-thestatsapi"
                 type="text"
                 autoComplete="off"
-                placeholder="sr_football_…"
-                value={formData.sportradarFootballApiKey}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setFormData((prev) => ({
-                    ...prev,
-                    sportradarFootballApiKey: val,
-                    sportradarApiKey: val || prev.sportradarTennisApiKey || '',
-                  }));
-                }}
-                className={`${inputClass} font-mono`}
-              />
-            </Field>
-
-            <Field
-              label="Sportradar Tennis API key"
-              htmlFor="key-sportradar-tennis"
-              hint="Tennis v3 API. Required for tennis tournament fixtures, rankings and player profiles."
-              action={
-                <ProviderKeyLink href="https://developer.sportradar.com/">
-                  Get a key
-                </ProviderKeyLink>
-              }
-            >
-              <input
-                id="key-sportradar-tennis"
-                type="text"
-                autoComplete="off"
-                placeholder="sr_tennis_…"
-                value={formData.sportradarTennisApiKey}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setFormData((prev) => ({
-                    ...prev,
-                    sportradarTennisApiKey: val,
-                    sportradarApiKey: prev.sportradarFootballApiKey || val || '',
-                  }));
-                }}
-                className={`${inputClass} font-mono`}
-              />
-            </Field>
-
-            <Field
-              label="Sportmonks API key"
-              htmlFor="key-sportmonks"
-              hint="European football fixtures and head-to-head archives."
-              action={
-                <ProviderKeyLink href="https://www.sportmonks.com/football-api/">
-                  Get a key
-                </ProviderKeyLink>
-              }
-            >
-              <input
-                id="key-sportmonks"
-                type="text"
-                autoComplete="off"
-                placeholder="sm_api_…"
-                value={formData.sportmonksApiKey}
-                onChange={(e) => set('sportmonksApiKey', e.target.value)}
+                placeholder="tsa_…"
+                value={formData.theStatsApiKey}
+                onChange={(e) => set('theStatsApiKey', e.target.value)}
                 className={`${inputClass} font-mono`}
               />
             </Field>
@@ -830,6 +819,150 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               {feedError}
             </div>
           )}
+
+          {/* League filter */}
+          <div className="border-t border-line pt-4">
+            <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-1">
+                <h3 className="text-[12px] font-extrabold uppercase tracking-wider text-text">League Filter</h3>
+                <p className="text-[11px] leading-relaxed text-text-2">
+                  Choose which football competitions fixtures and backtests are pulled from. Leave
+                  nothing selected for "All" — every competition your TheStatsAPI key can see.
+                </p>
+              </div>
+              <button
+                type="button"
+                id="btn-load-leagues"
+                onClick={handleLoadLeagues}
+                disabled={leaguesLoading || !formData.theStatsApiKey}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border border-line bg-surface text-text hover:border-brand transition-colors shrink-0 disabled:opacity-60"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${leaguesLoading ? 'animate-spin text-brand' : ''}`} />
+                <span>{leaguesLoading ? 'Loading leagues…' : 'Load leagues'}</span>
+              </button>
+            </div>
+
+            {leaguesError && (
+              <p className="mb-3 text-[11px] font-medium text-bad-ink">{leaguesError}</p>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              <Chip tone={formData.selectedLeagueIds.length === 0 ? 'ok' : 'neutral'}>
+                {formData.selectedLeagueIds.length === 0
+                  ? 'All leagues'
+                  : `${formData.selectedLeagueIds.length} league${formData.selectedLeagueIds.length === 1 ? '' : 's'} selected`}
+              </Chip>
+              {formData.selectedLeagueIds.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => set('selectedLeagueIds', [])}
+                  className="text-[11px] font-semibold text-brand-ink hover:underline"
+                >
+                  Reset to All
+                </button>
+              )}
+            </div>
+
+            {leagues.length > 0 && (
+              <div className="max-h-64 overflow-y-auto rounded-lg border border-line divide-y divide-line">
+                {leagues.map((league) => {
+                  const checked = formData.selectedLeagueIds.includes(league.id);
+                  return (
+                    <label
+                      key={league.id}
+                      className="flex items-center justify-between gap-3 px-3 py-2 text-[12px] cursor-pointer hover:bg-surface-2"
+                    >
+                      <span className="flex items-center gap-2 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleLeagueSelected(league.id)}
+                          className="shrink-0"
+                        />
+                        <span className="truncate text-text">{league.name}</span>
+                        {league.country && (
+                          <span className="shrink-0 text-text-2 text-[11px]">({league.country})</span>
+                        )}
+                      </span>
+                      <span className="shrink-0 text-[10px] uppercase tracking-wide text-text-2">{league.type}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Backtest */}
+          <div className="border-t border-line pt-4">
+            <div className="mb-3 space-y-1">
+              <h3 className="text-[12px] font-extrabold uppercase tracking-wider text-text">Backtest</h3>
+              <p className="text-[11px] leading-relaxed text-text-2">
+                Settle the last 200 finished matches for the selected league against a rule's real
+                final scores, at that rule's configured required odds. This checks the goal-line
+                outcome only — it does not replay each match's pre-match form/H2H as it stood on
+                that date (TheStatsAPI has no "stats as of a past date" query), and there is no
+                historical Betfair Exchange price to test against.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-end mb-3">
+              <Field label="Rule" htmlFor="backtest-system">
+                <select
+                  id="backtest-system"
+                  value={backtestSystem}
+                  onChange={(e) => setBacktestSystem(e.target.value as typeof backtestSystem)}
+                  className={inputClass}
+                >
+                  <option value="football_over_1_5">Football — Over 1.5 Goals</option>
+                  <option value="football_under_3_5">Football — Under 3.5 Goals</option>
+                </select>
+              </Field>
+              <Field label="League" htmlFor="backtest-league">
+                <select
+                  id="backtest-league"
+                  value={backtestLeagueId}
+                  onChange={(e) => setBacktestLeagueId(e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="">All leagues</option>
+                  {leagues.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <button
+                type="button"
+                id="btn-run-backtest"
+                onClick={handleRunBacktest}
+                disabled={backtestRunning || !formData.theStatsApiKey}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border border-line bg-surface text-text hover:border-brand transition-colors shrink-0 disabled:opacity-60"
+              >
+                <Play className={`w-3.5 h-3.5 ${backtestRunning ? 'animate-pulse text-brand' : ''}`} />
+                <span>{backtestRunning ? 'Running backtest…' : 'Run backtest'}</span>
+              </button>
+            </div>
+
+            {backtestError && <p className="mb-3 text-[11px] font-medium text-bad-ink">{backtestError}</p>}
+
+            {backtestResult && (
+              <div className="rounded-lg border border-line bg-surface-2 p-3 space-y-2">
+                <p className="text-[12px] font-semibold text-text">
+                  {backtestResult.leagueLabel} · {backtestResult.sampleSize} matches settled
+                </p>
+                <div className="flex flex-wrap gap-x-5 gap-y-1 text-[12px] font-mono text-text">
+                  <span>Wins: {backtestResult.wins}</span>
+                  <span>Losses: {backtestResult.losses}</span>
+                  <span>Win rate: {backtestResult.winRatePct}%</span>
+                  <span>Required odds: {backtestResult.requiredOdds.toFixed(2)}</span>
+                  <span>Net units: {backtestResult.netUnitsAtRequiredOdds >= 0 ? '+' : ''}{backtestResult.netUnitsAtRequiredOdds}</span>
+                  <span>ROI: {backtestResult.roiPct}%</span>
+                </div>
+                <p className="text-[10px] leading-relaxed text-text-2">{backtestResult.scopeNote}</p>
+              </div>
+            )}
+          </div>
 
           {/* System A: Over 1.5 Goals */}
           <div className="border-t border-line pt-4">

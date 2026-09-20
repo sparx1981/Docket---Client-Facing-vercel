@@ -48,10 +48,7 @@ import { LoginScreen } from './components/LoginScreen';
 /** True once at least one real provider key is configured — governs whether we attempt any network call at all. */
 const hasAnyProviderKey = (settings: AppSettings) =>
   Boolean(
-    settings.sportradarFootballApiKey ||
-    settings.sportradarTennisApiKey ||
-    settings.sportradarApiKey ||
-    settings.sportmonksApiKey
+    settings.theStatsApiKey
   );
 
 export interface UserProfile {
@@ -138,7 +135,11 @@ export default function App() {
           setHistoricalBets(hydrated.historicalBets);
           setSyncLogs(hydrated.syncLogs);
           setLastScanTimestamp(hydrated.lastScanTimestamp);
-          loadFixtures(hydrated.settings);
+          // Deliberately no loadFixtures() here — a fresh network pull must
+          // only happen at the configured schedule time or via an explicit
+          // "Run Daily Scan"/manual trigger, never as a side effect of
+          // logging in. The header shows whatever fixtures state already
+          // holds (empty on a fresh session) until one of those fires.
         } catch (err) {
           console.error('Failed to hydrate user data from cloud on login:', err);
         }
@@ -231,7 +232,7 @@ export default function App() {
     if (!hasAnyProviderKey(currentSettings)) {
       setFixtures([]);
       setFixturesError(
-        'No data provider configured. Add a Sportradar or Sportmonks API key in Engine Configuration to pull fixtures.'
+        'No data provider configured. Add a TheStatsAPI key in Engine Configuration to pull fixtures.'
       );
       return;
     }
@@ -267,13 +268,14 @@ export default function App() {
     }
   };
 
-  // Initial load: fetch real fixtures, and — the very first time this
-  // device sees an empty archive with a provider configured — backfill
-  // genuine settled results rather than leaving the Archive silently empty
-  // forever or seeding it with fabricated rows.
+  // Initial load: deliberately does NOT call loadFixtures() — a fixture
+  // pull must only happen at the configured schedule time or via an
+  // explicit manual trigger, never automatically on every app open. The
+  // one thing this still does automatically is a one-off historical
+  // backfill the very first time this device sees an empty archive with a
+  // provider configured, so the Archive isn't silently empty forever; that
+  // is a single one-time backfill, not a recurring sync, so it stays.
   useEffect(() => {
-    loadFixtures(settings);
-
     if (!backfillAttemptedRef.current && !hasAttemptedHistoricalBackfill()) {
       backfillAttemptedRef.current = true;
       markHistoricalBackfillAttempted();
@@ -410,7 +412,8 @@ export default function App() {
       }
     }
     setIsSavingSettings(false);
-    loadFixtures(newSettings);
+    // Saving settings no longer triggers a fixture pull — a sync only runs
+    // at the configured schedule time or via an explicit manual trigger.
   };
 
   // Triggered directly from the "Run Daily Scan" click (never from a

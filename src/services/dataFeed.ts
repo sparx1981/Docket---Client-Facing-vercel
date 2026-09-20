@@ -4,6 +4,7 @@ import {
   FeedSummaryRecord,
   FootballPrevSeasonStats,
   H2HMatchRecord,
+  LeagueOption,
   RuleThresholds,
   TeamRecentMatch,
   TennisPlayerStats,
@@ -13,12 +14,16 @@ import { evaluateFixture } from './rulesEngine';
 import { apiGet } from './backendClient';
 
 /**
- * Real fixture ingestion. Every candidate fixture on screen now comes from a
- * live Sportradar or Sportmonks call, proxied through our own backend
- * (server/index.ts) — never from hardcoded seed data. When no provider key
- * is configured, or every provider call fails, this returns an empty list
- * plus a human-readable error the UI can surface, rather than falling back
- * to anything fabricated.
+ * Real fixture ingestion. Every football candidate fixture on screen now
+ * comes from a live TheStatsAPI.com call, proxied through our own backend
+ * (server/index.ts) — never from hardcoded seed data. Tennis has no
+ * configured data supplier at all right now (Sportradar Tennis was removed
+ * along with football's old providers; tennis's own migration is a later
+ * phase), so tennis candidates are never fetched.
+ *
+ * When no TheStatsAPI key is configured, or the pull fails, this returns an
+ * empty list plus a human-readable error the UI can surface, rather than
+ * falling back to anything fabricated.
  */
 
 export interface FixtureFetchResult {
@@ -43,8 +48,6 @@ export interface FeedProgressEvent {
 }
 
 export type FeedProgressCallback = (event: FeedProgressEvent) => void;
-
-type FootballProvider = 'sportradar' | 'sportmonks';
 
 // Bounded enrichment: how many fixtures we enrich with team/player/H2H lookups
 // per sport, per scan. In order to accurately report the total records received
@@ -79,23 +82,25 @@ function googleUrl(matchTitle: string, competition: string): string {
   );
 }
 
-function choosefootballProvider(
-  settings: AppSettings
-): { provider: FootballProvider; key: string } | null {
-  // Mirrors the existing provider-selection logic (useFallbackProviders /
-  // whichever B2B key is present) — Sportradar is tried first when both are
-  // configured, Sportmonks otherwise.
-  const footballKey = settings.sportradarFootballApiKey || settings.sportradarApiKey;
-  if (footballKey) return { provider: 'sportradar', key: footballKey };
-  if (settings.sportmonksApiKey) return { provider: 'sportmonks', key: settings.sportmonksApiKey };
+function choosefootballProvider(settings: AppSettings): { key: string } | null {
+  if (settings.theStatsApiKey) return { key: settings.theStatsApiKey };
   return null;
 }
 
-function chooseTennisProvider(settings: AppSettings): { key: string } | null {
-  // Sportmonks has no tennis coverage — Sportradar Tennis is the only option.
-  const tennisKey = settings.sportradarTennisApiKey || settings.sportradarApiKey;
-  if (tennisKey) return { key: tennisKey };
+function chooseTennisProvider(_settings: AppSettings): { key: string } | null {
+  // Tennis has no configured data supplier since the Sportradar/Sportmonks
+  // migration off cost-prohibitive trial tiers. It is planned to move to
+  // its own new provider in a later phase, not restored to Sportradar.
   return null;
+}
+
+/** Fetches every football competition the account's TheStatsAPI key can see. */
+export async function fetchLeagues(settings: AppSettings): Promise<LeagueOption[]> {
+  const football = choosefootballProvider(settings);
+  if (!football) return [];
+  const body = await apiGet('/api/football/competitions', football.key);
+  const rows: any[] = body?.competitions || [];
+  return rows.map((c) => ({ id: c.id, name: c.name, country: c.country ?? null, type: c.type }));
 }
 
 /* ============================== Football ============================== */
@@ -112,47 +117,61 @@ interface RawFootballFixture {
 }
 
 async function buildFootballCandidates(
-  provider: FootballProvider,
   key: string,
   dates: string[],
   thresholds: RuleThresholds,
+  selectedLeagueIds: string[],
   onProgress?: FeedProgressCallback,
   signal?: AbortSignal
 ): Promise<{ candidates: CandidateFixture[]; rawTotal: number; partialError?: string }> {
   const allRawFixtures: RawFootballFixture[] = [];
   const dateErrors: string[] = [];
+  // Empty selection means "All" — one call per date. Otherwise TheStatsAPI's
+  // competition_id filter only takes a single value, so a specific league
+  // selection means one call per (date, league) pair.
+  const leagueIdsToQuery = selectedLeagueIds.length > 0 ? selectedLeagueIds : [undefined];
+
   for (const date of dates) {
     onProgress?.({
       sport: 'football',
       message: `Requesting football fixtures for ${date}…`,
       recordsSoFar: allRawFixtures.length,
     });
-    try {
-      const body = await apiGet(`/api/football/fixtures?date=${date}&provider=${provider}`, key, signal);
-      const received = body?.fixtures || [];
-      for (const f of received) {
-        allRawFixtures.push(f);
+    let dateFailed = 0;
+    for (const leagueId of leagueIdsToQuery) {
+      try {
+        const qs = leagueId ? `date=${date}&competitionId=${leagueId}` : `date=${date}`;
+        const body = await apiGet(`/api/football/fixtures?${qs}`, key, signal);
+        const received = body?.fixtures || [];
+        for (const f of received) {
+          allRawFixtures.push(f);
+        }
+        onProgress?.({
+          sport: 'football',
+          message: `Received ${received.length} football fixture(s) for ${date} (${allRawFixtures.length} total so far).`,
+          recordsSoFar: allRawFixtures.length,
+        });
+      } catch (err) {
+        if (isAbortError(err)) throw err;
+        // A single day/league schedule call failing (rate limit exhausted,
+        // transient upstream error) shouldn't blank out the whole feed —
+        // keep whatever else succeeded and surface this as a partial-data note.
+        const msg = err instanceof Error ? err.message : String(err);
+        dateFailed++;
+        dateErrors.push(`${date}${leagueId ? ` (${leagueId})` : ''}: ${msg}`);
+        onProgress?.({
+          sport: 'football',
+          message: `Could not fetch football fixtures for ${date}: ${msg}`,
+          recordsSoFar: allRawFixtures.length,
+        });
       }
-      onProgress?.({
-        sport: 'football',
-        message: `Received ${received.length} football fixture(s) for ${date} (${allRawFixtures.length} total so far).`,
-        recordsSoFar: allRawFixtures.length,
-      });
-    } catch (err) {
-      if (isAbortError(err)) throw err;
-      // A single day's schedule call failing (rate limit exhausted, transient
-      // upstream error) shouldn't blank out the whole feed — keep whatever
-      // other days succeeded and surface this one as a partial-data note.
-      const msg = err instanceof Error ? err.message : String(err);
-      dateErrors.push(`${date}: ${msg}`);
-      onProgress?.({
-        sport: 'football',
-        message: `Could not fetch football fixtures for ${date}: ${msg}`,
-        recordsSoFar: allRawFixtures.length,
-      });
+    }
+    if (dateFailed === leagueIdsToQuery.length && leagueIdsToQuery.length > 0) {
+      // Every league query for this date failed — nothing usable came back
+      // for it, already recorded above.
     }
   }
-  if (dateErrors.length === dates.length) {
+  if (dateErrors.length === dates.length * leagueIdsToQuery.length) {
     throw new Error(dateErrors.join(' · '));
   }
 
@@ -176,9 +195,9 @@ async function buildFootballCandidates(
     if (i < MAX_ENRICHED_FIXTURES_PER_SPORT && fx.homeId && fx.awayId) {
       try {
         const [homeProfile, awayProfile, h2h] = await Promise.all([
-          apiGet(`/api/football/team/${fx.homeId}?provider=${provider}`, key, signal),
-          apiGet(`/api/football/team/${fx.awayId}?provider=${provider}`, key, signal),
-          apiGet(`/api/football/h2h?team1=${fx.homeId}&team2=${fx.awayId}&provider=${provider}`, key, signal),
+          apiGet(`/api/football/team/${fx.homeId}`, key, signal),
+          apiGet(`/api/football/team/${fx.awayId}`, key, signal),
+          apiGet(`/api/football/h2h?team1=${fx.homeId}&team2=${fx.awayId}`, key, signal),
         ]);
 
         const homePrevSeason: FootballPrevSeasonStats | undefined = homeProfile?.team?.prevSeason;
@@ -221,10 +240,10 @@ async function buildFootballCandidates(
     // disabled in Engine Configuration is skipped entirely rather than shown
     // as a permanently-failed candidate.
     if (thresholds.footballOver15.enabled) {
-      candidates.push(buildFootballCandidate('football_over_1_5', fx, footballDetails, thresholds, provider, rawTotal));
+      candidates.push(buildFootballCandidate('football_over_1_5', fx, footballDetails, thresholds, rawTotal));
     }
     if (thresholds.footballUnder35.enabled) {
-      candidates.push(buildFootballCandidate('football_under_3_5', fx, footballDetails, thresholds, provider, rawTotal));
+      candidates.push(buildFootballCandidate('football_under_3_5', fx, footballDetails, thresholds, rawTotal));
     }
   }
 
@@ -240,7 +259,6 @@ function buildFootballCandidate(
   fx: RawFootballFixture,
   footballDetails: CandidateFixture['footballDetails'] | undefined,
   thresholds: RuleThresholds,
-  provider: FootballProvider,
   rawTotal?: number
 ): CandidateFixture {
   const requiredOdds =
@@ -264,7 +282,7 @@ function buildFootballCandidate(
     venue: fx.venue,
     betType,
     googleVerificationUrl: googleUrl(matchTitle, fx.competition),
-    sourceProvider: provider === 'sportradar' ? 'SPORTRADAR' : 'SPORTMONKS',
+    sourceProvider: 'THESTATSAPI',
     // No Betfair Exchange integration in phase 1 (see betfairMarket, which
     // is intentionally absent below) — there is no real current price to
     // report, so this is left at 0 rather than a fabricated figure. UI
@@ -478,8 +496,7 @@ export async function fetchCandidateFixtures(
   if (!football && !tennis) {
     return {
       fixtures: [],
-      error:
-        'No data provider configured. Add a Sportradar (Football or Tennis) or Sportmonks API key in Engine Configuration to pull real fixtures.',
+      error: 'No data provider configured. Add a TheStatsAPI key in Engine Configuration to pull real football fixtures.',
     };
   }
 
@@ -492,11 +509,18 @@ export async function fetchCandidateFixtures(
 
   if (football && (thresholds.footballOver15.enabled || thresholds.footballUnder35.enabled)) {
     try {
-      const fbResult = await buildFootballCandidates(football.provider, football.key, dates, thresholds, onProgress, signal);
+      const fbResult = await buildFootballCandidates(
+        football.key,
+        dates,
+        thresholds,
+        settings.selectedLeagueIds,
+        onProgress,
+        signal
+      );
       fixtures.push(...fbResult.candidates);
       footballFeedInfo = {
         sport: 'football',
-        provider: football.provider === 'sportradar' ? 'SPORTRADAR' : 'SPORTMONKS',
+        provider: 'THESTATSAPI',
         totalRecordsReceived: fbResult.rawTotal,
         fetchedAt: new Date().toISOString(),
         queryDates: dates,
@@ -508,7 +532,7 @@ export async function fetchCandidateFixtures(
       errors.push(msg);
       footballFeedInfo = {
         sport: 'football',
-        provider: football.provider === 'sportradar' ? 'SPORTRADAR' : 'SPORTMONKS',
+        provider: 'THESTATSAPI',
         totalRecordsReceived: 0,
         fetchedAt: new Date().toISOString(),
         queryDates: dates,
@@ -545,7 +569,7 @@ export async function fetchCandidateFixtures(
       };
     }
   } else {
-    errors.push('Tennis fixtures require a Sportradar Tennis API key (Sportmonks does not cover tennis).');
+    errors.push('Tennis has no configured data supplier yet — it is planned to move to a new provider in a later phase.');
   }
 
   return {
@@ -586,11 +610,11 @@ export async function fetchLiveFeedSummary(settings: AppSettings): Promise<{
 
   if (football) {
     try {
-      const fbResult = await buildFootballCandidates(football.provider, football.key, dates, forcedThresholds);
+      const fbResult = await buildFootballCandidates(football.key, dates, forcedThresholds, settings.selectedLeagueIds);
       fixtures.push(...fbResult.candidates);
       footballFeedInfo = {
         sport: 'football',
-        provider: football.provider === 'sportradar' ? 'SPORTRADAR' : 'SPORTMONKS',
+        provider: 'THESTATSAPI',
         totalRecordsReceived: fbResult.rawTotal,
         fetchedAt: new Date().toISOString(),
         queryDates: dates,
@@ -601,7 +625,7 @@ export async function fetchLiveFeedSummary(settings: AppSettings): Promise<{
       errors.push(`Football feed error: ${msg}`);
       footballFeedInfo = {
         sport: 'football',
-        provider: football.provider === 'sportradar' ? 'SPORTRADAR' : 'SPORTMONKS',
+        provider: 'THESTATSAPI',
         totalRecordsReceived: 0,
         fetchedAt: new Date().toISOString(),
         queryDates: dates,
@@ -650,7 +674,7 @@ export async function fetchLiveFeedSummary(settings: AppSettings): Promise<{
 
 export interface FeedHealthResult {
   sport: 'football' | 'tennis';
-  provider: 'SPORTRADAR' | 'SPORTMONKS' | 'NONE';
+  provider: 'THESTATSAPI' | 'SPORTRADAR' | 'NONE';
   status: 'ok' | 'rate_limited' | 'error' | 'not_configured';
   /** Real error text from the failed call, when status isn't 'ok'. */
   message?: string;
@@ -676,12 +700,11 @@ export async function checkFeedHealth(settings: AppSettings): Promise<FeedHealth
   const results: FeedHealthResult[] = [];
 
   if (football) {
-    const providerLabel = football.provider === 'sportradar' ? 'SPORTRADAR' : 'SPORTMONKS';
     try {
-      const body = await apiGet(`/api/football/fixtures?date=${today}&provider=${football.provider}`, football.key);
+      const body = await apiGet(`/api/football/fixtures?date=${today}`, football.key);
       results.push({
         sport: 'football',
-        provider: providerLabel,
+        provider: 'THESTATSAPI',
         status: 'ok',
         recordCount: (body?.fixtures || []).length,
         checkedAt: new Date().toISOString(),
@@ -690,7 +713,7 @@ export async function checkFeedHealth(settings: AppSettings): Promise<FeedHealth
       const message = err instanceof Error ? err.message : String(err);
       results.push({
         sport: 'football',
-        provider: providerLabel,
+        provider: 'THESTATSAPI',
         status: classifyFeedError(message),
         message,
         checkedAt: new Date().toISOString(),

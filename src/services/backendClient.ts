@@ -1,6 +1,6 @@
 /**
  * Shared helper for calling our own backend (server/index.ts), which proxies
- * to the real Sportradar/Sportmonks APIs server-to-server. The provider key
+ * to the real TheStatsAPI.com API server-to-server. The provider key
  * itself lives only in this browser's localStorage (via storage.ts) and is
  * sent per-request as a header — it never reaches a third-party origin
  * directly from the browser.

@@ -107,10 +107,8 @@ function extractProviderId(fixtureId: string): string {
   return fixtureId.replace(/^(FT-OV15-|FT-UN35-|TN-SETS-|HIST-OV15-|HIST-UN35-|HIST-TNST-)/, '');
 }
 
-function footballProviderFor(settings: AppSettings): { provider: 'sportradar' | 'sportmonks'; key: string } | null {
-  const footballKey = settings.sportradarFootballApiKey || settings.sportradarApiKey;
-  if (footballKey) return { provider: 'sportradar', key: footballKey };
-  if (settings.sportmonksApiKey) return { provider: 'sportmonks', key: settings.sportmonksApiKey };
+function footballProviderFor(settings: AppSettings): { key: string } | null {
+  if (settings.theStatsApiKey) return { key: settings.theStatsApiKey };
   return null;
 }
 
@@ -129,10 +127,7 @@ async function trySettleBet(bet: HistoricalBetRecord, settings: AppSettings): Pr
     if (bet.sport === 'football') {
       const fp = footballProviderFor(settings);
       if (!fp) return bet;
-      const body = await apiGet(
-        `/api/football/results?from=${bet.date}&to=${bet.date}&provider=${fp.provider}`,
-        fp.key
-      );
+      const body = await apiGet(`/api/football/results?from=${bet.date}&to=${bet.date}`, fp.key);
       const result = (body?.results || []).find((r: any) => String(r.providerId) === providerId);
       if (!result || typeof result.homeScore !== 'number' || typeof result.awayScore !== 'number') return bet;
 
@@ -142,17 +137,9 @@ async function trySettleBet(bet: HistoricalBetRecord, settings: AppSettings): Pr
     }
 
     if (bet.sport === 'tennis') {
-      const tennisKey = settings.sportradarTennisApiKey || settings.sportradarApiKey;
-      if (!tennisKey) return bet;
-      const body = await apiGet(`/api/tennis/results?from=${bet.date}&to=${bet.date}`, tennisKey);
-      const result = (body?.results || []).find((r: any) => String(r.providerId) === providerId);
-      if (!result || !result.winner) return bet;
-
-      const winnerName = result.winner === 'home' ? result.homeOrPlayer1 : result.awayOrPlayer2;
-      const sets = String(result.setScore || result.finalScore || '').trim().split(/\s+/).filter(Boolean);
-      const isStraightSets = sets.length === 2 || sets.length === 3;
-      const won = isStraightSets && bet.selection.includes(winnerName);
-      return settleWithOutcome(bet, won ? 'WON' : 'LOST', result.setScore || result.finalScore);
+      // Tennis has no configured data supplier — nothing to settle against
+      // yet, so leave PENDING rather than guessing.
+      return bet;
     }
   } catch {
     // Provider call failed — leave PENDING rather than guessing.
@@ -254,7 +241,7 @@ export async function executeBackgroundScan(
   const rejectedCount = Math.max(0, totalRecordsScanned - qualifiersCount - priceWatchCount);
 
   const footballProvider = footballProviderFor(settings);
-  const tennisAvailable = Boolean(settings.sportradarTennisApiKey || settings.sportradarApiKey);
+  const tennisAvailable = false; // No configured tennis data supplier since the Sportradar/Sportmonks migration.
   const anyProviderConfigured = Boolean(footballProvider || tennisAvailable);
 
   const newLog: SyncLogRecord = {
@@ -272,27 +259,17 @@ export async function executeBackgroundScan(
       ? `Scan completed with issues: ${fetchError}`
       : anyProviderConfigured
       ? `Pulled ${totalRecordsScanned} real candidate checks and re-ran the verification audit against raw provider evidence. Betfair Exchange odds are not yet connected (phase 2) — qualifying candidates are held in Price Watch until a real price is available.`
-      : 'No provider API key configured — add Sportradar or Sportmonks in Engine Configuration to pull real fixtures.',
+      : 'No provider API key configured — add a TheStatsAPI key in Engine Configuration to pull real fixtures.',
     dataSources: [
       footballProvider
         ? {
-            name: footballProvider.provider === 'sportradar' ? 'Sportradar Soccer API' : 'Sportmonks Football API',
-            url:
-              footballProvider.provider === 'sportradar'
-                ? 'https://developer.sportradar.com/'
-                : 'https://www.sportmonks.com/',
+            name: 'TheStatsAPI Football API',
+            url: 'https://www.thestatsapi.com/',
             status: fetchError ? 'DEGRADED' : 'ONLINE',
             recordsSupplied: totalRecordsScanned,
           }
         : { name: 'Football provider', url: '', status: 'OFFLINE', recordsSupplied: 0 },
-      tennisAvailable
-        ? {
-            name: 'Sportradar Tennis API',
-            url: 'https://developer.sportradar.com/',
-            status: fetchError ? 'DEGRADED' : 'ONLINE',
-            recordsSupplied: totalRecordsScanned,
-          }
-        : { name: 'Tennis provider', url: '', status: 'OFFLINE', recordsSupplied: 0 },
+      { name: 'Tennis provider', url: '', status: 'OFFLINE', recordsSupplied: 0 },
     ],
     systemBreakdown: (['football_over_1_5', 'football_under_3_5', 'tennis_straight_sets'] as const).map((system) => {
       const inSystem = refreshedFixtures.filter((f) => f.system === system);

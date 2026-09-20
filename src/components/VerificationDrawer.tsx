@@ -175,7 +175,11 @@ ${auditCard.rawEvidenceSummary.join('\n')}`;
               </span>
             </Detail>
             <Detail label="Sourcing">
-              {auditCard.providerUsed === 'SPORTRADAR' ? 'Sportradar' : 'Sportmonks'}
+              {auditCard.providerUsed === 'THESTATSAPI'
+                ? 'TheStatsAPI'
+                : auditCard.providerUsed === 'SPORTRADAR'
+                ? 'Sportradar'
+                : 'Sportmonks'}
             </Detail>
             <Detail label="Stamped at" mono>
               {new Date(auditCard.generatedAt).toLocaleTimeString([], {

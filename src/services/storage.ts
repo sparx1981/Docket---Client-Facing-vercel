@@ -115,7 +115,12 @@ export const DEFAULT_RULE_THRESHOLDS: RuleThresholds = {
     minExchangeOdds: 1.2,
   },
   tennisStraightSets: {
-    enabled: true,
+    // Tennis has no configured data supplier since the Sportradar/Sportmonks
+    // migration — Sportradar Tennis was removed along with football's
+    // providers, and tennis's own move to a new supplier is a later phase.
+    // Defaulting this off avoids showing a system that can never actually
+    // fetch data as if it were live.
+    enabled: false,
     minRankingDelta: 50,
     minSurfaceWinRate: 70.0,
     minRecentWinsCount: 8,
@@ -129,11 +134,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   tennisAbstractApiKey: '',
   betfairAppKey: '',
   betfairSessionToken: '',
-  sportradarFootballApiKey: '',
-  sportradarTennisApiKey: '',
-  sportradarApiKey: '',
-  sportmonksApiKey: '',
-  useFallbackProviders: true,
+  theStatsApiKey: '',
   dailyScanScheduleUtc: '06:00',
   scheduleEnabled: true,
   notificationEmail: 'craigtrickett@gmail.com',
@@ -144,6 +145,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoArchiveQualifiers: true,
   autoSettleCompleted: true,
   ruleThresholds: DEFAULT_RULE_THRESHOLDS,
+  selectedLeagueIds: [],
 };
 
 export function getStoredSettings(): AppSettings {
@@ -151,14 +153,10 @@ export function getStoredSettings(): AppSettings {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return DEFAULT_SETTINGS;
     const parsed = JSON.parse(raw);
-    const footballKey = parsed?.sportradarFootballApiKey || parsed?.sportradarApiKey || '';
-    const tennisKey = parsed?.sportradarTennisApiKey || parsed?.sportradarApiKey || '';
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
-      sportradarFootballApiKey: footballKey,
-      sportradarTennisApiKey: tennisKey,
-      sportradarApiKey: footballKey || tennisKey || '',
+      selectedLeagueIds: Array.isArray(parsed?.selectedLeagueIds) ? parsed.selectedLeagueIds : [],
       // Deep-merge one level so a settings blob saved before this feature
       // existed (or missing a newly-added sub-field) still gets sane
       // defaults for whichever systems it doesn't have an override for.
@@ -467,16 +465,12 @@ export async function hydrateUserDataFromCloud(
     }
 
     // Hydrate state from Firestore document
-    const cloudFootballKey =
-      cloudData.settings?.sportradarFootballApiKey || cloudData.settings?.sportradarApiKey || '';
-    const cloudTennisKey =
-      cloudData.settings?.sportradarTennisApiKey || cloudData.settings?.sportradarApiKey || '';
     const cloudSettings: AppSettings = {
       ...DEFAULT_SETTINGS,
       ...cloudData.settings,
-      sportradarFootballApiKey: cloudFootballKey,
-      sportradarTennisApiKey: cloudTennisKey,
-      sportradarApiKey: cloudFootballKey || cloudTennisKey || '',
+      selectedLeagueIds: Array.isArray(cloudData.settings?.selectedLeagueIds)
+        ? cloudData.settings.selectedLeagueIds
+        : [],
       ruleThresholds: {
         footballOver15: {
           ...DEFAULT_RULE_THRESHOLDS.footballOver15,

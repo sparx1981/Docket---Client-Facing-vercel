@@ -688,7 +688,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           <EmptyState
             icon={<Archive className="h-6 w-6" strokeWidth={1.75} />}
             title="Nothing archived yet"
-            body="Selections appear here automatically once a scheduled or manual scan runs, or when you file one from its audit card. If you haven't yet, add a Sportradar or Sportmonks API key in Engine Configuration to pull real fixtures and results."
+            body="Selections appear here automatically once a scheduled or manual scan runs, or when you file one from its audit card. If you haven't yet, add a TheStatsAPI key in Engine Configuration to pull real fixtures and results."
           />
         ) : (
           <>
@@ -730,9 +730,9 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                         align="center"
                       >
                         <p>
-                          The final score pulled from whichever real provider is configured
-                          (<strong>Sportradar</strong> or <strong>Sportmonks</strong> for football,
-                          <strong> Sportradar</strong> for tennis).
+                          The final score pulled from the configured real provider
+                          (<strong>TheStatsAPI</strong> for football; tennis has no configured
+                          data supplier yet).
                         </p>
                         <p className="text-text-3">
                           Scores can be audited independently at any time by clicking the &ldquo;Check Google&rdquo; link next to each match.

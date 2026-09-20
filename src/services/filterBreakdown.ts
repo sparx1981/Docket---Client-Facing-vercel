@@ -93,7 +93,7 @@ function buildFootballOver15Breakdown(params: {
   const enrichedCount = uniqueFootballMatches.filter((f) => !!f.footballDetails).length;
   const incompleteCount = Math.max(0, rawTotal - enrichedCount);
 
-  const provider: DataProviderType | 'NONE' = feedInfo?.provider ?? (uniqueFootballMatches[0]?.sourceProvider || 'SPORTRADAR');
+  const provider: DataProviderType | 'NONE' = feedInfo?.provider ?? (uniqueFootballMatches[0]?.sourceProvider || 'THESTATSAPI');
 
   if (!isConfigured || error || isLoading || rawTotal === 0) {
     return {
@@ -224,7 +224,7 @@ function buildFootballUnder35Breakdown(params: {
   const enrichedCount = uniqueFootballMatches.filter((f) => !!f.footballDetails).length;
   const incompleteCount = Math.max(0, rawTotal - enrichedCount);
 
-  const provider: DataProviderType | 'NONE' = feedInfo?.provider ?? (uniqueFootballMatches[0]?.sourceProvider || 'SPORTRADAR');
+  const provider: DataProviderType | 'NONE' = feedInfo?.provider ?? (uniqueFootballMatches[0]?.sourceProvider || 'THESTATSAPI');
 
   if (!isConfigured || error || isLoading || rawTotal === 0) {
     return {

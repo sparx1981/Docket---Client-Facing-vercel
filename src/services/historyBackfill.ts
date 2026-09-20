@@ -94,69 +94,16 @@ function buildFootballRecords(
   return records;
 }
 
-function buildTennisRecords(
-  results: { providerId: string; homeOrPlayer1: string; awayOrPlayer2: string; competition: string; matchTime: string; winner?: 'home' | 'away'; setScore?: string; finalScore?: string }[],
-  stake: number,
-  thresholds: RuleThresholds
-): HistoricalBetRecord[] {
-  if (!thresholds.tennisStraightSets.enabled) return [];
-  const requiredOdds = thresholds.tennisStraightSets.minExchangeOdds;
-  const records: HistoricalBetRecord[] = [];
-
-  for (const r of results) {
-    if (!r.winner) continue;
-    const winnerName = r.winner === 'home' ? r.homeOrPlayer1 : r.awayOrPlayer2;
-    const match = `${r.homeOrPlayer1} vs ${r.awayOrPlayer2}`;
-    // Without the per-set breakdown we cannot tell straight sets from a
-    // decider apart reliably from a plain score string across every
-    // tournament's display convention — flag it PENDING rather than guess.
-    const sets = (r.setScore || r.finalScore || '').trim().split(/\s+/).filter(Boolean);
-    const isStraightSets = sets.length === 2 || sets.length === 3;
-    if (!isStraightSets) continue;
-
-    records.push({
-      id: `HIST-TNST-${r.providerId}`,
-      date: r.matchTime.slice(0, 10),
-      fixtureId: r.providerId,
-      sport: 'tennis',
-      system: 'tennis_straight_sets',
-      match,
-      competition: r.competition,
-      selection: `${winnerName} to Win in Straight Sets`,
-      oddsTaken: requiredOdds,
-      stake,
-      outcome: 'WON',
-      finalScore: r.setScore || r.finalScore,
-      settledAt: r.matchTime,
-      pnl: Number(((requiredOdds - 1) * stake).toFixed(2)),
-      roiContribution: Number((((requiredOdds - 1) * stake / stake) * 100).toFixed(1)),
-      auditId: `BACKFILL-${r.providerId}-tennis_straight_sets`,
-      notes:
-        'Backfilled from a real completed match result. Priced at the system\'s disclosed minimum qualifying odds — Betfair Exchange historical pricing is not available until phase 2.',
-      googleVerificationUrl: googleUrl(match, r.competition),
-      dataSourceName: 'Provider results feed (historical backfill)',
-    });
-  }
-
-  return records;
-}
-
 export interface BackfillResult {
   records: HistoricalBetRecord[];
   error?: string;
 }
 
 export async function backfillHistoricalResults(settings: AppSettings): Promise<BackfillResult> {
-  const footballKey = settings.sportradarFootballApiKey || settings.sportradarApiKey;
-  const footballProvider = footballKey
-    ? { provider: 'sportradar', key: footballKey }
-    : settings.sportmonksApiKey
-    ? { provider: 'sportmonks', key: settings.sportmonksApiKey }
-    : null;
-  const tennisKey = settings.sportradarTennisApiKey || settings.sportradarApiKey || null;
-
-  if (!footballProvider && !tennisKey) {
-    return { records: [], error: 'No provider configured — nothing to backfill.' };
+  // Tennis has no configured data supplier since the Sportradar/Sportmonks
+  // migration — only football (TheStatsAPI) can be backfilled right now.
+  if (!settings.theStatsApiKey) {
+    return { records: [], error: 'No provider configured — add a TheStatsAPI key in Engine Configuration to backfill.' };
   }
 
   const from = isoDateDaysAgo(DAYS_BACK);
@@ -164,25 +111,13 @@ export async function backfillHistoricalResults(settings: AppSettings): Promise<
   const errors: string[] = [];
   const records: HistoricalBetRecord[] = [];
 
-  if (footballProvider) {
-    try {
-      const body = await apiGet(
-        `/api/football/results?from=${from}&to=${to}&provider=${footballProvider.provider}`,
-        footballProvider.key
-      );
-      records.push(...buildFootballRecords(body?.results || [], settings.defaultStake || 100, settings.ruleThresholds));
-    } catch (err) {
-      errors.push(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  if (tennisKey) {
-    try {
-      const body = await apiGet(`/api/tennis/results?from=${from}&to=${to}`, tennisKey);
-      records.push(...buildTennisRecords(body?.results || [], settings.defaultStake || 100, settings.ruleThresholds));
-    } catch (err) {
-      errors.push(err instanceof Error ? err.message : String(err));
-    }
+  try {
+    const qs = new URLSearchParams({ from, to });
+    if (settings.selectedLeagueIds.length === 1) qs.set('competitionId', settings.selectedLeagueIds[0]);
+    const body = await apiGet(`/api/football/results?${qs.toString()}`, settings.theStatsApiKey);
+    records.push(...buildFootballRecords(body?.results || [], settings.defaultStake || 100, settings.ruleThresholds));
+  } catch (err) {
+    errors.push(err instanceof Error ? err.message : String(err));
   }
 
   records.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());

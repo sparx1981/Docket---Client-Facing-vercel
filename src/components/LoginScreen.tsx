@@ -140,7 +140,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               <li className="flex items-start gap-2.5">
                 <Database className="h-4 w-4 shrink-0 text-brand mt-0.5" />
                 <span>
-                  <strong className="text-text">Firebase Cloud Database:</strong> Your Sportradar, Sportmonks,
+                  <strong className="text-text">Firebase Cloud Database:</strong> Your TheStatsAPI
                   and Betfair API credentials are saved directly to your private Firebase Firestore document.
                 </span>
               </li>

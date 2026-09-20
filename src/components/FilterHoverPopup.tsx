@@ -365,7 +365,7 @@ export const FilterHoverPopup: React.FC<FilterHoverPopupProps> = ({
                     </p>
                     <p className="text-xs text-amber-800/90 dark:text-amber-300/90 leading-relaxed">
                       To display the number of records received in the live data feed and the breakdown of filter reductions, configure a valid{' '}
-                      {breakdown.sport === 'tennis' ? 'Sportradar Tennis' : 'Sportradar Football or Sportmonks'} API key in
+                      {breakdown.sport === 'tennis' ? 'tennis data supplier (not yet available)' : 'TheStatsAPI'} key in
                       Engine Configuration.
                     </p>
                   </div>

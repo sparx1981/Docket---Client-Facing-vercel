@@ -7,12 +7,12 @@ export type SystemType =
 
 export type BetOutcome = 'WON' | 'LOST' | 'PENDING' | 'VOID';
 
-// The only two providers this app actually calls (see server/providers/).
-// There is no "premium" tier and no "fallback" tier — that framing belonged
-// to the old Flashscore/Tennis Abstract narrative before real integration
-// existed, and calling either of these two APIs a "fallback" today would be
-// false: whichever one supplied a given fixture is simply the one that did.
-export type DataProviderType = 'SPORTRADAR' | 'SPORTMONKS';
+// TheStatsAPI.com is the only live data supplier football fixtures come
+// from now (see server/providers/thestatsapi.ts). SPORTRADAR/SPORTMONKS are
+// kept in the union purely so archived pre-migration records (Analytics,
+// the Archive ledger) still display the provider that actually supplied
+// them at the time — no new fixture is ever tagged with either value.
+export type DataProviderType = 'THESTATSAPI' | 'SPORTRADAR' | 'SPORTMONKS';
 
 export interface FootballPrevSeasonStats {
   team: string;
@@ -278,11 +278,7 @@ export interface AppSettings {
   tennisAbstractApiKey: string;
   betfairAppKey: string;
   betfairSessionToken: string;
-  sportradarFootballApiKey: string;
-  sportradarTennisApiKey: string;
-  sportradarApiKey?: string;
-  sportmonksApiKey: string;
-  useFallbackProviders: boolean;
+  theStatsApiKey: string;
   dailyScanScheduleUtc: string; // e.g., "06:00"
   scheduleEnabled: boolean;
   notificationEmail: string;
@@ -293,6 +289,54 @@ export interface AppSettings {
   autoArchiveQualifiers?: boolean; // automatically record verified qualifiers to archive ledger
   autoSettleCompleted?: boolean; // automatically resolve outcomes for concluded matches
   ruleThresholds: RuleThresholds;
+  /**
+   * Football competition IDs (TheStatsAPI `comp_...` ids) to include in
+   * fixture pulls and backtests. An empty array means "All" — every
+   * competition the account's TheStatsAPI key can see.
+   */
+  selectedLeagueIds: string[];
+}
+
+/** One TheStatsAPI football competition, as shown in the league filter. */
+export interface LeagueOption {
+  id: string;
+  name: string;
+  country: string | null;
+  type: 'league' | 'cup' | 'tournament';
+}
+
+export interface BacktestMatchResult {
+  matchId: string;
+  date: string;
+  match: string;
+  competition: string;
+  finalScore: string;
+  system: SystemType;
+  won: boolean;
+}
+
+export interface BacktestSummary {
+  system: SystemType;
+  leagueLabel: string;
+  sampleSize: number;
+  wins: number;
+  losses: number;
+  winRatePct: number;
+  requiredOdds: number;
+  /** P&L for a flat stake of 1 unit per match, at the configured required odds. */
+  netUnitsAtRequiredOdds: number;
+  roiPct: number;
+  matches: BacktestMatchResult[];
+  /**
+   * Backtests settle each historical match directly against its real final
+   * score at the system's disclosed goal threshold — they do not replay
+   * each team's pre-match form/H2H as it stood on that date (TheStatsAPI
+   * has no "stats as of a past date" query), and there is no historical
+   * Betfair Exchange price to test against either. This is disclosed here
+   * rather than left implicit, matching the same scope call already made
+   * for Archive backfill (see historyBackfill.ts).
+   */
+  scopeNote: string;
 }
 
 export interface FeedSummaryRecord {
