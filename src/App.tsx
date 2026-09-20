@@ -6,7 +6,7 @@ import {
   VerificationAuditCard,
   SyncLogRecord,
 } from './types';
-import { FeedProgressEvent, fetchCandidateFixtures } from './services/dataFeed';
+import { describeScanPlan, FeedProgressEvent, fetchCandidateFixtures } from './services/dataFeed';
 import { runVerificationAudit } from './services/verificationEngine';
 import {
   calculateSystemAnalytics,
@@ -84,6 +84,11 @@ export default function App() {
     getStoredLastScanTimestamp()
   );
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  // True while the modal is showing the "here's what will download, confirm
+  // to proceed" step — set on every "Run Daily Scan" click, before any
+  // provider call is made. Only clicking "Start scan" inside the modal
+  // clears it and actually kicks off the fetch.
+  const [isAwaitingScanConfirmation, setIsAwaitingScanConfirmation] = useState(false);
   const [isScanRunning, setIsScanRunning] = useState(false);
   const [isScanFinished, setIsScanFinished] = useState(false);
   const [isScanCancelled, setIsScanCancelled] = useState(false);
@@ -416,20 +421,40 @@ export default function App() {
     // at the configured schedule time or via an explicit manual trigger.
   };
 
-  // Triggered directly from the "Run Daily Scan" click (never from a
-  // useEffect keyed on isScanModalOpen — React 18 StrictMode double-invokes
-  // effects in development, which would fire the real provider calls twice).
-  // Streams real progress into the modal as it happens, rather than a
-  // fixed-length animation standing in for work that (under provider rate
-  // limits) can take well over a minute.
+  const scanPlan = useMemo(() => describeScanPlan(settings), [settings]);
+
+  // Triggered directly from the "Run Daily Scan" click. Never starts a
+  // fetch by itself — it only opens the modal's confirmation step, showing
+  // what this scan will actually download given the current settings.
+  // Nothing is requested from any provider until the user explicitly clicks
+  // "Start scan" inside that modal (handleConfirmStartScan below).
   const handleRunScan = () => {
     if (isScanRunning) {
       // A background load (mount, login, settings save) is already
       // fetching — reveal its real progress and the Stop control instead
-      // of starting a second, duplicate fetch.
+      // of asking to confirm a second, duplicate fetch.
       setIsScanModalOpen(true);
+      setIsAwaitingScanConfirmation(false);
       return;
     }
+    setIsScanModalOpen(true);
+    setIsAwaitingScanConfirmation(true);
+  };
+
+  const handleCancelScanConfirmation = () => {
+    setIsScanModalOpen(false);
+    setIsAwaitingScanConfirmation(false);
+  };
+
+  // Only reachable after the user confirms the plan shown in the modal —
+  // this is the sole place a manual scan's provider calls actually start
+  // (never from a useEffect keyed on isScanModalOpen — React 18 StrictMode
+  // double-invokes effects in development, which would fire the real
+  // provider calls twice). Streams real progress into the modal as it
+  // happens, rather than a fixed-length animation standing in for work that
+  // (under provider rate limits) can take well over a minute.
+  const handleConfirmStartScan = () => {
+    setIsAwaitingScanConfirmation(false);
     const { signal, onProgress } = beginFeedFetch(true);
 
     executeBackgroundScan(settings, false, onProgress, signal)
@@ -624,14 +649,18 @@ export default function App() {
 
       <ScanProgressModal
         isOpen={isScanModalOpen}
+        awaitingConfirmation={isAwaitingScanConfirmation}
+        planLines={scanPlan.lines}
+        hasAnyWork={scanPlan.hasAnyWork}
         isRunning={isScanRunning}
         isFinished={isScanFinished}
         isCancelled={isScanCancelled}
         events={scanEvents}
         footballRecords={scanFootballRecords}
         tennisRecords={scanTennisRecords}
-        onClose={() => setIsScanModalOpen(false)}
+        onClose={isAwaitingScanConfirmation ? handleCancelScanConfirmation : () => setIsScanModalOpen(false)}
         onStop={handleStopScan}
+        onConfirmStart={handleConfirmStartScan}
       />
 
       <SyncHistoryModal

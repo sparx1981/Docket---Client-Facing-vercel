@@ -11,7 +11,7 @@ import {
 } from '../types';
 
 /** Human-readable summary of a rule's league scope, e.g. "All leagues" or "Premier League, La Liga". */
-function describeLeagueScope(selectedLeagueIds: string[], leagueCatalog: LeagueOption[]): string {
+export function describeLeagueScope(selectedLeagueIds: string[], leagueCatalog: LeagueOption[]): string {
   if (selectedLeagueIds.length === 0) return 'All leagues';
   const names = selectedLeagueIds.map((id) => leagueCatalog.find((l) => l.id === id)?.name || id);
   if (names.length <= 3) return names.join(', ');

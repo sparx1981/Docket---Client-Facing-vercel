@@ -1,11 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { OctagonAlert, Terminal, X } from 'lucide-react';
+import { Database, OctagonAlert, Terminal, X } from 'lucide-react';
 import { Button } from './ui';
 import { SealMark } from './AppShell';
-import { FeedProgressEvent } from '../services/dataFeed';
+import { FeedProgressEvent, ScanPlanLine } from '../services/dataFeed';
 
 interface ScanProgressModalProps {
   isOpen: boolean;
+  /**
+   * True while the modal is open but the user hasn't yet confirmed starting
+   * the scan — no provider call has been made at all yet. Clicking "Run
+   * Daily Scan" always lands here first; nothing downloads until the user
+   * explicitly confirms.
+   */
+  awaitingConfirmation: boolean;
+  /** What this scan will actually download, given the current settings — shown during the confirmation step. */
+  planLines: ScanPlanLine[];
+  hasAnyWork: boolean;
   /** True while the real fetchCandidateFixtures/verification pipeline is in flight. */
   isRunning: boolean;
   /** True once the real scan has resolved (success or error) — never a timed guess. */
@@ -20,6 +30,8 @@ interface ScanProgressModalProps {
   onClose: () => void;
   /** Actually cancels the in-flight provider calls — only called after the user confirms below. */
   onStop: () => void;
+  /** Only called once the user confirms the plan shown above — this is what actually starts the scan. */
+  onConfirmStart: () => void;
 }
 
 /**
@@ -32,6 +44,9 @@ interface ScanProgressModalProps {
  */
 export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
   isOpen,
+  awaitingConfirmation,
+  planLines,
+  hasAnyWork,
   isRunning,
   isFinished,
   isCancelled,
@@ -40,6 +55,7 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
   tennisRecords,
   onClose,
   onStop,
+  onConfirmStart,
 }) => {
   const logRef = useRef<HTMLDivElement>(null);
   const [confirmingStop, setConfirmingStop] = useState(false);
@@ -55,7 +71,76 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
   if (!isOpen) return null;
 
   const totalRecords = footballRecords + tennisRecords;
-  const canClose = isFinished || isCancelled;
+  const canClose = isFinished || isCancelled || awaitingConfirmation;
+
+  if (awaitingConfirmation) {
+    return (
+      <div
+        className="animate-veil fixed inset-0 z-50 flex items-end justify-center bg-black/65 p-0 sm:items-center sm:p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Confirm daily scan"
+      >
+        <div
+          id="scan-confirm-modal"
+          className="animate-lift flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl border border-line bg-surface shadow-drawer sm:rounded-2xl"
+        >
+          <div className="guilloche shrink-0 border-b border-line bg-surface-2 px-5 py-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand text-on-brand">
+                  <SealMark className="h-6 w-6" />
+                </span>
+                <div>
+                  <h3 className="text-[15px] font-extrabold tracking-tight text-text">Run a manual daily scan?</h3>
+                  <p className="text-[12px] text-text-2">
+                    This makes real calls to the configured provider(s) — nothing has been requested yet.
+                  </p>
+                </div>
+              </div>
+              <button
+                id="btn-close-scan-confirm"
+                onClick={onClose}
+                aria-label="Close"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-text-3 transition-colors duration-200 hover:bg-surface-3 hover:text-text"
+              >
+                <X className="h-4 w-4" strokeWidth={2.5} />
+              </button>
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            <div className="mb-2 flex items-center gap-1.5 rule-head text-text-2">
+              <Database className="h-3.5 w-3.5" strokeWidth={2.5} />
+              What this scan will download
+            </div>
+            <div className="space-y-2.5">
+              {planLines.map((line, i) => (
+                <div key={i} className="rounded-lg border border-line bg-surface-2 px-3.5 py-3">
+                  <div className="text-[12px] font-bold text-text">{line.label}</div>
+                  <div className="mt-0.5 text-[12px] leading-relaxed text-text-2">{line.detail}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-surface-2 px-5 py-3.5">
+            <button
+              id="btn-cancel-scan-confirm"
+              type="button"
+              onClick={onClose}
+              className="px-3 py-2 rounded-lg text-[12px] font-semibold text-text-2 hover:bg-surface-3 transition-colors"
+            >
+              Cancel
+            </button>
+            <Button id="btn-confirm-start-scan" variant="primary" disabled={!hasAnyWork} onClick={onConfirmStart}>
+              Start scan
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

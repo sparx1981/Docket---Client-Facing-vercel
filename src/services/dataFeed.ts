@@ -12,6 +12,7 @@ import {
 } from '../types';
 import { evaluateFixture } from './rulesEngine';
 import { apiGet } from './backendClient';
+import { describeLeagueScope } from './filterBreakdown';
 
 /**
  * Real fixture ingestion. Every football candidate fixture on screen now
@@ -57,10 +58,63 @@ export type FeedProgressCallback = (event: FeedProgressEvent) => void;
 // we capture the full count of raw fixtures returned by the daily schedule API.
 // We then enrich up to MAX_ENRICHED_FIXTURES_PER_SPORT fixtures to keep requests
 // responsive and avoid tripping trial tier rate limits.
-const MAX_ENRICHED_FIXTURES_PER_SPORT = 40;
+export const MAX_ENRICHED_FIXTURES_PER_SPORT = 40;
 
 // How many days ahead (including today) to pull a fixture card for.
-const DAYS_AHEAD = 3;
+export const DAYS_AHEAD = 3;
+
+export interface ScanPlanLine {
+  label: string;
+  detail: string;
+}
+
+/**
+ * Plain-language summary of what a scan is actually about to download,
+ * built from the current settings rather than a generic description — so
+ * the confirmation prompt in front of "Run Daily Scan" reflects exactly
+ * what will happen for this configuration (which rules, which leagues, how
+ * many days, how deep the enrichment goes) instead of a vague disclaimer.
+ */
+export function describeScanPlan(settings: AppSettings): { lines: ScanPlanLine[]; hasAnyWork: boolean } {
+  const lines: ScanPlanLine[] = [];
+
+  if (!settings.theStatsApiKey) {
+    return {
+      lines: [{ label: 'Nothing configured', detail: 'No TheStatsAPI key is set in Engine Configuration — this scan would download nothing.' }],
+      hasAnyWork: false,
+    };
+  }
+
+  const rules: { key: 'footballOver15' | 'footballUnder35'; title: string }[] = [
+    { key: 'footballOver15', title: 'Football — Over 1.5 Goals' },
+    { key: 'footballUnder35', title: 'Football — Under 3.5 Goals' },
+  ];
+
+  let hasAnyWork = false;
+  for (const rule of rules) {
+    const thresholds = settings.ruleThresholds[rule.key];
+    if (!thresholds.enabled) continue;
+    hasAnyWork = true;
+    const scope = describeLeagueScope(thresholds.selectedLeagueIds, settings.leagueCatalog);
+    lines.push({
+      label: rule.title,
+      detail: `Scheduled fixtures over the next ${DAYS_AHEAD} days from ${scope}. Up to ${MAX_ENRICHED_FIXTURES_PER_SPORT} of those matches also get each team's season stats, recent form, and head-to-head history pulled in.`,
+    });
+  }
+
+  if (settings.ruleThresholds.tennisStraightSets.enabled) {
+    lines.push({
+      label: 'Tennis — Straight Sets',
+      detail: 'Enabled, but tennis has no configured data supplier yet — nothing will actually be downloaded for it.',
+    });
+  }
+
+  if (!hasAnyWork && lines.length === 0) {
+    lines.push({ label: 'Nothing enabled', detail: 'No systems are enabled in Filter Thresholds — this scan would download nothing.' });
+  }
+
+  return { lines, hasAnyWork };
+}
 
 /** True for a fetch/apiGet rejection caused by the user cancelling the scan, never a real provider failure. */
 function isAbortError(err: unknown): boolean {
