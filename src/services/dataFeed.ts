@@ -30,7 +30,9 @@ export interface FixtureFetchResult {
   fixtures: CandidateFixture[];
   /** Set when a provider was configured but the pull failed, or none was configured at all. */
   error?: string;
-  footballFeedInfo?: FeedSummaryRecord;
+  /** Over 1.5 and Under 3.5 can target different leagues, so each gets its own feed summary. */
+  footballOver15FeedInfo?: FeedSummaryRecord;
+  footballUnder35FeedInfo?: FeedSummaryRecord;
   tennisFeedInfo?: FeedSummaryRecord;
 }
 
@@ -116,9 +118,20 @@ export interface RawFootballFixture {
   venue?: string;
 }
 
+/**
+ * Fetches and screens fixtures for exactly one football system, scoped to
+ * that system's own league selection. Over 1.5 and Under 3.5 can target
+ * different leagues, so they are no longer fetched together from one shared
+ * raw fixture list — each gets its own fetch (and, for any fixture that
+ * needs enrichment, its own team-stats/H2H calls), even when their league
+ * selections overlap. That's a real cost increase over a single shared
+ * fetch when the two rules diverge; it stays proportional (and bounded by
+ * MAX_ENRICHED_FIXTURES_PER_SPORT) when they don't.
+ */
 async function buildFootballCandidates(
   key: string,
   dates: string[],
+  system: 'football_over_1_5' | 'football_under_3_5',
   thresholds: RuleThresholds,
   selectedLeagueIds: string[],
   onProgress?: FeedProgressCallback,
@@ -235,16 +248,7 @@ async function buildFootballCandidates(
       }
     }
 
-    // The same fixture is screened against both football systems — a real
-    // match can qualify for Over 1.5, Under 3.5, both, or neither. A system
-    // disabled in Engine Configuration is skipped entirely rather than shown
-    // as a permanently-failed candidate.
-    if (thresholds.footballOver15.enabled) {
-      candidates.push(buildFootballCandidate('football_over_1_5', fx, footballDetails, thresholds, rawTotal));
-    }
-    if (thresholds.footballUnder35.enabled) {
-      candidates.push(buildFootballCandidate('football_under_3_5', fx, footballDetails, thresholds, rawTotal));
-    }
+    candidates.push(buildFootballCandidate(system, fx, footballDetails, thresholds, rawTotal));
   }
 
   return {
@@ -504,40 +508,50 @@ export async function fetchCandidateFixtures(
   const dates = nextDates(DAYS_AHEAD);
   const errors: string[] = [];
   const fixtures: CandidateFixture[] = [];
-  let footballFeedInfo: FeedSummaryRecord | undefined;
+  let footballOver15FeedInfo: FeedSummaryRecord | undefined;
+  let footballUnder35FeedInfo: FeedSummaryRecord | undefined;
   let tennisFeedInfo: FeedSummaryRecord | undefined;
 
-  if (football && (thresholds.footballOver15.enabled || thresholds.footballUnder35.enabled)) {
-    try {
-      const fbResult = await buildFootballCandidates(
-        football.key,
-        dates,
-        thresholds,
-        settings.selectedLeagueIds,
-        onProgress,
-        signal
-      );
-      fixtures.push(...fbResult.candidates);
-      footballFeedInfo = {
-        sport: 'football',
-        provider: 'THESTATSAPI',
-        totalRecordsReceived: fbResult.rawTotal,
-        fetchedAt: new Date().toISOString(),
-        queryDates: dates,
-        error: fbResult.partialError,
-      };
-    } catch (err) {
-      if (isAbortError(err)) throw err;
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(msg);
-      footballFeedInfo = {
-        sport: 'football',
-        provider: 'THESTATSAPI',
-        totalRecordsReceived: 0,
-        fetchedAt: new Date().toISOString(),
-        queryDates: dates,
-        error: msg,
-      };
+  if (football) {
+    for (const system of ['football_over_1_5', 'football_under_3_5'] as const) {
+      const systemThresholds = system === 'football_over_1_5' ? thresholds.footballOver15 : thresholds.footballUnder35;
+      if (!systemThresholds.enabled) continue;
+      try {
+        const fbResult = await buildFootballCandidates(
+          football.key,
+          dates,
+          system,
+          thresholds,
+          systemThresholds.selectedLeagueIds,
+          onProgress,
+          signal
+        );
+        fixtures.push(...fbResult.candidates);
+        const info: FeedSummaryRecord = {
+          sport: 'football',
+          provider: 'THESTATSAPI',
+          totalRecordsReceived: fbResult.rawTotal,
+          fetchedAt: new Date().toISOString(),
+          queryDates: dates,
+          error: fbResult.partialError,
+        };
+        if (system === 'football_over_1_5') footballOver15FeedInfo = info;
+        else footballUnder35FeedInfo = info;
+      } catch (err) {
+        if (isAbortError(err)) throw err;
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(msg);
+        const info: FeedSummaryRecord = {
+          sport: 'football',
+          provider: 'THESTATSAPI',
+          totalRecordsReceived: 0,
+          fetchedAt: new Date().toISOString(),
+          queryDates: dates,
+          error: msg,
+        };
+        if (system === 'football_over_1_5') footballOver15FeedInfo = info;
+        else footballUnder35FeedInfo = info;
+      }
     }
   }
 
@@ -575,7 +589,8 @@ export async function fetchCandidateFixtures(
   return {
     fixtures,
     error: errors.length > 0 ? errors.join(' · ') : undefined,
-    footballFeedInfo,
+    footballOver15FeedInfo,
+    footballUnder35FeedInfo,
     tennisFeedInfo,
   };
 }
@@ -587,7 +602,8 @@ export async function fetchCandidateFixtures(
  */
 export async function fetchLiveFeedSummary(settings: AppSettings): Promise<{
   fixtures: CandidateFixture[];
-  footballFeedInfo?: FeedSummaryRecord;
+  footballOver15FeedInfo?: FeedSummaryRecord;
+  footballUnder35FeedInfo?: FeedSummaryRecord;
   tennisFeedInfo?: FeedSummaryRecord;
   footballConfigured: boolean;
   tennisConfigured: boolean;
@@ -598,7 +614,8 @@ export async function fetchLiveFeedSummary(settings: AppSettings): Promise<{
   const dates = nextDates(DAYS_AHEAD);
   const fixtures: CandidateFixture[] = [];
   const errors: string[] = [];
-  let footballFeedInfo: FeedSummaryRecord | undefined;
+  let footballOver15FeedInfo: FeedSummaryRecord | undefined;
+  let footballUnder35FeedInfo: FeedSummaryRecord | undefined;
   let tennisFeedInfo: FeedSummaryRecord | undefined;
 
   // Force systems to enabled for the live feed analysis so candidate records exist
@@ -609,28 +626,42 @@ export async function fetchLiveFeedSummary(settings: AppSettings): Promise<{
   };
 
   if (football) {
-    try {
-      const fbResult = await buildFootballCandidates(football.key, dates, forcedThresholds, settings.selectedLeagueIds);
-      fixtures.push(...fbResult.candidates);
-      footballFeedInfo = {
-        sport: 'football',
-        provider: 'THESTATSAPI',
-        totalRecordsReceived: fbResult.rawTotal,
-        fetchedAt: new Date().toISOString(),
-        queryDates: dates,
-        error: fbResult.partialError,
-      };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`Football feed error: ${msg}`);
-      footballFeedInfo = {
-        sport: 'football',
-        provider: 'THESTATSAPI',
-        totalRecordsReceived: 0,
-        fetchedAt: new Date().toISOString(),
-        queryDates: dates,
-        error: msg,
-      };
+    for (const system of ['football_over_1_5', 'football_under_3_5'] as const) {
+      const systemThresholds =
+        system === 'football_over_1_5' ? forcedThresholds.footballOver15 : forcedThresholds.footballUnder35;
+      try {
+        const fbResult = await buildFootballCandidates(
+          football.key,
+          dates,
+          system,
+          forcedThresholds,
+          systemThresholds.selectedLeagueIds
+        );
+        fixtures.push(...fbResult.candidates);
+        const info: FeedSummaryRecord = {
+          sport: 'football',
+          provider: 'THESTATSAPI',
+          totalRecordsReceived: fbResult.rawTotal,
+          fetchedAt: new Date().toISOString(),
+          queryDates: dates,
+          error: fbResult.partialError,
+        };
+        if (system === 'football_over_1_5') footballOver15FeedInfo = info;
+        else footballUnder35FeedInfo = info;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`Football feed error: ${msg}`);
+        const info: FeedSummaryRecord = {
+          sport: 'football',
+          provider: 'THESTATSAPI',
+          totalRecordsReceived: 0,
+          fetchedAt: new Date().toISOString(),
+          queryDates: dates,
+          error: msg,
+        };
+        if (system === 'football_over_1_5') footballOver15FeedInfo = info;
+        else footballUnder35FeedInfo = info;
+      }
     }
   }
 
@@ -662,7 +693,8 @@ export async function fetchLiveFeedSummary(settings: AppSettings): Promise<{
 
   return {
     fixtures,
-    footballFeedInfo,
+    footballOver15FeedInfo,
+    footballUnder35FeedInfo,
     tennisFeedInfo,
     footballConfigured: !!football,
     tennisConfigured: !!tennis,

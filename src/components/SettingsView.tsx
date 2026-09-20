@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   AlertTriangle,
   Check,
+  ChevronDown,
   Clock,
   ExternalLink,
   HardDrive,
@@ -84,10 +85,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [autoScanTriggered, setAutoScanTriggered] = useState(false);
 
-  // League filter (Filter Thresholds)
-  const [leagues, setLeagues] = useState<LeagueOption[]>([]);
+  // League catalog (Filter Thresholds) — the persisted list of leagues each
+  // rule's own League selector picks from. Fetched on demand via "Load
+  // leagues" and stored on formData.leagueCatalog (part of AppSettings), so
+  // it survives a reload/cross-device the same way every other saved
+  // setting does, instead of resetting to empty every time this page mounts.
   const [leaguesLoading, setLeaguesLoading] = useState(false);
   const [leaguesError, setLeaguesError] = useState<string | null>(null);
+  const [pendingLeagueCatalogUpdate, setPendingLeagueCatalogUpdate] = useState<{
+    newCatalog: LeagueOption[];
+    drops: { systemLabel: string; names: string[] }[];
+  } | null>(null);
+  const [openLeagueDropdown, setOpenLeagueDropdown] = useState<'footballOver15' | 'footballUnder35' | null>(null);
 
   // Backtest — one per football rule, since the league to backtest against
   // and the "Run backtest" trigger both live inside that rule's own card now.
@@ -111,7 +120,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   // Live feed state for Filter Thresholds breakdown
   const [liveFixtures, setLiveFixtures] = useState<CandidateFixture[]>(fixtures || []);
-  const [feedInfoFootball, setFeedInfoFootball] = useState<FeedSummaryRecord | undefined>(footballFeedInfo);
+  const [feedInfoOver15, setFeedInfoOver15] = useState<FeedSummaryRecord | undefined>(footballFeedInfo);
+  const [feedInfoUnder35, setFeedInfoUnder35] = useState<FeedSummaryRecord | undefined>(footballFeedInfo);
   const [feedInfoTennis, setFeedInfoTennis] = useState<FeedSummaryRecord | undefined>(tennisFeedInfo);
   const [isRefreshingFeed, setIsRefreshingFeed] = useState(false);
   const [feedError, setFeedError] = useState<string | undefined>(fixturesError);
@@ -121,10 +131,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setLiveFixtures(fixtures);
     }
   }, [fixtures]);
-
-  useEffect(() => {
-    if (footballFeedInfo) setFeedInfoFootball(footballFeedInfo);
-  }, [footballFeedInfo]);
 
   useEffect(() => {
     if (tennisFeedInfo) setFeedInfoTennis(tennisFeedInfo);
@@ -144,9 +150,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       if (res.fixtures && res.fixtures.length > 0) {
         setLiveFixtures(res.fixtures);
       }
-      if (res.footballFeedInfo) {
-        setFeedInfoFootball(res.footballFeedInfo);
-      }
+      if (res.footballOver15FeedInfo) setFeedInfoOver15(res.footballOver15FeedInfo);
+      if (res.footballUnder35FeedInfo) setFeedInfoUnder35(res.footballUnder35FeedInfo);
       if (res.tennisFeedInfo) {
         setFeedInfoTennis(res.tennisFeedInfo);
       }
@@ -173,12 +178,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         systemKey: 'footballOver15',
         thresholds: formData.ruleThresholds,
         fixtures: liveFixtures,
-        feedInfo: feedInfoFootball,
+        feedInfo: feedInfoOver15,
         isConfigured: footballConfigured,
         isLoading: isRefreshingFeed || fixturesLoading,
-        error: feedInfoFootball?.error || (footballConfigured ? undefined : 'TheStatsAPI key not configured'),
+        error: feedInfoOver15?.error || (footballConfigured ? undefined : 'TheStatsAPI key not configured'),
+        leagueCatalog: formData.leagueCatalog,
       }),
-    [formData.ruleThresholds, liveFixtures, feedInfoFootball, footballConfigured, isRefreshingFeed, fixturesLoading]
+    [formData.ruleThresholds, formData.leagueCatalog, liveFixtures, feedInfoOver15, footballConfigured, isRefreshingFeed, fixturesLoading]
   );
 
   const under35Breakdown = useMemo(
@@ -187,12 +193,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         systemKey: 'footballUnder35',
         thresholds: formData.ruleThresholds,
         fixtures: liveFixtures,
-        feedInfo: feedInfoFootball,
+        feedInfo: feedInfoUnder35,
         isConfigured: footballConfigured,
         isLoading: isRefreshingFeed || fixturesLoading,
-        error: feedInfoFootball?.error || (footballConfigured ? undefined : 'TheStatsAPI key not configured'),
+        error: feedInfoUnder35?.error || (footballConfigured ? undefined : 'TheStatsAPI key not configured'),
+        leagueCatalog: formData.leagueCatalog,
       }),
-    [formData.ruleThresholds, liveFixtures, feedInfoFootball, footballConfigured, isRefreshingFeed, fixturesLoading]
+    [formData.ruleThresholds, formData.leagueCatalog, liveFixtures, feedInfoUnder35, footballConfigured, isRefreshingFeed, fixturesLoading]
   );
 
   const tennisBreakdown = useMemo(
@@ -270,14 +277,58 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
+  /** Applies a freshly-fetched league catalog, pruning any rule selections that no longer resolve. */
+  const applyLeagueCatalogUpdate = (newCatalog: LeagueOption[]) => {
+    const freshIds = new Set(newCatalog.map((l) => l.id));
+    setFormData((prev) => ({
+      ...prev,
+      leagueCatalog: newCatalog,
+      leagueCatalogUpdatedAt: new Date().toISOString(),
+      ruleThresholds: {
+        ...prev.ruleThresholds,
+        footballOver15: {
+          ...prev.ruleThresholds.footballOver15,
+          selectedLeagueIds: prev.ruleThresholds.footballOver15.selectedLeagueIds.filter((id) => freshIds.has(id)),
+        },
+        footballUnder35: {
+          ...prev.ruleThresholds.footballUnder35,
+          selectedLeagueIds: prev.ruleThresholds.footballUnder35.selectedLeagueIds.filter((id) => freshIds.has(id)),
+        },
+      },
+    }));
+  };
+
   const handleLoadLeagues = async () => {
     setLeaguesLoading(true);
     setLeaguesError(null);
+    setPendingLeagueCatalogUpdate(null);
     try {
-      const result = await fetchLeagues(formData);
-      setLeagues(result.sort((a, b) => a.name.localeCompare(b.name)));
-      if (result.length === 0) {
+      const fresh = await fetchLeagues(formData);
+      if (fresh.length === 0) {
         setLeaguesError('No competitions returned — check the TheStatsAPI key above.');
+        return;
+      }
+      const sorted = fresh.sort((a, b) => a.name.localeCompare(b.name));
+      const freshIds = new Set(sorted.map((l) => l.id));
+
+      const drops = [
+        { key: 'footballOver15' as const, label: 'Football — Over 1.5 Goals' },
+        { key: 'footballUnder35' as const, label: 'Football — Under 3.5 Goals' },
+      ]
+        .map(({ key, label }) => {
+          const missingIds = formData.ruleThresholds[key].selectedLeagueIds.filter((id) => !freshIds.has(id));
+          if (missingIds.length === 0) return null;
+          const names = missingIds.map(
+            (id) => formData.leagueCatalog.find((l) => l.id === id)?.name || id
+          );
+          return { systemLabel: label, names };
+        })
+        .filter((d): d is { systemLabel: string; names: string[] } => d !== null);
+
+      if (drops.length > 0) {
+        setPendingLeagueCatalogUpdate({ newCatalog: sorted, drops });
+      } else {
+        applyLeagueCatalogUpdate(sorted);
       }
     } catch (err) {
       setLeaguesError(err instanceof Error ? err.message : String(err));
@@ -286,12 +337,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
-  const toggleLeagueSelected = (id: string) => {
+  const confirmLeagueCatalogUpdate = () => {
+    if (!pendingLeagueCatalogUpdate) return;
+    applyLeagueCatalogUpdate(pendingLeagueCatalogUpdate.newCatalog);
+    setPendingLeagueCatalogUpdate(null);
+  };
+
+  const cancelLeagueCatalogUpdate = () => setPendingLeagueCatalogUpdate(null);
+
+  const toggleLeagueSelected = (system: 'footballOver15' | 'footballUnder35', id: string) => {
     setFormData((prev) => {
-      const selected = new Set(prev.selectedLeagueIds);
+      const selected = new Set(prev.ruleThresholds[system].selectedLeagueIds);
       if (selected.has(id)) selected.delete(id);
       else selected.add(id);
-      return { ...prev, selectedLeagueIds: Array.from(selected) };
+      return {
+        ...prev,
+        ruleThresholds: {
+          ...prev.ruleThresholds,
+          [system]: { ...prev.ruleThresholds[system], selectedLeagueIds: Array.from(selected) },
+        },
+      };
     });
   };
 
@@ -300,9 +365,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setBacktestErrorBySystem((prev) => ({ ...prev, [system]: null }));
     setBacktestResultBySystem((prev) => ({ ...prev, [system]: null }));
     try {
-      const leagueId = backtestLeagueBySystem[system];
-      const league = leagueId ? leagues.find((l) => l.id === leagueId) : undefined;
-      const result = await runBacktest(formData, system, leagueId || null, league ? league.name : 'All leagues', 200);
+      const ruleKey = system === 'football_over_1_5' ? 'footballOver15' : 'footballUnder35';
+      const leagueIds = formData.ruleThresholds[ruleKey].selectedLeagueIds;
+      const leagueLabel =
+        leagueIds.length === 0
+          ? 'All leagues'
+          : leagueIds.map((id) => formData.leagueCatalog.find((l) => l.id === id)?.name || id).join(', ');
+      const result = await runBacktest(formData, system, leagueIds, leagueLabel, 200);
       setBacktestResultBySystem((prev) => ({ ...prev, [system]: result }));
     } catch (err) {
       setBacktestErrorBySystem((prev) => ({ ...prev, [system]: err instanceof Error ? err.message : String(err) }));
@@ -349,6 +418,54 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <span>ROI: {result.roiPct}%</span>
             </div>
             <p className="text-[10px] leading-relaxed text-text-2">{result.scopeNote}</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderLeagueMultiSelect = (system: 'footballOver15' | 'footballUnder35', idPrefix: string) => {
+    const selected = formData.ruleThresholds[system].selectedLeagueIds;
+    const isOpen = openLeagueDropdown === system;
+    return (
+      <div>
+        <button
+          type="button"
+          id={`${idPrefix}-toggle`}
+          onClick={() => setOpenLeagueDropdown(isOpen ? null : system)}
+          className={`${inputClass} flex items-center justify-between text-left`}
+        >
+          <span>
+            {selected.length === 0 ? 'All leagues' : `${selected.length} league${selected.length === 1 ? '' : 's'} selected`}
+          </span>
+          <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        </button>
+        {isOpen && (
+          <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-line divide-y divide-line">
+            {formData.leagueCatalog.length === 0 ? (
+              <p className="p-3 text-[11px] text-text-2">No leagues loaded yet — use "Load leagues" below.</p>
+            ) : (
+              formData.leagueCatalog.map((league) => {
+                const checked = selected.includes(league.id);
+                return (
+                  <label
+                    key={league.id}
+                    className="flex items-center justify-between gap-3 px-3 py-1.5 text-[11px] cursor-pointer hover:bg-surface-2"
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleLeagueSelected(system, league.id)}
+                        className="shrink-0"
+                      />
+                      <span className="truncate text-text">{league.name}</span>
+                    </span>
+                    {league.country && <span className="shrink-0 text-text-2">{league.country}</span>}
+                  </label>
+                );
+              })
+            )}
           </div>
         )}
       </div>
@@ -870,14 +987,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           )}
 
-          {/* League filter */}
+          {/* League catalog */}
           <div className="border-t border-line pt-4">
             <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="space-y-1">
-                <h3 className="text-[12px] font-extrabold uppercase tracking-wider text-text">League Filter</h3>
+                <h3 className="text-[12px] font-extrabold uppercase tracking-wider text-text">Leagues</h3>
                 <p className="text-[11px] leading-relaxed text-text-2">
-                  Choose which football competitions fixtures and backtests are pulled from. Leave
-                  nothing selected for "All" — every competition your TheStatsAPI key can see.
+                  The competitions each rule's own "League" selector below picks from. This list is
+                  saved with the rest of your configuration, so it survives a reload and stays the
+                  same across devices — it won't reset just because the page refreshed.
+                  {formData.leagueCatalogUpdatedAt && (
+                    <>
+                      {' '}
+                      Last loaded {new Date(formData.leagueCatalogUpdatedAt).toLocaleString([], {
+                        dateStyle: 'medium',
+                        timeStyle: 'short',
+                      })}
+                      {' '}· {formData.leagueCatalog.length} competitions.
+                    </>
+                  )}
                 </p>
               </div>
               <button
@@ -892,52 +1020,43 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </button>
             </div>
 
-            {leaguesError && (
-              <p className="mb-3 text-[11px] font-medium text-bad-ink">{leaguesError}</p>
-            )}
+            {leaguesError && <p className="mb-3 text-[11px] font-medium text-bad-ink">{leaguesError}</p>}
 
-            <div className="flex flex-wrap items-center gap-2 mb-2">
-              <Chip tone={formData.selectedLeagueIds.length === 0 ? 'ok' : 'neutral'}>
-                {formData.selectedLeagueIds.length === 0
-                  ? 'All leagues'
-                  : `${formData.selectedLeagueIds.length} league${formData.selectedLeagueIds.length === 1 ? '' : 's'} selected`}
-              </Chip>
-              {formData.selectedLeagueIds.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => set('selectedLeagueIds', [])}
-                  className="text-[11px] font-semibold text-brand-ink hover:underline"
-                >
-                  Reset to All
-                </button>
-              )}
-            </div>
-
-            {leagues.length > 0 && (
-              <div className="max-h-64 overflow-y-auto rounded-lg border border-line divide-y divide-line">
-                {leagues.map((league) => {
-                  const checked = formData.selectedLeagueIds.includes(league.id);
-                  return (
-                    <label
-                      key={league.id}
-                      className="flex items-center justify-between gap-3 px-3 py-2 text-[12px] cursor-pointer hover:bg-surface-2"
-                    >
-                      <span className="flex items-center gap-2 min-w-0">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleLeagueSelected(league.id)}
-                          className="shrink-0"
-                        />
-                        <span className="truncate text-text">{league.name}</span>
-                        {league.country && (
-                          <span className="shrink-0 text-text-2 text-[11px]">({league.country})</span>
-                        )}
-                      </span>
-                      <span className="shrink-0 text-[10px] uppercase tracking-wide text-text-2">{league.type}</span>
-                    </label>
-                  );
-                })}
+            {pendingLeagueCatalogUpdate && (
+              <div className="rounded-lg border border-warn-line bg-warn-soft p-3 space-y-2">
+                <p className="text-[12px] font-semibold text-warn-ink">
+                  The refreshed league list drops {pendingLeagueCatalogUpdate.drops.reduce((n, d) => n + d.names.length, 0)}{' '}
+                  league(s) currently selected in a rule:
+                </p>
+                <ul className="text-[11px] text-warn-ink space-y-0.5">
+                  {pendingLeagueCatalogUpdate.drops.map((d) => (
+                    <li key={d.systemLabel}>
+                      <strong>{d.systemLabel}:</strong> {d.names.join(', ')}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-[11px] text-warn-ink">
+                  Applying the update removes those from the affected rule's selection (it falls back
+                  toward "All" for whatever's left). Keeping the current list leaves everything as-is.
+                </p>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    id="btn-confirm-league-update"
+                    onClick={confirmLeagueCatalogUpdate}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-bad px-2.5 py-1 text-[11px] font-bold text-on-bad hover:bg-bad-hover"
+                  >
+                    Apply update, drop those leagues
+                  </button>
+                  <button
+                    type="button"
+                    id="btn-cancel-league-update"
+                    onClick={cancelLeagueCatalogUpdate}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] font-bold text-text hover:border-brand"
+                  >
+                    Keep current list
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -966,22 +1085,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Field label="Backtest league" htmlFor="over15-backtest-league" hint="Which league the Run backtest button above tests against.">
-                <select
-                  id="over15-backtest-league"
-                  value={backtestLeagueBySystem.football_over_1_5}
-                  onChange={(e) =>
-                    setBacktestLeagueBySystem((prev) => ({ ...prev, football_over_1_5: e.target.value }))
-                  }
-                  className={inputClass}
-                >
-                  <option value="">All leagues</option>
-                  {leagues.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name}
-                    </option>
-                  ))}
-                </select>
+              <Field label="League" htmlFor="over15-league-toggle" hint="Leagues this rule's fixture pulls, verified qualifiers, Price Watch, and backtest all scope to.">
+                {renderLeagueMultiSelect('footballOver15', 'over15-league')}
               </Field>
               <Field
                 label="Min. previous-season avg goals scored"
@@ -1120,22 +1225,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Field label="Backtest league" htmlFor="under35-backtest-league" hint="Which league the Run backtest button above tests against.">
-                <select
-                  id="under35-backtest-league"
-                  value={backtestLeagueBySystem.football_under_3_5}
-                  onChange={(e) =>
-                    setBacktestLeagueBySystem((prev) => ({ ...prev, football_under_3_5: e.target.value }))
-                  }
-                  className={inputClass}
-                >
-                  <option value="">All leagues</option>
-                  {leagues.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name}
-                    </option>
-                  ))}
-                </select>
+              <Field label="League" htmlFor="under35-league-toggle" hint="Leagues this rule's fixture pulls, verified qualifiers, Price Watch, and backtest all scope to.">
+                {renderLeagueMultiSelect('footballUnder35', 'under35-league')}
               </Field>
               <Field
                 label="Max. previous-season avg goals scored"

@@ -254,6 +254,14 @@ export interface RuleThresholds {
     minRecentScoredCount: number; // out of last 5 competitive matches
     minExchangeOdds: number;
     enhancedOddsThreshold: number; // odds above this trigger enhanced verification
+    /**
+     * Football competition IDs (TheStatsAPI `comp_...` ids) this rule's
+     * fixture pulls and backtests are scoped to. An empty array means "All"
+     * — every competition the account's TheStatsAPI key can see. Kept
+     * per-rule (not global) since Over 1.5 and Under 3.5 can legitimately
+     * target different leagues.
+     */
+    selectedLeagueIds: string[];
   };
   footballUnder35: {
     enabled: boolean;
@@ -262,6 +270,8 @@ export interface RuleThresholds {
     minH2HUnder35Rate: number; // 0-1, over last 10 competitive meetings
     minRecentUnder35Count: number; // out of last 5 competitive matches
     minExchangeOdds: number;
+    /** See footballOver15.selectedLeagueIds. */
+    selectedLeagueIds: string[];
   };
   tennisStraightSets: {
     enabled: boolean;
@@ -290,14 +300,19 @@ export interface AppSettings {
   autoSettleCompleted?: boolean; // automatically resolve outcomes for concluded matches
   ruleThresholds: RuleThresholds;
   /**
-   * Football competition IDs (TheStatsAPI `comp_...` ids) to include in
-   * fixture pulls and backtests. An empty array means "All" — every
-   * competition the account's TheStatsAPI key can see.
+   * The full catalog of football competitions TheStatsAPI returned the last
+   * time "Load Leagues" was run — persisted (not just in-memory) so it
+   * survives a reload and syncs across devices via the same Firestore
+   * document as the rest of settings, and so each rule's league selection
+   * (RuleThresholds.football*.selectedLeagueIds) always has real names to
+   * resolve against instead of losing its picks on every refresh.
    */
-  selectedLeagueIds: string[];
+  leagueCatalog: LeagueOption[];
+  /** When leagueCatalog was last refreshed from TheStatsAPI. */
+  leagueCatalogUpdatedAt?: string;
 }
 
-/** One TheStatsAPI football competition, as shown in the league filter. */
+/** One TheStatsAPI football competition, as shown in a rule's league selector. */
 export interface LeagueOption {
   id: string;
   name: string;
@@ -376,6 +391,8 @@ export interface SystemFeedBreakdown {
   sport: Sport;
   system: SystemType;
   ruleTitle: string;
+  /** Human-readable summary of this rule's own league scope, e.g. "All leagues" or "Premier League, La Liga". */
+  leagueScopeLabel: string;
   provider: DataProviderType | 'NONE';
   isConfigured: boolean;
   isLoading: boolean;

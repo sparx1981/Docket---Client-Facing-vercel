@@ -3,11 +3,20 @@ import {
   DataProviderType,
   FeedSummaryRecord,
   FilterReductionStep,
+  LeagueOption,
   RuleThresholds,
   Sport,
   SystemFeedBreakdown,
   SystemType,
 } from '../types';
+
+/** Human-readable summary of a rule's league scope, e.g. "All leagues" or "Premier League, La Liga". */
+function describeLeagueScope(selectedLeagueIds: string[], leagueCatalog: LeagueOption[]): string {
+  if (selectedLeagueIds.length === 0) return 'All leagues';
+  const names = selectedLeagueIds.map((id) => leagueCatalog.find((l) => l.id === id)?.name || id);
+  if (names.length <= 3) return names.join(', ');
+  return `${names.length} leagues selected`;
+}
 
 interface FilterDefinition {
   id: string;
@@ -34,8 +43,9 @@ export function calculateSystemBreakdown(params: {
   isConfigured: boolean;
   isLoading?: boolean;
   error?: string;
+  leagueCatalog?: LeagueOption[];
 }): SystemFeedBreakdown {
-  const { systemKey, thresholds, fixtures, feedInfo, isConfigured, isLoading = false, error } = params;
+  const { systemKey, thresholds, fixtures, feedInfo, isConfigured, isLoading = false, error, leagueCatalog = [] } = params;
 
   if (systemKey === 'footballOver15') {
     return buildFootballOver15Breakdown({
@@ -45,6 +55,7 @@ export function calculateSystemBreakdown(params: {
       isConfigured,
       isLoading,
       error,
+      leagueScopeLabel: describeLeagueScope(thresholds.footballOver15.selectedLeagueIds, leagueCatalog),
     });
   }
 
@@ -56,6 +67,7 @@ export function calculateSystemBreakdown(params: {
       isConfigured,
       isLoading,
       error,
+      leagueScopeLabel: describeLeagueScope(thresholds.footballUnder35.selectedLeagueIds, leagueCatalog),
     });
   }
 
@@ -78,8 +90,9 @@ function buildFootballOver15Breakdown(params: {
   isConfigured: boolean;
   isLoading: boolean;
   error?: string;
+  leagueScopeLabel: string;
 }): SystemFeedBreakdown {
-  const { thresholds, fixtures, feedInfo, isConfigured, isLoading, error } = params;
+  const { thresholds, fixtures, feedInfo, isConfigured, isLoading, error, leagueScopeLabel } = params;
 
   // Filter down to football fixtures for this system (or matching match records)
   const footballFixtures = fixtures.filter(
@@ -100,6 +113,7 @@ function buildFootballOver15Breakdown(params: {
       sport: 'football',
       system: 'football_over_1_5',
       ruleTitle: 'Football — Over 1.5 Goals',
+      leagueScopeLabel,
       provider: isConfigured ? provider : 'NONE',
       isConfigured,
       isLoading,
@@ -187,6 +201,7 @@ function buildFootballOver15Breakdown(params: {
     sport: 'football',
     system: 'football_over_1_5',
     ruleTitle: 'Football — Over 1.5 Goals',
+    leagueScopeLabel,
     provider,
     isConfigured,
     isLoading: false,
@@ -212,8 +227,9 @@ function buildFootballUnder35Breakdown(params: {
   isConfigured: boolean;
   isLoading: boolean;
   error?: string;
+  leagueScopeLabel: string;
 }): SystemFeedBreakdown {
-  const { thresholds, fixtures, feedInfo, isConfigured, isLoading, error } = params;
+  const { thresholds, fixtures, feedInfo, isConfigured, isLoading, error, leagueScopeLabel } = params;
 
   const footballFixtures = fixtures.filter(
     (f) => f.sport === 'football' && (f.system === 'football_under_3_5' || f.footballDetails !== undefined)
@@ -231,6 +247,7 @@ function buildFootballUnder35Breakdown(params: {
       sport: 'football',
       system: 'football_under_3_5',
       ruleTitle: 'Football — Under 3.5 Goals',
+      leagueScopeLabel,
       provider: isConfigured ? provider : 'NONE',
       isConfigured,
       isLoading,
@@ -329,6 +346,7 @@ function buildFootballUnder35Breakdown(params: {
     sport: 'football',
     system: 'football_under_3_5',
     ruleTitle: 'Football — Under 3.5 Goals',
+    leagueScopeLabel,
     provider,
     isConfigured,
     isLoading: false,
@@ -373,6 +391,7 @@ function buildTennisStraightSetsBreakdown(params: {
       sport: 'tennis',
       system: 'tennis_straight_sets',
       ruleTitle: 'Tennis — Straight Sets',
+      leagueScopeLabel: 'Not applicable',
       provider: isConfigured ? provider : 'NONE',
       isConfigured,
       isLoading,
@@ -449,6 +468,7 @@ function buildTennisStraightSetsBreakdown(params: {
     sport: 'tennis',
     system: 'tennis_straight_sets',
     ruleTitle: 'Tennis — Straight Sets',
+    leagueScopeLabel: 'Not applicable',
     provider,
     isConfigured,
     isLoading: false,

@@ -105,6 +105,7 @@ export const DEFAULT_RULE_THRESHOLDS: RuleThresholds = {
     minRecentScoredCount: 4,
     minExchangeOdds: 1.15,
     enhancedOddsThreshold: 1.25,
+    selectedLeagueIds: [],
   },
   footballUnder35: {
     enabled: true,
@@ -113,6 +114,7 @@ export const DEFAULT_RULE_THRESHOLDS: RuleThresholds = {
     minH2HUnder35Rate: 0.8,
     minRecentUnder35Count: 4,
     minExchangeOdds: 1.2,
+    selectedLeagueIds: [],
   },
   tennisStraightSets: {
     // Tennis has no configured data supplier since the Sportradar/Sportmonks
@@ -145,26 +147,49 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoArchiveQualifiers: true,
   autoSettleCompleted: true,
   ruleThresholds: DEFAULT_RULE_THRESHOLDS,
-  selectedLeagueIds: [],
+  leagueCatalog: [],
 };
+
+/**
+ * Older settings blobs stored one global `selectedLeagueIds` array rather
+ * than a per-rule one. When migrating those, apply the old global selection
+ * to both football rules — a one-time compatibility shim, not something new
+ * saves ever write.
+ */
+function migrateLegacyGlobalLeagueSelection(parsed: any, ruleThresholds: RuleThresholds): RuleThresholds {
+  const legacyGlobal = Array.isArray(parsed?.selectedLeagueIds) ? parsed.selectedLeagueIds : null;
+  if (!legacyGlobal || legacyGlobal.length === 0) return ruleThresholds;
+  return {
+    ...ruleThresholds,
+    footballOver15: {
+      ...ruleThresholds.footballOver15,
+      selectedLeagueIds: parsed?.ruleThresholds?.footballOver15?.selectedLeagueIds ?? legacyGlobal,
+    },
+    footballUnder35: {
+      ...ruleThresholds.footballUnder35,
+      selectedLeagueIds: parsed?.ruleThresholds?.footballUnder35?.selectedLeagueIds ?? legacyGlobal,
+    },
+  };
+}
 
 export function getStoredSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return DEFAULT_SETTINGS;
     const parsed = JSON.parse(raw);
-    return {
-      ...DEFAULT_SETTINGS,
-      ...parsed,
-      selectedLeagueIds: Array.isArray(parsed?.selectedLeagueIds) ? parsed.selectedLeagueIds : [],
+    const ruleThresholds = migrateLegacyGlobalLeagueSelection(parsed, {
       // Deep-merge one level so a settings blob saved before this feature
       // existed (or missing a newly-added sub-field) still gets sane
       // defaults for whichever systems it doesn't have an override for.
-      ruleThresholds: {
-        footballOver15: { ...DEFAULT_RULE_THRESHOLDS.footballOver15, ...parsed?.ruleThresholds?.footballOver15 },
-        footballUnder35: { ...DEFAULT_RULE_THRESHOLDS.footballUnder35, ...parsed?.ruleThresholds?.footballUnder35 },
-        tennisStraightSets: { ...DEFAULT_RULE_THRESHOLDS.tennisStraightSets, ...parsed?.ruleThresholds?.tennisStraightSets },
-      },
+      footballOver15: { ...DEFAULT_RULE_THRESHOLDS.footballOver15, ...parsed?.ruleThresholds?.footballOver15 },
+      footballUnder35: { ...DEFAULT_RULE_THRESHOLDS.footballUnder35, ...parsed?.ruleThresholds?.footballUnder35 },
+      tennisStraightSets: { ...DEFAULT_RULE_THRESHOLDS.tennisStraightSets, ...parsed?.ruleThresholds?.tennisStraightSets },
+    });
+    return {
+      ...DEFAULT_SETTINGS,
+      ...parsed,
+      leagueCatalog: Array.isArray(parsed?.leagueCatalog) ? parsed.leagueCatalog : [],
+      ruleThresholds,
     };
   } catch {
     return DEFAULT_SETTINGS;
@@ -465,26 +490,25 @@ export async function hydrateUserDataFromCloud(
     }
 
     // Hydrate state from Firestore document
+    const cloudRuleThresholds = migrateLegacyGlobalLeagueSelection(cloudData.settings, {
+      footballOver15: {
+        ...DEFAULT_RULE_THRESHOLDS.footballOver15,
+        ...cloudData.settings?.ruleThresholds?.footballOver15,
+      },
+      footballUnder35: {
+        ...DEFAULT_RULE_THRESHOLDS.footballUnder35,
+        ...cloudData.settings?.ruleThresholds?.footballUnder35,
+      },
+      tennisStraightSets: {
+        ...DEFAULT_RULE_THRESHOLDS.tennisStraightSets,
+        ...cloudData.settings?.ruleThresholds?.tennisStraightSets,
+      },
+    });
     const cloudSettings: AppSettings = {
       ...DEFAULT_SETTINGS,
       ...cloudData.settings,
-      selectedLeagueIds: Array.isArray(cloudData.settings?.selectedLeagueIds)
-        ? cloudData.settings.selectedLeagueIds
-        : [],
-      ruleThresholds: {
-        footballOver15: {
-          ...DEFAULT_RULE_THRESHOLDS.footballOver15,
-          ...cloudData.settings?.ruleThresholds?.footballOver15,
-        },
-        footballUnder35: {
-          ...DEFAULT_RULE_THRESHOLDS.footballUnder35,
-          ...cloudData.settings?.ruleThresholds?.footballUnder35,
-        },
-        tennisStraightSets: {
-          ...DEFAULT_RULE_THRESHOLDS.tennisStraightSets,
-          ...cloudData.settings?.ruleThresholds?.tennisStraightSets,
-        },
-      },
+      leagueCatalog: Array.isArray(cloudData.settings?.leagueCatalog) ? cloudData.settings.leagueCatalog : [],
+      ruleThresholds: cloudRuleThresholds,
     };
 
     const cloudBets = Array.isArray(cloudData.historicalBets) ? cloudData.historicalBets : [];

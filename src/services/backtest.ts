@@ -28,10 +28,25 @@ import { buildFootballCandidate } from './dataFeed';
 
 const MAX_EVALUATED_MATCHES = 60;
 
+interface BacktestCandidateMatch {
+  providerId: string;
+  homeId: string;
+  awayId: string;
+  homeOrPlayer1: string;
+  awayOrPlayer2: string;
+  competitionId: string;
+  competition: string;
+  seasonId: string;
+  matchTime: string;
+  homeScore: number;
+  awayScore: number;
+  finalScore: string;
+}
+
 export async function runBacktest(
   settings: AppSettings,
   system: Extract<SystemType, 'football_over_1_5' | 'football_under_3_5'>,
-  leagueId: string | null,
+  leagueIds: string[],
   leagueLabel: string,
   sampleSize = 200
 ): Promise<BacktestSummary> {
@@ -39,23 +54,22 @@ export async function runBacktest(
     throw new Error('Add a TheStatsAPI key in Engine Configuration before running a backtest.');
   }
 
-  const qs = new URLSearchParams({ limit: String(sampleSize) });
-  if (leagueId) qs.set('competitionId', leagueId);
-  const body = await apiGet(`/api/football/backtest-results?${qs.toString()}`, settings.theStatsApiKey);
-  const candidates: {
-    providerId: string;
-    homeId: string;
-    awayId: string;
-    homeOrPlayer1: string;
-    awayOrPlayer2: string;
-    competitionId: string;
-    competition: string;
-    seasonId: string;
-    matchTime: string;
-    homeScore: number;
-    awayScore: number;
-    finalScore: string;
-  }[] = body?.matches || [];
+  // Empty selection means "All" — one call. A specific multi-league
+  // selection means one call per league (TheStatsAPI's competition_id
+  // filter only takes a single value), merged and re-capped afterwards.
+  const leagueIdsToQuery = leagueIds.length > 0 ? leagueIds : [undefined];
+  const candidatesByLeague = await Promise.all(
+    leagueIdsToQuery.map(async (leagueId) => {
+      const qs = new URLSearchParams({ limit: String(sampleSize) });
+      if (leagueId) qs.set('competitionId', leagueId);
+      const body = await apiGet(`/api/football/backtest-results?${qs.toString()}`, settings.theStatsApiKey);
+      return (body?.matches || []) as BacktestCandidateMatch[];
+    })
+  );
+  const candidates = candidatesByLeague
+    .flat()
+    .sort((a, b) => new Date(b.matchTime).getTime() - new Date(a.matchTime).getTime())
+    .slice(0, sampleSize);
 
   const requiredOdds =
     system === 'football_over_1_5'

@@ -112,8 +112,10 @@ export async function backfillHistoricalResults(settings: AppSettings): Promise<
   const records: HistoricalBetRecord[] = [];
 
   try {
+    // A one-off backfill of the Archive, not a recurring scan — pulled
+    // across every league rather than scoped to either rule's own
+    // selection, since this only ever runs once per device.
     const qs = new URLSearchParams({ from, to });
-    if (settings.selectedLeagueIds.length === 1) qs.set('competitionId', settings.selectedLeagueIds[0]);
     const body = await apiGet(`/api/football/results?${qs.toString()}`, settings.theStatsApiKey);
     records.push(...buildFootballRecords(body?.results || [], settings.defaultStake || 100, settings.ruleThresholds));
   } catch (err) {

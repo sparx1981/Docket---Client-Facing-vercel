@@ -320,6 +320,8 @@ export const FilterHoverPopup: React.FC<FilterHoverPopupProps> = ({
                   <span className="font-medium text-slate-700 dark:text-slate-300">
                     {breakdown.provider !== 'NONE' ? breakdown.provider : 'No Provider Configured'}
                   </span>
+                  {' · '}League scope:{' '}
+                  <span className="font-medium text-slate-700 dark:text-slate-300">{breakdown.leagueScopeLabel}</span>
                 </div>
               </div>
             </div>
@@ -470,7 +472,10 @@ export const FilterHoverPopup: React.FC<FilterHoverPopupProps> = ({
                 <div className="rounded-md bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 px-2.5 py-2 text-[10.5px] text-emerald-900 dark:text-emerald-300 flex items-start gap-1.5">
                   <Info className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                   <span>
-                    <strong>Feed Ingestion Pipeline:</strong> Ingests all scheduled matches across an upcoming 3-day query window from {breakdown.provider} with zero league, country, or odds pre-filtering. The first 40 matches are enriched with deep head-to-head, prior season, or ranking profiles.
+                    <strong>Feed Ingestion Pipeline:</strong> Ingests scheduled matches across an upcoming 3-day query
+                    window from {breakdown.provider}, scoped to <strong>{breakdown.leagueScopeLabel}</strong> (this
+                    rule's own League selector) with no other pre-filtering. The first 40 matches are enriched with
+                    deep head-to-head, prior season, or ranking profiles.
                   </span>
                 </div>
 
