@@ -89,14 +89,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [leaguesLoading, setLeaguesLoading] = useState(false);
   const [leaguesError, setLeaguesError] = useState<string | null>(null);
 
-  // Backtest (Filter Thresholds)
-  const [backtestSystem, setBacktestSystem] = useState<'football_over_1_5' | 'football_under_3_5'>(
-    'football_over_1_5'
-  );
-  const [backtestLeagueId, setBacktestLeagueId] = useState<string>('');
-  const [backtestRunning, setBacktestRunning] = useState(false);
-  const [backtestResult, setBacktestResult] = useState<BacktestSummary | null>(null);
-  const [backtestError, setBacktestError] = useState<string | null>(null);
+  // Backtest — one per football rule, since the league to backtest against
+  // and the "Run backtest" trigger both live inside that rule's own card now.
+  type BacktestSystem = 'football_over_1_5' | 'football_under_3_5';
+  const [backtestLeagueBySystem, setBacktestLeagueBySystem] = useState<Record<BacktestSystem, string>>({
+    football_over_1_5: '',
+    football_under_3_5: '',
+  });
+  const [backtestRunningBySystem, setBacktestRunningBySystem] = useState<Record<BacktestSystem, boolean>>({
+    football_over_1_5: false,
+    football_under_3_5: false,
+  });
+  const [backtestResultBySystem, setBacktestResultBySystem] = useState<Record<BacktestSystem, BacktestSummary | null>>({
+    football_over_1_5: null,
+    football_under_3_5: null,
+  });
+  const [backtestErrorBySystem, setBacktestErrorBySystem] = useState<Record<BacktestSystem, string | null>>({
+    football_over_1_5: null,
+    football_under_3_5: null,
+  });
 
   // Live feed state for Filter Thresholds breakdown
   const [liveFixtures, setLiveFixtures] = useState<CandidateFixture[]>(fixtures || []);
@@ -284,25 +295,64 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     });
   };
 
-  const handleRunBacktest = async () => {
-    setBacktestRunning(true);
-    setBacktestError(null);
-    setBacktestResult(null);
+  const handleRunBacktest = async (system: BacktestSystem) => {
+    setBacktestRunningBySystem((prev) => ({ ...prev, [system]: true }));
+    setBacktestErrorBySystem((prev) => ({ ...prev, [system]: null }));
+    setBacktestResultBySystem((prev) => ({ ...prev, [system]: null }));
     try {
-      const league = backtestLeagueId ? leagues.find((l) => l.id === backtestLeagueId) : undefined;
-      const result = await runBacktest(
-        formData,
-        backtestSystem,
-        backtestLeagueId || null,
-        league ? league.name : 'All leagues',
-        200
-      );
-      setBacktestResult(result);
+      const leagueId = backtestLeagueBySystem[system];
+      const league = leagueId ? leagues.find((l) => l.id === leagueId) : undefined;
+      const result = await runBacktest(formData, system, leagueId || null, league ? league.name : 'All leagues', 200);
+      setBacktestResultBySystem((prev) => ({ ...prev, [system]: result }));
     } catch (err) {
-      setBacktestError(err instanceof Error ? err.message : String(err));
+      setBacktestErrorBySystem((prev) => ({ ...prev, [system]: err instanceof Error ? err.message : String(err) }));
     } finally {
-      setBacktestRunning(false);
+      setBacktestRunningBySystem((prev) => ({ ...prev, [system]: false }));
     }
+  };
+
+  const renderBacktestButton = (system: BacktestSystem) => {
+    const running = backtestRunningBySystem[system];
+    return (
+      <button
+        type="button"
+        id={`btn-run-backtest-${system}`}
+        onClick={() => handleRunBacktest(system)}
+        disabled={running || !formData.theStatsApiKey}
+        className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] font-bold text-text transition-colors hover:border-brand disabled:opacity-60"
+      >
+        <Play className={`h-3 w-3 ${running ? 'animate-pulse text-brand' : ''}`} strokeWidth={2.5} />
+        <span>{running ? 'Running backtest…' : 'Run backtest'}</span>
+      </button>
+    );
+  };
+
+  const renderBacktestResult = (system: BacktestSystem) => {
+    const result = backtestResultBySystem[system];
+    const error = backtestErrorBySystem[system];
+    if (!result && !error) return null;
+    return (
+      <div className="mt-4">
+        {error && <p className="mb-2 text-[11px] font-medium text-bad-ink">{error}</p>}
+        {result && (
+          <div className="rounded-lg border border-line bg-surface-2 p-3 space-y-2">
+            <p className="text-[12px] font-semibold text-text">
+              {result.leagueLabel} · {result.candidateCount} finished matches found · {result.evaluatedCount} evaluated
+              with full historical context · {result.sampleSize} would have qualified
+            </p>
+            <div className="flex flex-wrap gap-x-5 gap-y-1 text-[12px] font-mono text-text">
+              <span>Wins: {result.wins}</span>
+              <span>Losses: {result.losses}</span>
+              <span>Win rate: {result.winRatePct}%</span>
+              <span>Required odds: {result.requiredOdds.toFixed(2)}</span>
+              <span>Net units: {result.netUnitsAtRequiredOdds >= 0 ? '+' : ''}{result.netUnitsAtRequiredOdds}</span>
+              <span>ROI: {result.roiPct}%</span>
+            </div>
+            <p className="text-[10px] leading-relaxed text-text-2">{result.scopeNote}</p>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -892,82 +942,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             )}
           </div>
 
-          {/* Backtest */}
-          <div className="border-t border-line pt-4">
-            <div className="mb-3 space-y-1">
-              <h3 className="text-[12px] font-extrabold uppercase tracking-wider text-text">Backtest</h3>
-              <p className="text-[11px] leading-relaxed text-text-2">
-                Replays this rule's real statistical filters (previous-season averages, H2H rate,
-                recent-form counts) against up to the last 200 finished matches for the selected
-                league, reconstructed as they genuinely stood before each match — not a same-day
-                snapshot. Matches that would have qualified are then settled against their real
-                final score. There is no historical Betfair Exchange price to test against, so a
-                qualifying match is priced at this rule's configured required odds rather than a
-                real historical market price.
-              </p>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3 sm:items-end mb-3">
-              <Field label="Rule" htmlFor="backtest-system">
-                <select
-                  id="backtest-system"
-                  value={backtestSystem}
-                  onChange={(e) => setBacktestSystem(e.target.value as typeof backtestSystem)}
-                  className={inputClass}
-                >
-                  <option value="football_over_1_5">Football — Over 1.5 Goals</option>
-                  <option value="football_under_3_5">Football — Under 3.5 Goals</option>
-                </select>
-              </Field>
-              <Field label="League" htmlFor="backtest-league">
-                <select
-                  id="backtest-league"
-                  value={backtestLeagueId}
-                  onChange={(e) => setBacktestLeagueId(e.target.value)}
-                  className={inputClass}
-                >
-                  <option value="">All leagues</option>
-                  {leagues.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <button
-                type="button"
-                id="btn-run-backtest"
-                onClick={handleRunBacktest}
-                disabled={backtestRunning || !formData.theStatsApiKey}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border border-line bg-surface text-text hover:border-brand transition-colors shrink-0 disabled:opacity-60"
-              >
-                <Play className={`w-3.5 h-3.5 ${backtestRunning ? 'animate-pulse text-brand' : ''}`} />
-                <span>{backtestRunning ? 'Running backtest…' : 'Run backtest'}</span>
-              </button>
-            </div>
-
-            {backtestError && <p className="mb-3 text-[11px] font-medium text-bad-ink">{backtestError}</p>}
-
-            {backtestResult && (
-              <div className="rounded-lg border border-line bg-surface-2 p-3 space-y-2">
-                <p className="text-[12px] font-semibold text-text">
-                  {backtestResult.leagueLabel} · {backtestResult.candidateCount} finished matches found ·{' '}
-                  {backtestResult.evaluatedCount} evaluated with full historical context ·{' '}
-                  {backtestResult.sampleSize} would have qualified
-                </p>
-                <div className="flex flex-wrap gap-x-5 gap-y-1 text-[12px] font-mono text-text">
-                  <span>Wins: {backtestResult.wins}</span>
-                  <span>Losses: {backtestResult.losses}</span>
-                  <span>Win rate: {backtestResult.winRatePct}%</span>
-                  <span>Required odds: {backtestResult.requiredOdds.toFixed(2)}</span>
-                  <span>Net units: {backtestResult.netUnitsAtRequiredOdds >= 0 ? '+' : ''}{backtestResult.netUnitsAtRequiredOdds}</span>
-                  <span>ROI: {backtestResult.roiPct}%</span>
-                </div>
-                <p className="text-[10px] leading-relaxed text-text-2">{backtestResult.scopeNote}</p>
-              </div>
-            )}
-          </div>
-
           {/* System A: Over 1.5 Goals */}
           <div className="border-t border-line pt-4">
             <div className="mb-3 flex items-center justify-between flex-wrap gap-2">
@@ -981,14 +955,34 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   isRefreshing={isRefreshingFeed}
                 />
               </div>
-              <Switch
-                id="thresh-over15-enabled"
-                checked={formData.ruleThresholds.footballOver15.enabled}
-                onChange={(v) => setThreshold('footballOver15', 'enabled', v)}
-                label="Enabled"
-              />
+              <div className="flex items-center gap-3">
+                {renderBacktestButton('football_over_1_5')}
+                <Switch
+                  id="thresh-over15-enabled"
+                  checked={formData.ruleThresholds.footballOver15.enabled}
+                  onChange={(v) => setThreshold('footballOver15', 'enabled', v)}
+                  label="Enabled"
+                />
+              </div>
             </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Field label="Backtest league" htmlFor="over15-backtest-league" hint="Which league the Run backtest button above tests against.">
+                <select
+                  id="over15-backtest-league"
+                  value={backtestLeagueBySystem.football_over_1_5}
+                  onChange={(e) =>
+                    setBacktestLeagueBySystem((prev) => ({ ...prev, football_over_1_5: e.target.value }))
+                  }
+                  className={inputClass}
+                >
+                  <option value="">All leagues</option>
+                  {leagues.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
               <Field
                 label="Min. previous-season avg goals scored"
                 htmlFor="over15-avg-scored"
@@ -1099,6 +1093,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 />
               </Field>
             </div>
+            {renderBacktestResult('football_over_1_5')}
           </div>
 
           {/* System B: Under 3.5 Goals */}
@@ -1114,14 +1109,34 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   isRefreshing={isRefreshingFeed}
                 />
               </div>
-              <Switch
-                id="thresh-under35-enabled"
-                checked={formData.ruleThresholds.footballUnder35.enabled}
-                onChange={(v) => setThreshold('footballUnder35', 'enabled', v)}
-                label="Enabled"
-              />
+              <div className="flex items-center gap-3">
+                {renderBacktestButton('football_under_3_5')}
+                <Switch
+                  id="thresh-under35-enabled"
+                  checked={formData.ruleThresholds.footballUnder35.enabled}
+                  onChange={(v) => setThreshold('footballUnder35', 'enabled', v)}
+                  label="Enabled"
+                />
+              </div>
             </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Field label="Backtest league" htmlFor="under35-backtest-league" hint="Which league the Run backtest button above tests against.">
+                <select
+                  id="under35-backtest-league"
+                  value={backtestLeagueBySystem.football_under_3_5}
+                  onChange={(e) =>
+                    setBacktestLeagueBySystem((prev) => ({ ...prev, football_under_3_5: e.target.value }))
+                  }
+                  className={inputClass}
+                >
+                  <option value="">All leagues</option>
+                  {leagues.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
               <Field
                 label="Max. previous-season avg goals scored"
                 htmlFor="under35-avg-scored"
@@ -1230,6 +1245,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 />
               </Field>
             </div>
+            {renderBacktestResult('football_under_3_5')}
           </div>
 
           {/* System C: Tennis Straight Sets */}
