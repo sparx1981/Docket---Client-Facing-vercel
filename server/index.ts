@@ -144,7 +144,7 @@ app.get('/api/football/results', async (req, res) => {
   }
 });
 
-/** Backtest support: most-recent finished matches for one competition, capped at `limit`. */
+/** Backtest support: most-recent finished matches for one competition (or all), capped at `limit`. */
 app.get('/api/football/backtest-results', async (req, res) => {
   const key = requireKey(req, res);
   if (!key) return;
@@ -155,8 +155,39 @@ app.get('/api/football/backtest-results', async (req, res) => {
     const competitionNameById = await thestatsapi.getCompetitionNameMap(key);
     res.json({
       provider: 'thestatsapi',
-      results: await thestatsapi.getRecentResultsForCompetition(key, competitionId, competitionNameById, limit),
+      matches: await thestatsapi.getRecentMatchesForBacktest(key, competitionId, competitionNameById, limit),
     });
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
+/**
+ * Backtest support: the same statistical breakdown the live scan builds
+ * (previous-season stats, recent form, H2H), reconstructed as it stood
+ * before a specific past match, using date_to filtering and the
+ * competition's previous completed season rather than a fabricated guess.
+ */
+app.get('/api/football/backtest-context', async (req, res) => {
+  const key = requireKey(req, res);
+  if (!key) return;
+  const homeId = String(req.query.homeId || '');
+  const awayId = String(req.query.awayId || '');
+  const competitionId = String(req.query.competitionId || '');
+  const seasonId = String(req.query.seasonId || '');
+  const matchDate = String(req.query.date || '');
+  if (!homeId || !awayId || !competitionId || !seasonId || !matchDate) {
+    return res.status(400).json({ error: 'Missing required query params: homeId, awayId, competitionId, seasonId, date' });
+  }
+
+  try {
+    const competitionNameById = await thestatsapi.getCompetitionNameMap(key);
+    const context = await thestatsapi.getHistoricalMatchContext(
+      key,
+      { homeId, awayId, competitionId, seasonId, matchDate },
+      competitionNameById
+    );
+    res.json({ provider: 'thestatsapi', context });
   } catch (err) {
     handleError(err, res);
   }

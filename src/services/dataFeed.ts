@@ -105,7 +105,7 @@ export async function fetchLeagues(settings: AppSettings): Promise<LeagueOption[
 
 /* ============================== Football ============================== */
 
-interface RawFootballFixture {
+export interface RawFootballFixture {
   providerId: string;
   homeOrPlayer1: string;
   awayOrPlayer2: string;
@@ -254,7 +254,7 @@ async function buildFootballCandidates(
   };
 }
 
-function buildFootballCandidate(
+export function buildFootballCandidate(
   system: 'football_over_1_5' | 'football_under_3_5',
   fx: RawFootballFixture,
   footballDetails: CandidateFixture['footballDetails'] | undefined,

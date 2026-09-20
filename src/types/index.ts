@@ -318,23 +318,28 @@ export interface BacktestMatchResult {
 export interface BacktestSummary {
   system: SystemType;
   leagueLabel: string;
+  /** Finished matches actually found for the selected league/window. */
+  candidateCount: number;
+  /** Of those, how many had a real historical context (previous-season stats, recent form, H2H) reconstructed and evaluated. */
+  evaluatedCount: number;
+  /** Of the evaluated matches, how many would have passed the rule's real statistical filters (a "preliminary qualifier"). */
   sampleSize: number;
   wins: number;
   losses: number;
   winRatePct: number;
   requiredOdds: number;
-  /** P&L for a flat stake of 1 unit per match, at the configured required odds. */
+  /** P&L for a flat stake of 1 unit per qualifying match, at the configured required odds. */
   netUnitsAtRequiredOdds: number;
   roiPct: number;
   matches: BacktestMatchResult[];
   /**
-   * Backtests settle each historical match directly against its real final
-   * score at the system's disclosed goal threshold — they do not replay
-   * each team's pre-match form/H2H as it stood on that date (TheStatsAPI
-   * has no "stats as of a past date" query), and there is no historical
-   * Betfair Exchange price to test against either. This is disclosed here
-   * rather than left implicit, matching the same scope call already made
-   * for Archive backfill (see historyBackfill.ts).
+   * Each qualifying match's win/loss is the real final score against the
+   * system's goal line. The one thing this cannot replay is a historical
+   * Betfair Exchange price — that integration doesn't exist yet even for
+   * live fixtures (see betfairMarket in CandidateFixture) — so every
+   * qualifying match here is priced at the system's configured required
+   * odds, the same convention already used for Archive backfill (see
+   * historyBackfill.ts), rather than a real historical market price.
    */
   scopeNote: string;
 }

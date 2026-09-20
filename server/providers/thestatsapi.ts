@@ -170,25 +170,70 @@ export async function getResultsForDate(
   return rows.map((m) => mapMatchToResult(m, competitionNameById)).filter((r): r is NormalizedResult => r !== null);
 }
 
+export interface BacktestCandidateMatch {
+  providerId: string;
+  homeId: string;
+  awayId: string;
+  homeOrPlayer1: string;
+  awayOrPlayer2: string;
+  competitionId: string;
+  competition: string;
+  seasonId: string;
+  matchTime: string;
+  homeScore: number;
+  awayScore: number;
+  finalScore: string;
+}
+
 /**
- * Most-recent finished matches for a competition, newest first, capped at
- * `limit`. Used by the Backtest feature to pull "the past N matching
- * records" for a selected league without the caller needing to know date
- * ranges up front.
+ * Most-recent finished matches for a competition (or every competition,
+ * when none is given), newest first, capped at `limit` — with the team and
+ * season ids the Backtest feature needs to reconstruct each match's real
+ * pre-match context via getHistoricalMatchContext.
  */
-export async function getRecentResultsForCompetition(
+export async function getRecentMatchesForBacktest(
   apiKey: string,
   competitionId: string | undefined,
   competitionNameById: Map<string, string>,
   limit: number
-): Promise<NormalizedResult[]> {
+): Promise<BacktestCandidateMatch[]> {
   const maxPages = Math.max(1, Math.ceil(limit / 100));
   const rows = await listMatches(apiKey, { competition_id: competitionId, status: 'finished' }, maxPages);
-  const results = rows
-    .map((m) => mapMatchToResult(m, competitionNameById))
-    .filter((r): r is NormalizedResult => r !== null);
-  results.sort((a, b) => new Date(b.matchTime).getTime() - new Date(a.matchTime).getTime());
-  return results.slice(0, limit);
+  const matches: BacktestCandidateMatch[] = [];
+  for (const m of rows) {
+    const home = m?.home_team;
+    const away = m?.away_team;
+    const homeScore: number | undefined = m?.score?.home;
+    const awayScore: number | undefined = m?.score?.away;
+    if (
+      !home?.id ||
+      !away?.id ||
+      !m?.id ||
+      !m?.competition_id ||
+      !m?.season_id ||
+      !m?.utc_date ||
+      typeof homeScore !== 'number' ||
+      typeof awayScore !== 'number'
+    ) {
+      continue;
+    }
+    matches.push({
+      providerId: String(m.id),
+      homeId: home.id,
+      awayId: away.id,
+      homeOrPlayer1: home.name,
+      awayOrPlayer2: away.name,
+      competitionId: m.competition_id,
+      competition: competitionNameById.get(m.competition_id) || 'Unknown competition',
+      seasonId: m.season_id,
+      matchTime: m.utc_date,
+      homeScore,
+      awayScore,
+      finalScore: `${homeScore} - ${awayScore}`,
+    });
+  }
+  matches.sort((a, b) => new Date(b.matchTime).getTime() - new Date(a.matchTime).getTime());
+  return matches.slice(0, limit);
 }
 
 interface SeasonInfo {
@@ -212,13 +257,7 @@ async function getCurrentSeasonInfo(apiKey: string, competitionId: string): Prom
   const seasonId: string | undefined = detail?.data?.current_season_id;
   if (!seasonId) return null;
 
-  const seasons = await fetchJson(
-    PROVIDER,
-    `${BASE_URL}/football/competitions/${competitionId}/seasons`,
-    {},
-    { headers: authHeaders(apiKey) }
-  );
-  const seasonRow = (seasons?.data || []).find((s: any) => s?.id === seasonId);
+  const seasonRow = (await getSeasonList(apiKey, competitionId)).find((s) => s.id === seasonId);
   const info: SeasonInfo = {
     seasonId,
     seasonName: seasonRow?.name || seasonRow?.year || seasonId,
@@ -228,11 +267,128 @@ async function getCurrentSeasonInfo(apiKey: string, competitionId: string): Prom
   return info;
 }
 
+interface SeasonListEntry {
+  id: string;
+  name: string;
+  year: string;
+  startYear: number | null;
+}
+interface SeasonListCacheEntry {
+  seasons: SeasonListEntry[];
+  expiresAt: number;
+}
+const seasonListCache = new Map<string, SeasonListCacheEntry>();
+
+/** All seasons for a competition, newest first — as TheStatsAPI itself returns them. */
+async function getSeasonList(apiKey: string, competitionId: string): Promise<SeasonListEntry[]> {
+  const cached = seasonListCache.get(competitionId);
+  if (cached && cached.expiresAt > Date.now()) return cached.seasons;
+
+  const data = await fetchJson(
+    PROVIDER,
+    `${BASE_URL}/football/competitions/${competitionId}/seasons`,
+    {},
+    { headers: authHeaders(apiKey) }
+  );
+  const seasons: SeasonListEntry[] = (data?.data || [])
+    .filter((s: any) => s?.id)
+    .map((s: any) => ({ id: s.id, name: s.name || s.year || s.id, year: s.year || '', startYear: s.start_year ?? null }));
+  seasonListCache.set(competitionId, { seasons, expiresAt: Date.now() + SEASON_CACHE_TTL_MS });
+  return seasons;
+}
+
 /**
- * Team profile: previous/current-season aggregate stats plus recent form.
- * Built from three real calls — team detail (for its primary competition),
- * that competition's current season, and the team's season stats — never
- * padded when any of them comes back incomplete.
+ * The season that finished immediately before `referenceSeasonId` for the
+ * same competition — what "previous season" means for a match played
+ * during `referenceSeasonId`. Returns null when the competition has no
+ * earlier season on record (a newly-tracked competition, or the oldest
+ * season TheStatsAPI holds for it).
+ */
+async function getPreviousSeasonInfo(
+  apiKey: string,
+  competitionId: string,
+  referenceSeasonId: string
+): Promise<SeasonInfo | null> {
+  const seasons = await getSeasonList(apiKey, competitionId);
+  const index = seasons.findIndex((s) => s.id === referenceSeasonId);
+  // Seasons are returned newest-first, so the previous (older) season sits
+  // at the next index along.
+  if (index === -1 || index + 1 >= seasons.length) return null;
+  const prev = seasons[index + 1];
+  return { seasonId: prev.id, seasonName: prev.name, expiresAt: Date.now() + SEASON_CACHE_TTL_MS };
+}
+
+async function fetchSeasonStats(
+  apiKey: string,
+  teamId: string,
+  teamName: string,
+  leagueName: string,
+  season: SeasonInfo
+): Promise<FootballPrevSeasonStats | undefined> {
+  const statsData = await fetchJson(
+    PROVIDER,
+    `${BASE_URL}/football/teams/${teamId}/stats`,
+    { season_id: season.seasonId },
+    { headers: authHeaders(apiKey) }
+  );
+  const s = statsData?.data;
+  if (!s || typeof s.matches_played !== 'number' || typeof s.goals_for !== 'number' || typeof s.goals_against !== 'number') {
+    return undefined;
+  }
+  return {
+    team: teamName,
+    season: season.seasonName,
+    league: leagueName,
+    matchesPlayed: s.matches_played,
+    goalsScored: s.goals_for,
+    goalsConceded: s.goals_against,
+    avgGoalsScored: s.matches_played > 0 ? s.goals_for / s.matches_played : 0,
+    avgGoalsConceded: s.matches_played > 0 ? s.goals_against / s.matches_played : 0,
+  };
+}
+
+function mapTeamRecentMatch(m: any, teamId: string, competitionNameById: Map<string, string>): TeamRecentMatch | null {
+  const home = m?.home_team;
+  const away = m?.away_team;
+  const homeScore: number | undefined = m?.score?.home;
+  const awayScore: number | undefined = m?.score?.away;
+  if (!home?.id || !away?.id || typeof homeScore !== 'number' || typeof awayScore !== 'number' || !m?.utc_date) {
+    return null;
+  }
+  const isHome = home.id === teamId;
+  const teamGoals = isHome ? homeScore : awayScore;
+  const opponentGoals = isHome ? awayScore : homeScore;
+  return {
+    date: String(m.utc_date).slice(0, 10),
+    opponent: isHome ? away.name : home.name,
+    isHome,
+    teamGoals,
+    opponentGoals,
+    totalGoals: teamGoals + opponentGoals,
+    competition: competitionNameById.get(m.competition_id) || 'Unknown competition',
+    scoredAtLeastOne: teamGoals > 0,
+    under35Goals: teamGoals + opponentGoals < 4,
+    // TheStatsAPI's competition `type` enum is league/cup/tournament — it
+    // does not carry a separate "friendly" classification, so every match
+    // returned here is treated as competitive.
+    isCompetitive: true,
+  };
+}
+
+/** One day before `dateIso` (YYYY-MM-DD), for an exclusive "before this date" filter via date_to. */
+function dayBefore(dateIso: string): string {
+  const d = new Date(dateIso.slice(0, 10) + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Team profile: current-season aggregate stats plus recent form, as of
+ * *now* — used for live fixture enrichment (the daily scan), where "current
+ * form" genuinely means the present. Built from three real calls — team
+ * detail (for its primary competition), that competition's current season,
+ * and the team's season stats — never padded when any of them comes back
+ * incomplete.
  */
 export async function getTeamProfile(
   apiKey: string,
@@ -254,33 +410,12 @@ export async function getTeamProfile(
     try {
       const season = await getCurrentSeasonInfo(apiKey, competitionId);
       if (season) {
-        const statsData = await fetchJson(
-          PROVIDER,
-          `${BASE_URL}/football/teams/${teamId}/stats`,
-          { season_id: season.seasonId },
-          { headers: authHeaders(apiKey) }
-        );
-        const s = statsData?.data;
-        if (s && typeof s.matches_played === 'number' && typeof s.goals_for === 'number' && typeof s.goals_against === 'number') {
-          prevSeason = {
-            team: teamName,
-            season: season.seasonName,
-            league: team?.primary_competition?.name || 'Unknown league',
-            matchesPlayed: s.matches_played,
-            goalsScored: s.goals_for,
-            goalsConceded: s.goals_against,
-            avgGoalsScored: s.matches_played > 0 ? s.goals_for / s.matches_played : 0,
-            avgGoalsConceded: s.matches_played > 0 ? s.goals_against / s.matches_played : 0,
-          };
-        }
+        prevSeason = await fetchSeasonStats(apiKey, teamId, teamName, team?.primary_competition?.name || 'Unknown league', season);
       }
     } catch (err) {
-      if (err instanceof ProviderError) {
-        // Leave prevSeason undefined — the rules engine treats this as
-        // missing data rather than a crash.
-      } else {
-        throw err;
-      }
+      if (!(err instanceof ProviderError)) throw err;
+      // Leave prevSeason undefined — the rules engine treats this as
+      // missing data rather than a crash.
     }
   }
 
@@ -288,33 +423,7 @@ export async function getTeamProfile(
   try {
     const rows = await listMatches(apiKey, { team_id: teamId, status: 'finished' }, 1);
     const mapped = rows
-      .map((m): TeamRecentMatch | null => {
-        const home = m?.home_team;
-        const away = m?.away_team;
-        const homeScore: number | undefined = m?.score?.home;
-        const awayScore: number | undefined = m?.score?.away;
-        if (!home?.id || !away?.id || typeof homeScore !== 'number' || typeof awayScore !== 'number' || !m?.utc_date) {
-          return null;
-        }
-        const isHome = home.id === teamId;
-        const teamGoals = isHome ? homeScore : awayScore;
-        const opponentGoals = isHome ? awayScore : homeScore;
-        return {
-          date: String(m.utc_date).slice(0, 10),
-          opponent: isHome ? away.name : home.name,
-          isHome,
-          teamGoals,
-          opponentGoals,
-          totalGoals: teamGoals + opponentGoals,
-          competition: competitionNameById.get(m.competition_id) || 'Unknown competition',
-          scoredAtLeastOne: teamGoals > 0,
-          under35Goals: teamGoals + opponentGoals < 4,
-          // TheStatsAPI's competition `type` enum is league/cup/tournament —
-          // it does not carry a separate "friendly" classification, so
-          // every match returned here is treated as competitive.
-          isCompetitive: true,
-        };
-      })
+      .map((m) => mapTeamRecentMatch(m, teamId, competitionNameById))
       .filter((m): m is TeamRecentMatch => m !== null)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     if (mapped.length > 0) recentMatches = mapped.slice(0, 10);
@@ -323,6 +432,114 @@ export async function getTeamProfile(
   }
 
   return { team: teamName, prevSeason, recentMatches };
+}
+
+export interface HistoricalMatchContext {
+  homePrevSeason?: FootballPrevSeasonStats;
+  awayPrevSeason?: FootballPrevSeasonStats;
+  homeRecentMatches?: TeamRecentMatch[];
+  awayRecentMatches?: TeamRecentMatch[];
+  h2hMatches?: H2HMatchRecord[];
+}
+
+/**
+ * The same statistical breakdown the live scan builds (prevSeason, recent
+ * form, H2H) but reconstructed as it genuinely stood *before* a past
+ * match — using the competition's previous completed season for the
+ * season-aggregate stats, and `date_to` filtering on the matches endpoint
+ * for recent form and head-to-head, both bounded to the day before the
+ * match. Used by the Backtest feature to replay a rule's real statistical
+ * filters against history, not just settle final scores.
+ */
+export async function getHistoricalMatchContext(
+  apiKey: string,
+  params: { homeId: string; awayId: string; competitionId: string; seasonId: string; matchDate: string },
+  competitionNameById: Map<string, string>
+): Promise<HistoricalMatchContext> {
+  const { homeId, awayId, competitionId, seasonId, matchDate } = params;
+  const beforeDate = dayBefore(matchDate);
+  const leagueName = competitionNameById.get(competitionId) || 'Unknown league';
+  const context: HistoricalMatchContext = {};
+
+  const previousSeason = await getPreviousSeasonInfo(apiKey, competitionId, seasonId).catch((err) => {
+    if (err instanceof ProviderError) return null;
+    throw err;
+  });
+
+  async function teamName(teamId: string): Promise<string> {
+    try {
+      const detail = await fetchJson(PROVIDER, `${BASE_URL}/football/teams/${teamId}`, {}, { headers: authHeaders(apiKey) });
+      return detail?.data?.name || 'Unknown team';
+    } catch {
+      return 'Unknown team';
+    }
+  }
+
+  async function recentBefore(teamId: string): Promise<TeamRecentMatch[] | undefined> {
+    try {
+      const rows = await listMatches(apiKey, { team_id: teamId, status: 'finished', date_to: beforeDate }, 1);
+      const mapped = rows
+        .map((m) => mapTeamRecentMatch(m, teamId, competitionNameById))
+        .filter((m): m is TeamRecentMatch => m !== null)
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      return mapped.length > 0 ? mapped.slice(0, 10) : undefined;
+    } catch (err) {
+      if (err instanceof ProviderError) return undefined;
+      throw err;
+    }
+  }
+
+  if (previousSeason) {
+    const [homeName, awayName] = await Promise.all([teamName(homeId), teamName(awayId)]);
+    const [homePrevSeason, awayPrevSeason] = await Promise.all([
+      fetchSeasonStats(apiKey, homeId, homeName, leagueName, previousSeason).catch((err) => {
+        if (err instanceof ProviderError) return undefined;
+        throw err;
+      }),
+      fetchSeasonStats(apiKey, awayId, awayName, leagueName, previousSeason).catch((err) => {
+        if (err instanceof ProviderError) return undefined;
+        throw err;
+      }),
+    ]);
+    context.homePrevSeason = homePrevSeason;
+    context.awayPrevSeason = awayPrevSeason;
+  }
+
+  const [homeRecentMatches, awayRecentMatches] = await Promise.all([recentBefore(homeId), recentBefore(awayId)]);
+  context.homeRecentMatches = homeRecentMatches;
+  context.awayRecentMatches = awayRecentMatches;
+
+  try {
+    const rows = await listMatches(apiKey, { team_id: homeId, status: 'finished', date_to: beforeDate }, 2);
+    const meetings = rows.filter((m) => m?.home_team?.id === awayId || m?.away_team?.id === awayId);
+    const h2h = meetings
+      .map((m): H2HMatchRecord | null => {
+        const home = m?.home_team;
+        const away = m?.away_team;
+        const homeScore: number | undefined = m?.score?.home;
+        const awayScore: number | undefined = m?.score?.away;
+        if (!home?.name || !away?.name || typeof homeScore !== 'number' || typeof awayScore !== 'number' || !m?.utc_date) {
+          return null;
+        }
+        return {
+          date: String(m.utc_date).slice(0, 10),
+          homeTeam: home.name,
+          awayTeam: away.name,
+          homeScore,
+          awayScore,
+          totalGoals: homeScore + awayScore,
+          competition: competitionNameById.get(m.competition_id) || 'Unknown competition',
+          isCompetitive: true,
+        };
+      })
+      .filter((m): m is H2HMatchRecord => m !== null)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    if (h2h.length > 0) context.h2hMatches = h2h;
+  } catch (err) {
+    if (!(err instanceof ProviderError)) throw err;
+  }
+
+  return context;
 }
 
 /**

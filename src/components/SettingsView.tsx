@@ -897,11 +897,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="mb-3 space-y-1">
               <h3 className="text-[12px] font-extrabold uppercase tracking-wider text-text">Backtest</h3>
               <p className="text-[11px] leading-relaxed text-text-2">
-                Settle the last 200 finished matches for the selected league against a rule's real
-                final scores, at that rule's configured required odds. This checks the goal-line
-                outcome only — it does not replay each match's pre-match form/H2H as it stood on
-                that date (TheStatsAPI has no "stats as of a past date" query), and there is no
-                historical Betfair Exchange price to test against.
+                Replays this rule's real statistical filters (previous-season averages, H2H rate,
+                recent-form counts) against up to the last 200 finished matches for the selected
+                league, reconstructed as they genuinely stood before each match — not a same-day
+                snapshot. Matches that would have qualified are then settled against their real
+                final score. There is no historical Betfair Exchange price to test against, so a
+                qualifying match is priced at this rule's configured required odds rather than a
+                real historical market price.
               </p>
             </div>
 
@@ -949,7 +951,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             {backtestResult && (
               <div className="rounded-lg border border-line bg-surface-2 p-3 space-y-2">
                 <p className="text-[12px] font-semibold text-text">
-                  {backtestResult.leagueLabel} · {backtestResult.sampleSize} matches settled
+                  {backtestResult.leagueLabel} · {backtestResult.candidateCount} finished matches found ·{' '}
+                  {backtestResult.evaluatedCount} evaluated with full historical context ·{' '}
+                  {backtestResult.sampleSize} would have qualified
                 </p>
                 <div className="flex flex-wrap gap-x-5 gap-y-1 text-[12px] font-mono text-text">
                   <span>Wins: {backtestResult.wins}</span>
