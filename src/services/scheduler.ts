@@ -216,7 +216,7 @@ export async function executeBackgroundScan(
 
   let autoArchivedCount = 0;
   const refreshedFixtures = fixtures.map((fixture) => {
-    const audit = runVerificationAudit(fixture, settings.ruleThresholds, undefined);
+    const audit = runVerificationAudit(fixture, settings.ruleThresholds);
 
     if (
       settings.autoArchiveQualifiers !== false &&
@@ -274,7 +274,7 @@ export async function executeBackgroundScan(
     notes: fetchError
       ? `Scan completed with issues: ${fetchError}`
       : anyProviderConfigured
-      ? `Pulled ${totalRecordsScanned} real candidate checks and re-ran the verification audit against raw provider evidence. Betfair Exchange odds are not yet connected (phase 2) — qualifying candidates are held in Price Watch until a real price is available.`
+      ? `Pulled ${totalRecordsScanned} real candidate checks and re-ran the verification audit against raw provider evidence, including live market odds from TheStatsAPI where available. Candidates without a price on file yet are held in Price Watch.`
       : 'No provider API key configured — add a TheStatsAPI key in Engine Configuration to pull real fixtures.',
     dataSources: [
       footballProvider

@@ -5,6 +5,7 @@ import {
   FootballPrevSeasonStats,
   H2HMatchRecord,
   LeagueOption,
+  MatchOddsData,
   RuleThresholds,
   TeamRecentMatch,
   TennisPlayerStats,
@@ -259,6 +260,7 @@ async function buildFootballCandidates(
       });
     }
     let footballDetails: CandidateFixture['footballDetails'] | undefined;
+    let matchOdds: MatchOddsData[] = [];
     if (i < MAX_ENRICHED_FIXTURES_PER_SPORT && fx.homeId && fx.awayId) {
       try {
         const [homeProfile, awayProfile, h2h] = await Promise.all([
@@ -300,9 +302,21 @@ async function buildFootballCandidates(
         // that as "missing data" rather than crashing or inventing stats.
         footballDetails = undefined;
       }
+
+      try {
+        const oddsBody = await apiGet(`/api/football/odds/${fx.providerId}`, key, signal);
+        matchOdds = Array.isArray(oddsBody?.odds) ? oddsBody.odds : [];
+      } catch (err) {
+        if (isAbortError(err)) throw err;
+        matchOdds = [];
+      }
     }
 
-    candidates.push(buildFootballCandidate(system, fx, footballDetails, thresholds, rawTotal));
+    const marketTypeOver15 = matchOdds.find((o) => o.marketType === 'OVER_UNDER_15');
+    const marketTypeUnder35 = matchOdds.find((o) => o.marketType === 'OVER_UNDER_35');
+    const marketOdds = system === 'football_over_1_5' ? marketTypeOver15 : marketTypeUnder35;
+
+    candidates.push(buildFootballCandidate(system, fx, footballDetails, thresholds, rawTotal, marketOdds));
   }
 
   return {
@@ -317,7 +331,8 @@ export function buildFootballCandidate(
   fx: RawFootballFixture,
   footballDetails: CandidateFixture['footballDetails'] | undefined,
   thresholds: RuleThresholds,
-  rawTotal?: number
+  rawTotal?: number,
+  marketOdds?: CandidateFixture['marketOdds']
 ): CandidateFixture {
   const requiredOdds =
     system === 'football_over_1_5'
@@ -341,15 +356,16 @@ export function buildFootballCandidate(
     betType,
     googleVerificationUrl: googleUrl(matchTitle, fx.competition),
     sourceProvider: 'THESTATSAPI',
-    // No Betfair Exchange integration in phase 1 (see betfairMarket, which
-    // is intentionally absent below) — there is no real current price to
-    // report, so this is left at 0 rather than a fabricated figure. UI
-    // surfaces this via betfairMarket being undefined, not via this field.
-    currentOdds: 0,
+    // Priced from TheStatsAPI's own odds endpoint when a matching-market
+    // entry came back for this fixture; left at 0 (not a fabricated
+    // figure) when it didn't. UI surfaces this via marketOdds being
+    // undefined, not via this field.
+    currentOdds: marketOdds?.decimalOdds ?? 0,
     requiredOdds,
-    oddsDifference: -requiredOdds,
+    oddsDifference: (marketOdds?.decimalOdds ?? 0) - requiredOdds,
     status: 'FAILED',
     footballDetails,
+    marketOdds,
     rawFeedTotal: rawTotal,
   };
 

@@ -70,17 +70,14 @@ export interface TennisRecentMatch {
   isCompetitiveSingles: boolean; // strictly excl walkovers, friendlies, exhibitions
 }
 
-export interface BetfairExchangeMarket {
-  marketId: string;
-  eventId: string;
+// Odds for a fixture, pulled directly from TheStatsAPI's own
+// GET /football/matches/{match_id}/odds endpoint — whichever bookmaker(s)
+// that endpoint returns, not limited to any single exchange or sportsbook.
+export interface MatchOddsData {
+  bookmaker: string;
   marketType: 'OVER_UNDER_15' | 'OVER_UNDER_35' | 'SET_BETTING';
   selectionName: string;
-  selectionId: number;
   decimalOdds: number;
-  layOdds: number;
-  liquidityMatched: number; // GBP or EUR volume
-  availableBackVolume: number;
-  isExchange: true; // Strictly exclude Sportsbook
   lastUpdated: string;
 }
 
@@ -112,16 +109,12 @@ export interface VerificationAuditCard {
     verifiedMatch: boolean;
   }[];
   
-  betfairAudit: {
-    marketId: string;
+  oddsAudit: {
+    bookmaker: string;
     selection: string;
-    verifiedExchangeOdds: number;
+    verifiedOdds: number;
     thresholdOdds: number;
-    volumeMatchedGbp: number;
-    isExchangeMarket: boolean;
-    liquidityApproved: boolean;
-    verifiedViaCredentials?: boolean;
-    appKeyMasked?: string;
+    oddsConfirmed: boolean; // true once TheStatsAPI has returned a real price for this fixture
   };
 }
 
@@ -169,11 +162,12 @@ export interface CandidateFixture {
     playerRecentSingles: TennisRecentMatch[]; // Last 10 completed competitive
   };
   
-  // Phase 1: Betfair Exchange integration is not yet implemented (deferred —
-  // needs a certificate-based login flow). Absent until phase 2 lands; every
-  // consumer must treat a missing betfairMarket as "not yet connected", not
-  // as a crash or a reason to fabricate a number.
-  betfairMarket?: BetfairExchangeMarket;
+  // Fetched from TheStatsAPI's own odds endpoint (GET
+  // /football/matches/{match_id}/odds) alongside the rest of a fixture's
+  // enrichment. Absent when the provider has no odds on file for this match
+  // yet — every consumer must treat a missing marketOdds as "not priced
+  // yet", not as a crash or a reason to fabricate a number.
+  marketOdds?: MatchOddsData;
   verificationCard?: VerificationAuditCard;
   /** Total count of raw records received from the relevant provider API in this scan */
   rawFeedTotal?: number;
@@ -349,12 +343,12 @@ export interface BacktestSummary {
   matches: BacktestMatchResult[];
   /**
    * Each qualifying match's win/loss is the real final score against the
-   * system's goal line. The one thing this cannot replay is a historical
-   * Betfair Exchange price — that integration doesn't exist yet even for
-   * live fixtures (see betfairMarket in CandidateFixture) — so every
-   * qualifying match here is priced at the system's configured required
-   * odds, the same convention already used for Archive backfill (see
-   * historyBackfill.ts), rather than a real historical market price.
+   * system's goal line. Backtest does not re-query TheStatsAPI's odds
+   * endpoint per historical match (see marketOdds in CandidateFixture for
+   * the live-scan equivalent) — every qualifying match here is priced at
+   * the system's configured required odds, the same convention already
+   * used for Archive backfill (see historyBackfill.ts), rather than a real
+   * historical market price.
    */
   scopeNote: string;
 }

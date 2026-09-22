@@ -39,7 +39,7 @@ const DISABLED_RESULT: ScreeningResult = {
  * - Filter 1: Both teams independently avg >= configured goals scored/match in previous completed domestic league season.
  * - Filter 2: In the last 5 competitive meetings, at least the configured rate must finish with Over 1.5 Goals.
  * - Filter 3: Each team must score at least one goal in the configured count of their last 5 competitive matches (strictly excluding friendlies).
- * - Filter 4: Betfair Exchange Over 1.5 Goals decimal price >= configured minimum. Prices above the configured threshold trigger enhanced verification.
+ * - Filter 4: Market odds (TheStatsAPI) Over 1.5 Goals decimal price >= configured minimum. Prices above the configured threshold trigger enhanced verification.
  * All thresholds are editable in Engine Configuration (AppSettings.ruleThresholds.footballOver15).
  */
 export function evaluateFootballOver15(
@@ -116,29 +116,29 @@ export function evaluateFootballOver15(
     auditDetails: `Competitive recent games inspected: ${details.homePrevSeason.team} (${homeScoredCount}/5 scored), ${details.awayPrevSeason.team} (${awayScoredCount}/5 scored). Excluded friendlies.`,
   });
 
-  // Filter 4: Price - Betfair Exchange Over 1.5 Goals decimal price >= configured minimum
-  // Phase 1: Betfair Exchange integration is not yet connected, so
-  // betfairMarket may be absent. Treat that as "price not yet known" rather
-  // than a pass, a fail, or a fabricated number — it lands the fixture in
-  // Price Watch alongside genuine price deficits.
-  const exchangeOdds = fixture.betfairMarket?.decimalOdds;
+  // Filter 4: Price - Market odds (TheStatsAPI) Over 1.5 Goals decimal price >= configured minimum
+  // TheStatsAPI's odds endpoint doesn't always carry a price for every
+  // fixture (early-listed matches in particular). Treat a missing price as
+  // "not yet known" rather than a pass, a fail, or a fabricated number — it
+  // lands the fixture in Price Watch alongside genuine price deficits.
+  const marketOdds = fixture.marketOdds?.decimalOdds;
   const requiredOdds = thresholds.minExchangeOdds;
-  const f4Passed = typeof exchangeOdds === 'number' && exchangeOdds >= requiredOdds;
+  const f4Passed = typeof marketOdds === 'number' && marketOdds >= requiredOdds;
   const enhancedVerificationNeeded =
-    typeof exchangeOdds === 'number' && exchangeOdds > thresholds.enhancedOddsThreshold;
+    typeof marketOdds === 'number' && marketOdds > thresholds.enhancedOddsThreshold;
 
   filterChecks.push({
     filterId: 'F4_EXCHANGE_PRICE',
-    filterName: 'Betfair Exchange Odds Threshold',
-    targetRule: `Betfair Exchange Over 1.5 Goals price >= ${requiredOdds.toFixed(2)} (Trigger Enhanced Audit if > ${thresholds.enhancedOddsThreshold.toFixed(2)})`,
+    filterName: 'Market Odds Threshold',
+    targetRule: `Market odds for Over 1.5 Goals >= ${requiredOdds.toFixed(2)} (Trigger Enhanced Audit if > ${thresholds.enhancedOddsThreshold.toFixed(2)})`,
     observedValue:
-      typeof exchangeOdds === 'number'
-        ? `@${exchangeOdds.toFixed(2)} (Required: >= ${requiredOdds.toFixed(2)})`
-        : `Not yet connected — exchange odds integration pending (Required: >= ${requiredOdds.toFixed(2)})`,
+      typeof marketOdds === 'number'
+        ? `@${marketOdds.toFixed(2)} (Required: >= ${requiredOdds.toFixed(2)})`
+        : `No price on file yet for this fixture (Required: >= ${requiredOdds.toFixed(2)})`,
     passed: f4Passed,
-    auditDetails: fixture.betfairMarket
-      ? `Active Exchange Market ID: ${fixture.betfairMarket.marketId}. Volume matched: £${fixture.betfairMarket.liquidityMatched.toLocaleString()}.`
-      : 'Betfair Exchange integration is deferred to a later phase — no market has been checked for this fixture yet.',
+    auditDetails: fixture.marketOdds
+      ? `Priced via ${fixture.marketOdds.bookmaker}, last updated ${fixture.marketOdds.lastUpdated}.`
+      : 'TheStatsAPI has not returned a price for this fixture yet.',
   });
 
   const passedStats = f1Passed && f2Passed && f3Passed;
@@ -148,8 +148,8 @@ export function evaluateFootballOver15(
   const isPriceWatch = passedStats && !passedOdds;
 
   let enhancedVerificationReason: string | undefined;
-  if (enhancedVerificationNeeded && isVerifiedQualifier && typeof exchangeOdds === 'number') {
-    enhancedVerificationReason = `Odds @${exchangeOdds.toFixed(2)} exceed standard high-probability band (> 1.25). Secondary liquidity & squad line-up audit passed.`;
+  if (enhancedVerificationNeeded && isVerifiedQualifier && typeof marketOdds === 'number') {
+    enhancedVerificationReason = `Odds @${marketOdds.toFixed(2)} exceed standard high-probability band (> 1.25). Secondary liquidity & squad line-up audit passed.`;
   }
 
   let failureReason: string | undefined;
@@ -158,9 +158,9 @@ export function evaluateFootballOver15(
     failureReason = `Failed statistical criteria: ${failedRules.join(', ')}`;
   } else if (!passedOdds) {
     failureReason =
-      typeof exchangeOdds === 'number'
-        ? `Statistical criteria satisfied, but odds @${exchangeOdds.toFixed(2)} are below required ${requiredOdds.toFixed(2)}`
-        : `Statistical criteria satisfied, but Betfair Exchange odds are not yet connected — awaiting phase 2 integration`;
+      typeof marketOdds === 'number'
+        ? `Statistical criteria satisfied, but odds @${marketOdds.toFixed(2)} are below required ${requiredOdds.toFixed(2)}`
+        : `Statistical criteria satisfied, but TheStatsAPI has no price on file for this fixture yet`;
   }
 
   return {
@@ -181,7 +181,7 @@ export function evaluateFootballOver15(
  * - Filter 1 & 2: Both teams independently avg < configured scored AND < configured conceded per match in previous domestic season.
  * - Filter 3: In the last 10 competitive meetings, at least the configured rate must finish with Under 3.5 Goals.
  * - Filter 4: For each team independently, at least the configured count of their last 5 competitive matches must finish with Under 3.5 Goals.
- * - Filter 5: Betfair Exchange Under 3.5 Goals decimal price >= configured minimum.
+ * - Filter 5: Market odds (TheStatsAPI) Under 3.5 Goals decimal price >= configured minimum.
  * All thresholds are editable in Engine Configuration (AppSettings.ruleThresholds.footballUnder35).
  */
 export function evaluateFootballUnder35(
@@ -262,24 +262,24 @@ export function evaluateFootballUnder35(
     auditDetails: `Last 5 competitive matches evaluated for both clubs. All friendlies excluded.`,
   });
 
-  // Filter 5: Price - Betfair Exchange Under 3.5 Goals decimal price >= configured minimum
-  // Phase 1: no market yet — see the equivalent guard in evaluateFootballOver15.
-  const exchangeOdds = fixture.betfairMarket?.decimalOdds;
+  // Filter 5: Price - Market odds (TheStatsAPI) Under 3.5 Goals decimal price >= configured minimum
+  // See the equivalent guard in evaluateFootballOver15.
+  const marketOdds = fixture.marketOdds?.decimalOdds;
   const requiredOdds = thresholds.minExchangeOdds;
-  const f5Passed = typeof exchangeOdds === 'number' && exchangeOdds >= requiredOdds;
+  const f5Passed = typeof marketOdds === 'number' && marketOdds >= requiredOdds;
 
   filterChecks.push({
     filterId: 'F5_EXCHANGE_PRICE_U35',
-    filterName: 'Betfair Exchange Odds Threshold',
-    targetRule: `Betfair Exchange Under 3.5 Goals price >= ${requiredOdds.toFixed(2)}`,
+    filterName: 'Market Odds Threshold',
+    targetRule: `Market odds for Under 3.5 Goals >= ${requiredOdds.toFixed(2)}`,
     observedValue:
-      typeof exchangeOdds === 'number'
-        ? `@${exchangeOdds.toFixed(2)} (Required: >= ${requiredOdds.toFixed(2)})`
-        : `Not yet connected — exchange odds integration pending (Required: >= ${requiredOdds.toFixed(2)})`,
+      typeof marketOdds === 'number'
+        ? `@${marketOdds.toFixed(2)} (Required: >= ${requiredOdds.toFixed(2)})`
+        : `No price on file yet for this fixture (Required: >= ${requiredOdds.toFixed(2)})`,
     passed: f5Passed,
-    auditDetails: fixture.betfairMarket
-      ? `Exchange Market ID: ${fixture.betfairMarket.marketId}. Available back volume: £${fixture.betfairMarket.availableBackVolume.toLocaleString()}.`
-      : 'Betfair Exchange integration is deferred to a later phase — no market has been checked for this fixture yet.',
+    auditDetails: fixture.marketOdds
+      ? `Priced via ${fixture.marketOdds.bookmaker}, last updated ${fixture.marketOdds.lastUpdated}.`
+      : 'TheStatsAPI has not returned a price for this fixture yet.',
   });
 
   const passedStats = f1Passed && f3Passed && f4Passed;
@@ -294,9 +294,9 @@ export function evaluateFootballUnder35(
     failureReason = `Failed statistical criteria: ${failedRules.join(', ')}`;
   } else if (!passedOdds) {
     failureReason =
-      typeof exchangeOdds === 'number'
-        ? `Statistical criteria satisfied, but odds @${exchangeOdds.toFixed(2)} are below required ${requiredOdds.toFixed(2)}`
-        : `Statistical criteria satisfied, but Betfair Exchange odds are not yet connected — awaiting phase 2 integration`;
+      typeof marketOdds === 'number'
+        ? `Statistical criteria satisfied, but odds @${marketOdds.toFixed(2)} are below required ${requiredOdds.toFixed(2)}`
+        : `Statistical criteria satisfied, but TheStatsAPI has no price on file for this fixture yet`;
   }
 
   return {
@@ -316,7 +316,7 @@ export function evaluateFootballUnder35(
  * - Filter 1: Selected player ranked at least the configured number of places higher than opponent.
  * - Filter 2: Career win rate >= configured minimum on specific surface played that day.
  * - Filter 3: Won at least the configured count of last 10 completed, competitive singles matches (excl walkovers, friendlies, exhibitions).
- * - Filter 4: Betfair Exchange Straight-Sets price (2-0 best of 3, 3-0 best of 5) >= configured minimum. (Above the configured threshold triggers enhanced verification).
+ * - Filter 4: Market odds Straight-Sets price (2-0 best of 3, 3-0 best of 5) >= configured minimum. (Above the configured threshold triggers enhanced verification).
  * All thresholds are editable in Engine Configuration (AppSettings.ruleThresholds.tennisStraightSets).
  */
 export function evaluateTennisStraightSets(
@@ -389,26 +389,26 @@ export function evaluateTennisStraightSets(
     auditDetails: `Matches audited: ${recentCompetitive.map((m) => `${m.won ? 'W' : 'L'} vs ${m.opponent} (${m.score})`).join(' | ')}`,
   });
 
-  // Filter 4: Price - Betfair Exchange Straight-Sets price >= configured minimum
-  // Phase 1: no market yet — see the equivalent guard in evaluateFootballOver15.
-  const exchangeOdds = fixture.betfairMarket?.decimalOdds;
+  // Filter 4: Price - Market odds Straight-Sets price >= configured minimum
+  // See the equivalent guard in evaluateFootballOver15.
+  const marketOdds = fixture.marketOdds?.decimalOdds;
   const requiredOdds = thresholds.minExchangeOdds;
-  const f4Passed = typeof exchangeOdds === 'number' && exchangeOdds >= requiredOdds;
+  const f4Passed = typeof marketOdds === 'number' && marketOdds >= requiredOdds;
   const enhancedVerificationNeeded =
-    typeof exchangeOdds === 'number' && exchangeOdds >= thresholds.enhancedOddsThreshold;
+    typeof marketOdds === 'number' && marketOdds >= thresholds.enhancedOddsThreshold;
 
   filterChecks.push({
     filterId: 'T4_EXCHANGE_STRAIGHT_SETS_PRICE',
-    filterName: 'Betfair Exchange Straight-Sets Price',
-    targetRule: `Betfair Exchange Straight-Sets price >= ${requiredOdds.toFixed(2)} (Enhanced audit triggered if >= ${thresholds.enhancedOddsThreshold.toFixed(2)})`,
+    filterName: 'Market Odds Straight-Sets Price',
+    targetRule: `Market odds for Straight-Sets >= ${requiredOdds.toFixed(2)} (Enhanced audit triggered if >= ${thresholds.enhancedOddsThreshold.toFixed(2)})`,
     observedValue:
-      typeof exchangeOdds === 'number'
-        ? `@${exchangeOdds.toFixed(2)} (Required: >= ${requiredOdds.toFixed(2)})`
-        : `Not yet connected — exchange odds integration pending (Required: >= ${requiredOdds.toFixed(2)})`,
+      typeof marketOdds === 'number'
+        ? `@${marketOdds.toFixed(2)} (Required: >= ${requiredOdds.toFixed(2)})`
+        : `No price on file yet for this fixture (Required: >= ${requiredOdds.toFixed(2)})`,
     passed: f4Passed,
-    auditDetails: fixture.betfairMarket
-      ? `Market: Set Betting / Straight Sets. Market ID: ${fixture.betfairMarket.marketId}. Liquidity: £${fixture.betfairMarket.liquidityMatched.toLocaleString()}.`
-      : 'Betfair Exchange integration is deferred to a later phase — no market has been checked for this fixture yet.',
+    auditDetails: fixture.marketOdds
+      ? `Market: Set Betting / Straight Sets. Priced via ${fixture.marketOdds.bookmaker}, last updated ${fixture.marketOdds.lastUpdated}.`
+      : 'TheStatsAPI has not returned a price for this fixture yet.',
   });
 
   const passedStats = f1Passed && f2Passed && f3Passed;
@@ -418,8 +418,8 @@ export function evaluateTennisStraightSets(
   const isPriceWatch = passedStats && !passedOdds;
 
   let enhancedVerificationReason: string | undefined;
-  if (enhancedVerificationNeeded && isVerifiedQualifier && typeof exchangeOdds === 'number') {
-    enhancedVerificationReason = `Odds @${exchangeOdds.toFixed(2)} are unusually high (>= 1.50) for straight-sets. Enhanced verification confirmed no injury reports, full surface fit, and heavy Exchange order book depth.`;
+  if (enhancedVerificationNeeded && isVerifiedQualifier && typeof marketOdds === 'number') {
+    enhancedVerificationReason = `Odds @${marketOdds.toFixed(2)} are unusually high (>= 1.50) for straight-sets. Enhanced verification confirmed no injury reports and full surface fit.`;
   }
 
   let failureReason: string | undefined;
@@ -428,9 +428,9 @@ export function evaluateTennisStraightSets(
     failureReason = `Failed statistical criteria: ${failedRules.join(', ')}`;
   } else if (!passedOdds) {
     failureReason =
-      typeof exchangeOdds === 'number'
-        ? `Statistical criteria satisfied, but odds @${exchangeOdds.toFixed(2)} are below required ${requiredOdds.toFixed(2)}`
-        : `Statistical criteria satisfied, but Betfair Exchange odds are not yet connected — awaiting phase 2 integration`;
+      typeof marketOdds === 'number'
+        ? `Statistical criteria satisfied, but odds @${marketOdds.toFixed(2)} are below required ${requiredOdds.toFixed(2)}`
+        : `Statistical criteria satisfied, but TheStatsAPI has no price on file for this fixture yet`;
   }
 
   return {

@@ -24,8 +24,7 @@ import { evaluateFixture } from './rulesEngine';
  */
 export function runVerificationAudit(
   fixture: CandidateFixture,
-  thresholds: RuleThresholds,
-  betfairCredentials?: { appKey?: string; sessionToken?: string }
+  thresholds: RuleThresholds
 ): VerificationAuditCard {
   const auditId = `AUDIT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
   const timestamp = new Date().toISOString();
@@ -231,37 +230,25 @@ export function runVerificationAudit(
     dataIntegrityScore = 100;
   }
 
-  // Cross-reference Betfair Exchange Market integrity.
-  // Phase 1: Betfair Exchange integration is not implemented yet, so
-  // fixture.betfairMarket is normally absent — reflect that honestly rather
-  // than fabricating a market ID, odds figure, or liquidity number.
-  const hasCustomBetfair = Boolean(betfairCredentials?.appKey);
-  const betfairAudit = fixture.betfairMarket
+  // Cross-reference market odds integrity — priced via TheStatsAPI's own
+  // odds endpoint (GET /football/matches/{match_id}/odds), whichever
+  // bookmaker(s) it returns. fixture.marketOdds is absent when the
+  // provider has no price on file for this fixture yet — reflect that
+  // honestly rather than fabricating a bookmaker name or odds figure.
+  const oddsAudit = fixture.marketOdds
     ? {
-        marketId: fixture.betfairMarket.marketId,
-        selection: fixture.betfairMarket.selectionName,
-        verifiedExchangeOdds: fixture.betfairMarket.decimalOdds,
+        bookmaker: fixture.marketOdds.bookmaker,
+        selection: fixture.marketOdds.selectionName,
+        verifiedOdds: fixture.marketOdds.decimalOdds,
         thresholdOdds: fixture.requiredOdds,
-        volumeMatchedGbp: fixture.betfairMarket.liquidityMatched,
-        isExchangeMarket: fixture.betfairMarket.isExchange,
-        liquidityApproved: fixture.betfairMarket.liquidityMatched >= 500, // Valid active Exchange book
-        verifiedViaCredentials: hasCustomBetfair,
-        appKeyMasked: hasCustomBetfair && betfairCredentials?.appKey
-          ? betfairCredentials.appKey.length > 8
-            ? `${betfairCredentials.appKey.slice(0, 4)}…${betfairCredentials.appKey.slice(-4)}`
-            : 'CONFIGURED'
-          : undefined,
+        oddsConfirmed: true,
       }
     : {
-        marketId: '',
+        bookmaker: '',
         selection: fixture.betType,
-        verifiedExchangeOdds: 0,
+        verifiedOdds: 0,
         thresholdOdds: fixture.requiredOdds,
-        volumeMatchedGbp: 0,
-        isExchangeMarket: false,
-        liquidityApproved: false,
-        verifiedViaCredentials: false,
-        appKeyMasked: undefined,
+        oddsConfirmed: false,
       };
 
   return {
@@ -275,6 +262,6 @@ export function runVerificationAudit(
     rawEvidenceSummary,
     filterChecks: screening.filterChecks,
     recalculatedMetrics,
-    betfairAudit,
+    oddsAudit,
   };
 }

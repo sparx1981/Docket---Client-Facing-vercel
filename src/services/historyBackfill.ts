@@ -7,15 +7,15 @@ import { apiGet } from './backendClient';
  * archive is empty. Replaces the old generateFullHistoricalDataset(), which
  * cycled 50 hand-written fake matches into 250 fabricated rows.
  *
- * Judgment call: phase 1 has no Betfair Exchange integration (deferred to a
- * later phase, see betfairMarket in src/types), so no *real* historical
- * exchange price exists for any of these matches. Rather than inventing a
- * plausible-looking decimal price per match — which is exactly the kind of
- * fabrication this pass removes — each backfilled record is priced at its
- * system's own disclosed minimum qualifying threshold (1.15 / 1.20), and
- * both the notes field and dataSourceName say so plainly. The match, date,
- * competition and final score are all real, pulled straight from the
- * provider's completed-results feed.
+ * Judgment call: this backfill does not re-query TheStatsAPI's odds
+ * endpoint (see marketOdds in src/types) for each historical match, so no
+ * *real* historical price exists for any of these backfilled records.
+ * Rather than inventing a plausible-looking decimal price per match — which
+ * is exactly the kind of fabrication this pass removes — each backfilled
+ * record is priced at its system's own disclosed minimum qualifying
+ * threshold (1.15 / 1.20), and both the notes field and dataSourceName say
+ * so plainly. The match, date, competition and final score are all real,
+ * pulled straight from the provider's completed-results feed.
  *
  * This also does not re-run the full statistical qualification criteria
  * against each historical match (that would need each team's/player's
@@ -84,7 +84,7 @@ function buildFootballRecords(
         roiContribution: Number(((pnl / stake) * 100).toFixed(1)),
         auditId: `BACKFILL-${r.providerId}-${line.system}`,
         notes:
-          'Backfilled from a real completed match result. Priced at the system\'s disclosed minimum qualifying odds — Betfair Exchange historical pricing is not available until phase 2.',
+          'Backfilled from a real completed match result. Priced at the system\'s disclosed minimum qualifying odds — historical market pricing for this match was not re-queried.',
         googleVerificationUrl: googleUrl(match, r.competition),
         dataSourceName: 'Provider results feed (historical backfill)',
       });

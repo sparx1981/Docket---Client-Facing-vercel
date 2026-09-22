@@ -542,6 +542,58 @@ export async function getHistoricalMatchContext(
   return context;
 }
 
+export interface MatchOddsEntry {
+  bookmaker: string;
+  marketType: 'OVER_UNDER_15' | 'OVER_UNDER_35' | 'SET_BETTING';
+  selectionName: string;
+  decimalOdds: number;
+  lastUpdated: string;
+}
+
+function marketTypeFromRaw(raw: string | undefined): MatchOddsEntry['marketType'] | null {
+  const v = (raw || '').toLowerCase();
+  if (v.includes('1.5') || v.includes('1_5') || v.includes('15')) return 'OVER_UNDER_15';
+  if (v.includes('3.5') || v.includes('3_5') || v.includes('35')) return 'OVER_UNDER_35';
+  if (v.includes('set')) return 'SET_BETTING';
+  return null;
+}
+
+/**
+ * Real odds for a single match, from TheStatsAPI's own odds endpoint —
+ * whichever bookmaker(s) it returns, not limited to any one exchange or
+ * sportsbook. The exact field names below are read defensively (several
+ * plausible spellings tried per field) since this endpoint's response
+ * shape has not yet been exercised against a live key in this environment;
+ * any entry missing a usable bookmaker name, market type or numeric price
+ * is skipped rather than guessed at.
+ */
+export async function getMatchOdds(apiKey: string, matchId: string): Promise<MatchOddsEntry[]> {
+  const data = await fetchJson(
+    PROVIDER,
+    `${BASE_URL}/football/matches/${matchId}/odds`,
+    {},
+    { headers: authHeaders(apiKey) }
+  );
+  const rows: any[] = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+  const out: MatchOddsEntry[] = [];
+  for (const row of rows) {
+    const bookmaker: string | undefined = row?.bookmaker ?? row?.bookmaker_name ?? row?.provider ?? row?.source;
+    const marketType = marketTypeFromRaw(row?.market ?? row?.market_type ?? row?.type);
+    const selectionName: string | undefined = row?.selection ?? row?.selection_name ?? row?.outcome ?? row?.name;
+    const rawPrice = row?.decimal_odds ?? row?.decimalOdds ?? row?.price ?? row?.odds;
+    const decimalOdds = typeof rawPrice === 'number' ? rawPrice : typeof rawPrice === 'string' ? Number(rawPrice) : NaN;
+    if (!bookmaker || !marketType || !selectionName || !Number.isFinite(decimalOdds)) continue;
+    out.push({
+      bookmaker,
+      marketType,
+      selectionName,
+      decimalOdds,
+      lastUpdated: row?.last_updated ?? row?.updated_at ?? new Date().toISOString(),
+    });
+  }
+  return out;
+}
+
 /**
  * Head-to-head meetings between two teams. TheStatsAPI has no dedicated
  * versus/H2H endpoint — this pulls team1's finished matches (team_id is a

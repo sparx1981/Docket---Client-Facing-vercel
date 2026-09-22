@@ -178,11 +178,11 @@ function buildFootballOver15Breakdown(params: {
     },
     {
       id: 'F4_EXCHANGE_PRICE',
-      name: 'Min. exchange odds',
-      targetRule: `Betfair Exchange Over 1.5 Goals price >= ${thresholds.minExchangeOdds.toFixed(2)}`,
+      name: 'Min. market odds',
+      targetRule: `Market odds for Over 1.5 Goals >= ${thresholds.minExchangeOdds.toFixed(2)}`,
       targetValue: `>= @${thresholds.minExchangeOdds.toFixed(2)}`,
       test: (f) => {
-        const odds = f.betfairMarket?.decimalOdds;
+        const odds = f.marketOdds?.decimalOdds;
         return typeof odds === 'number' && odds >= thresholds.minExchangeOdds;
       },
     },
@@ -324,11 +324,11 @@ function buildFootballUnder35Breakdown(params: {
     },
     {
       id: 'F5_EXCHANGE_PRICE_U35',
-      name: 'Min. exchange odds',
-      targetRule: `Betfair Exchange Under 3.5 Goals price >= ${thresholds.minExchangeOdds.toFixed(2)}`,
+      name: 'Min. market odds',
+      targetRule: `Market odds for Under 3.5 Goals >= ${thresholds.minExchangeOdds.toFixed(2)}`,
       targetValue: `>= @${thresholds.minExchangeOdds.toFixed(2)}`,
       test: (f) => {
-        const odds = f.betfairMarket?.decimalOdds;
+        const odds = f.marketOdds?.decimalOdds;
         return typeof odds === 'number' && odds >= thresholds.minExchangeOdds;
       },
     },
@@ -446,11 +446,11 @@ function buildTennisStraightSetsBreakdown(params: {
     },
     {
       id: 'T4_EXCHANGE_PRICE_TENNIS',
-      name: 'Min. exchange odds',
-      targetRule: `Betfair Exchange Straight-Sets price >= ${thresholds.minExchangeOdds.toFixed(2)}`,
+      name: 'Min. market odds',
+      targetRule: `Market odds for Straight-Sets >= ${thresholds.minExchangeOdds.toFixed(2)}`,
       targetValue: `>= @${thresholds.minExchangeOdds.toFixed(2)}`,
       test: (f) => {
-        const odds = f.betfairMarket?.decimalOdds;
+        const odds = f.marketOdds?.decimalOdds;
         return typeof odds === 'number' && odds >= thresholds.minExchangeOdds;
       },
     },

@@ -18,13 +18,25 @@ export const ProviderStatusBanner: React.FC<ProviderStatusBannerProps> = ({
   fixturesError,
 }) => {
   const hasAnyKey = Boolean(settings.theStatsApiKey);
+  // Nothing will actually be scanned — and so no provider call will ever be
+  // made — until at least one rule is both enabled and has leagues saved.
+  // The banner must not claim to be "checking" a provider it has no reason
+  // to contact yet.
+  const hasScannableRule =
+    (settings.ruleThresholds.footballOver15.enabled && settings.ruleThresholds.footballOver15.selectedLeagueIds.length > 0) ||
+    (settings.ruleThresholds.footballUnder35.enabled && settings.ruleThresholds.footballUnder35.selectedLeagueIds.length > 0);
 
   let tone: 'warn' | 'ok' | 'bad' = 'warn';
   let icon = <AlertTriangle className="h-4 w-4" strokeWidth={2.5} />;
   let label = 'Not configured';
   let message = 'No TheStatsAPI key is configured. Add one in Engine Configuration to pull real fixtures.';
 
-  if (hasAnyKey) {
+  if (hasAnyKey && !hasScannableRule) {
+    tone = 'warn';
+    icon = <AlertTriangle className="h-4 w-4" strokeWidth={2.5} />;
+    label = 'Awaiting setup';
+    message = 'No rule is both enabled and has leagues selected yet — no provider call will be made until one is. Configure this in Engine Configuration.';
+  } else if (hasAnyKey) {
     if (!providerHealth) {
       tone = 'warn';
       icon = <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />;
@@ -37,7 +49,7 @@ export const ProviderStatusBanner: React.FC<ProviderStatusBannerProps> = ({
       message = `Last real provider call at ${new Date(providerHealth.checkedAt).toLocaleTimeString([], {
         hour: '2-digit',
         minute: '2-digit',
-      })} succeeded. Betfair Exchange odds are not yet connected (phase 2) — qualifying candidates sit in Price Watch until a real price is available.`;
+      })} succeeded. Candidates without a live market price on file yet sit in Price Watch.`;
     } else {
       tone = 'bad';
       icon = <AlertTriangle className="h-4 w-4" strokeWidth={2.5} />;

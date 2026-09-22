@@ -46,10 +46,10 @@ const SECTION_CONTENT: Record<Extract<TabKey, 'verified' | 'pricewatch' | 'analy
   verified: {
     title: 'Verified Qualifiers',
     badge: "Today's Selections",
-    strap: 'High-probability fixtures that cleared every locked filter and the exchange price threshold',
+    strap: 'High-probability fixtures that cleared every locked filter and the market odds threshold',
     icon: <ShieldCheck className="h-6 w-6 text-brand-ink" strokeWidth={2.5} />,
     summary:
-      'This section presents selections that have passed every single locked mathematical rule (domestic form, head-to-head consistency, and goal/set distributions) AND whose live Betfair Exchange back price is currently high enough to offer genuine statistical value.',
+      'This section presents selections that have passed every single locked mathematical rule (domestic form, head-to-head consistency, and goal/set distributions) AND whose live market odds price is currently high enough to offer genuine statistical value.',
     datasources: [
       {
         name: 'Flashscore B2B Telemetry',
@@ -62,9 +62,9 @@ const SECTION_CONTENT: Record<Extract<TabKey, 'verified' | 'pricewatch' | 'analy
         url: 'http://www.tennisabstract.com/',
       },
       {
-        name: 'Betfair Exchange Order Book',
-        purpose: 'Real-time decimal back odds, lay odds, matched liquidity volume, and order-book depth directly from the exchange.',
-        url: 'https://www.betfair.com/exchange/plus/',
+        name: 'TheStatsAPI Odds Endpoint',
+        purpose: 'Real decimal odds pulled directly from TheStatsAPI for this fixture, whichever bookmaker(s) it returns.',
+        url: 'https://www.thestatsapi.com/',
       },
     ],
     filtersExplanation:
@@ -75,13 +75,13 @@ const SECTION_CONTENT: Record<Extract<TabKey, 'verified' | 'pricewatch' | 'analy
     criteriaList: [],
     included: [
       'Genuine upcoming competitive fixtures scheduled in the next 24 to 48 hours.',
-      'Only verified Betfair Exchange markets with confirmed liquidity (real money traded in the order book).',
-      'Selections whose live Betfair Exchange back price meets or exceeds the required minimum hurdle right now.',
+      'Only fixtures with a confirmed market price on file from TheStatsAPI\'s odds endpoint.',
+      'Selections whose live market odds price meets or exceeds the required minimum hurdle right now.',
       'Fixtures with 100% data integrity verified across multiple independent data providers with 0% divergence.',
     ],
     notIncluded: [
-      'Traditional bookmaker or sportsbook fixed odds (this engine trades exclusively on the Betfair Exchange).',
-      'Matches that passed the stats but whose exchange odds are currently too short (those are held in Price Watch).',
+      'Fixtures with no price on file yet from TheStatsAPI\'s odds endpoint.',
+      'Matches that passed the stats but whose market odds are currently too short (those are held in Price Watch).',
       'Friendly matches, youth fixtures, exhibition tournaments, or cup matches where key players are routinely rotated.',
       'Unverified markets or fixtures where official kickoff schedules cannot be independently confirmed.',
     ],
@@ -89,10 +89,10 @@ const SECTION_CONTENT: Record<Extract<TabKey, 'verified' | 'pricewatch' | 'analy
   pricewatch: {
     title: 'Price Watch',
     badge: 'Awaiting Exchange Value',
-    strap: 'Statistically clean fixtures waiting for the Betfair Exchange price to reach our minimum requirement',
+    strap: 'Statistically clean fixtures waiting for a market odds price to reach our minimum requirement',
     icon: <TrendingDown className="h-6 w-6 text-brand-ink" strokeWidth={2.5} />,
     summary:
-      'This section acts as an automated holding room. These fixtures have cleared 100% of our domestic, head-to-head, and form criteria, but their current Betfair Exchange back odds are currently too low to provide sufficient value over the long term.',
+      'This section acts as an automated holding room. These fixtures have cleared 100% of our domestic, head-to-head, and form criteria, but their current market odds are either too low or not yet on file to provide sufficient value over the long term.',
     datasources: [
       {
         name: 'Flashscore & Tennis Abstract',
@@ -100,13 +100,13 @@ const SECTION_CONTENT: Record<Extract<TabKey, 'verified' | 'pricewatch' | 'analy
         url: 'https://www.flashscore.com/',
       },
       {
-        name: 'Betfair Exchange Price Stream',
-        purpose: 'Continuously monitors order-book back prices. The instant market liquidity causes the odds to drift up to our required minimum, the selection is automatically promoted.',
-        url: 'https://www.betfair.com/exchange/plus/',
+        name: 'TheStatsAPI Odds Endpoint',
+        purpose: 'Provides whatever market price(s) it currently has on file for this fixture. As a price appears or drifts up to our required minimum, the selection is automatically promoted.',
+        url: 'https://www.thestatsapi.com/',
       },
     ],
     filtersExplanation:
-      'Why odds matter: Even when a team or tennis player has a very high chance of winning, backing them at odds of @1.10 or @1.14 is mathematically negative over hundreds of bets. We require a disciplined minimum price hurdle. As match time nears, exchange order books fluctuate and prices frequently drift into qualifying range.',
+      'Why odds matter: Even when a team or tennis player has a very high chance of winning, backing them at odds of @1.10 or @1.14 is mathematically negative over hundreds of bets. We require a disciplined minimum price hurdle. As match time nears, market prices fluctuate and frequently drift into qualifying range.',
     criteriaList: [
       {
         rule: 'Statistical Integrity Cleared',
@@ -116,18 +116,18 @@ const SECTION_CONTENT: Record<Extract<TabKey, 'verified' | 'pricewatch' | 'analy
       {
         rule: 'Current Odds Deficit',
         description:
-          'The Betfair Exchange back odds are currently sitting below our cutoff (e.g. @1.17 vs @1.20 required). The table clearly displays this odds deficit.',
+          'The market odds price is currently sitting below our cutoff (e.g. @1.17 vs @1.20 required) or has no price on file yet. The table clearly displays this odds deficit.',
       },
       {
         rule: 'Automated Promotion Trigger',
         description:
-          'If fresh betting liquidity pushes the price to or above the required threshold prior to kickoff, the engine automatically moves the fixture to Verified Qualifiers.',
+          'If a fresh price appears at or above the required threshold prior to kickoff, the engine automatically moves the fixture to Verified Qualifiers.',
       },
     ],
     included: [
       'Fixtures that satisfied 100% of our statistical, head-to-head, and recent-form filters.',
-      'Upcoming matches with exchange prices currently below the minimum cutoff (with live deficit tracking).',
-      'Active exchange markets where money is currently trading and prices are actively moving before kickoff.',
+      'Upcoming matches with market odds currently below the minimum cutoff, or with no price on file yet (with live deficit tracking where a price exists).',
+      'Fixtures where a price is actively appearing or moving before kickoff.',
     ],
     notIncluded: [
       'Fixtures that failed any statistical or head-to-head tests (those are disqualified permanently).',
@@ -158,7 +158,7 @@ const SECTION_CONTENT: Record<Extract<TabKey, 'verified' | 'pricewatch' | 'analy
               You can also manually audit any individual match from the drawer and click File to archive ledger.
             </li>
             <li>
-              Historical fixtures are backed by verified match scores with direct links to official data feeds (Flashscore, Tennis Abstract, and Betfair Exchange).
+              Historical fixtures are backed by verified match scores with direct links to official data feeds (Flashscore, Tennis Abstract, and TheStatsAPI).
             </li>
           </ul>
         </div>
@@ -174,9 +174,9 @@ const SECTION_CONTENT: Record<Extract<TabKey, 'verified' | 'pricewatch' | 'analy
         url: 'https://www.flashscore.com/',
       },
       {
-        name: 'Betfair Exchange Settlement Reports',
-        purpose: 'Official market settlement records confirming the exact entry odds, payout times, and market clearance.',
-        url: 'https://www.betfair.com/exchange/plus/',
+        name: 'TheStatsAPI Odds Endpoint',
+        purpose: 'Where a real price was available, records the entry odds a settled selection was priced at.',
+        url: 'https://www.thestatsapi.com/',
       },
       {
         name: 'Independent Audit Engines',
@@ -230,19 +230,19 @@ function buildVerifiedCriteria(t: RuleThresholds): SectionDetails['criteriaList'
     {
       rule: 'Football: Over 1.5 Goals',
       description: t.footballOver15.enabled
-        ? `Both teams must average ≥${t.footballOver15.minPrevSeasonAvgScored.toFixed(2)} goals scored per match last season, ≥${pct(t.footballOver15.minH2HOver15Rate)} of their last 5 head-to-head meetings must have finished Over 1.5 goals, each team must have scored in ≥${t.footballOver15.minRecentScoredCount} of their last 5 competitive matches, and the Betfair Exchange price must be at least ${t.footballOver15.minExchangeOdds.toFixed(2)} (enhanced verification triggers above ${t.footballOver15.enhancedOddsThreshold.toFixed(2)}).`
+        ? `Both teams must average ≥${t.footballOver15.minPrevSeasonAvgScored.toFixed(2)} goals scored per match last season, ≥${pct(t.footballOver15.minH2HOver15Rate)} of their last 5 head-to-head meetings must have finished Over 1.5 goals, each team must have scored in ≥${t.footballOver15.minRecentScoredCount} of their last 5 competitive matches, and the market odds price must be at least ${t.footballOver15.minExchangeOdds.toFixed(2)} (enhanced verification triggers above ${t.footballOver15.enhancedOddsThreshold.toFixed(2)}).`
         : 'Currently disabled in Engine Configuration — no fixtures are screened against this system.',
     },
     {
       rule: 'Football: Under 3.5 Goals',
       description: t.footballUnder35.enabled
-        ? `Both teams must average below ${t.footballUnder35.maxPrevSeasonAvgScored.toFixed(2)} scored AND below ${t.footballUnder35.maxPrevSeasonAvgConceded.toFixed(2)} conceded per match last season, ≥${pct(t.footballUnder35.minH2HUnder35Rate)} of their last 10 head-to-head meetings must have finished Under 3.5 goals, each team must independently have ≥${t.footballUnder35.minRecentUnder35Count} of their last 5 matches finish Under 3.5, and the Betfair Exchange price must be at least ${t.footballUnder35.minExchangeOdds.toFixed(2)}.`
+        ? `Both teams must average below ${t.footballUnder35.maxPrevSeasonAvgScored.toFixed(2)} scored AND below ${t.footballUnder35.maxPrevSeasonAvgConceded.toFixed(2)} conceded per match last season, ≥${pct(t.footballUnder35.minH2HUnder35Rate)} of their last 10 head-to-head meetings must have finished Under 3.5 goals, each team must independently have ≥${t.footballUnder35.minRecentUnder35Count} of their last 5 matches finish Under 3.5, and the market odds price must be at least ${t.footballUnder35.minExchangeOdds.toFixed(2)}.`
         : 'Currently disabled in Engine Configuration — no fixtures are screened against this system.',
     },
     {
       rule: 'Tennis: Straight Sets (2-0 / 3-0)',
       description: t.tennisStraightSets.enabled
-        ? `The backed player must be ranked at least ${t.tennisStraightSets.minRankingDelta} places higher than the opponent, hold a career surface win rate ≥${t.tennisStraightSets.minSurfaceWinRate.toFixed(1)}%, have won ≥${t.tennisStraightSets.minRecentWinsCount} of their last 10 completed competitive singles matches, and the Betfair Exchange price must be at least ${t.tennisStraightSets.minExchangeOdds.toFixed(2)} (enhanced verification triggers at or above ${t.tennisStraightSets.enhancedOddsThreshold.toFixed(2)}).`
+        ? `The backed player must be ranked at least ${t.tennisStraightSets.minRankingDelta} places higher than the opponent, hold a career surface win rate ≥${t.tennisStraightSets.minSurfaceWinRate.toFixed(1)}%, have won ≥${t.tennisStraightSets.minRecentWinsCount} of their last 10 completed competitive singles matches, and the market odds price must be at least ${t.tennisStraightSets.minExchangeOdds.toFixed(2)} (enhanced verification triggers at or above ${t.tennisStraightSets.enhancedOddsThreshold.toFixed(2)}).`
         : 'Currently disabled in Engine Configuration — no fixtures are screened against this system.',
     },
   ];

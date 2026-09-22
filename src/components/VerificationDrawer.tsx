@@ -72,8 +72,8 @@ export const VerificationDrawer: React.FC<VerificationDrawerProps> = ({
     const text = `VERIFICATION CARD AUDIT
 Audit ID: ${auditCard.auditId}
 Match: ${fixture.matchTitle} (${fixture.competition})
-System: ${fixture.betType} @${fixture.betfairMarket ? fixture.betfairMarket.decimalOdds : 'not yet connected'}
-Betfair Market ID: ${fixture.betfairMarket ? fixture.betfairMarket.marketId : 'n/a — exchange integration pending'}
+System: ${fixture.betType} @${fixture.marketOdds ? fixture.marketOdds.decimalOdds : 'not yet priced'}
+Bookmaker: ${fixture.marketOdds ? fixture.marketOdds.bookmaker : 'n/a — no price on file yet'}
 Integrity Score: ${auditCard.dataIntegrityScore}%
 Enhanced Verification: ${auditCard.enhancedVerification ? 'YES' : 'NO'}
 Audit Status: ${auditCard.status}
@@ -133,13 +133,13 @@ ${auditCard.rawEvidenceSummary.join('\n')}`;
                   {fixture.betType}
                 </span>
                 <span className="text-text-3">·</span>
-                {fixture.betfairMarket ? (
+                {fixture.marketOdds ? (
                   <span className="font-mono font-bold text-ok-ink">
-                    @{fixture.betfairMarket.decimalOdds.toFixed(2)}
+                    @{fixture.marketOdds.decimalOdds.toFixed(2)}
                   </span>
                 ) : (
                   <span className="font-mono font-bold text-warn-ink">
-                    Exchange odds not yet connected
+                    No price on file yet
                   </span>
                 )}
               </div>
@@ -218,15 +218,15 @@ ${auditCard.rawEvidenceSummary.join('\n')}`;
                 <ExternalLink className="h-3 w-3 shrink-0 text-text-3" strokeWidth={2.5} />
               </a>
 
-              {/* Link 2: Betfair Exchange */}
+              {/* Link 2: Independent odds comparison */}
               <a
-                id="btn-quick-betfair-verify"
-                href={`https://www.betfair.com/exchange/plus/search?query=${encodeURIComponent(fixture.matchTitle)}`}
+                id="btn-quick-odds-verify"
+                href={`https://www.google.com/search?q=${encodeURIComponent(`${fixture.matchTitle} odds ${fixture.betType}`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-between rounded-lg border border-brand-line bg-brand px-2.5 py-2 text-[11px] font-bold text-white shadow-sm transition-all hover:bg-brand-hover"
               >
-                <span>Betfair Exchange</span>
+                <span>Compare Odds</span>
                 <ExternalLink className="h-3 w-3 shrink-0" strokeWidth={2.5} />
               </a>
 
@@ -322,98 +322,74 @@ ${auditCard.rawEvidenceSummary.join('\n')}`;
               </section>
             )}
 
-          {/* Exchange market */}
+          {/* Market odds */}
           <section className="mt-6">
             <SectionTitle
               icon={<ScrollText className="h-3.5 w-3.5" strokeWidth={2.5} />}
               aside={
                 <a
-                  id="btn-drawer-betfair-section-link"
-                  href={`https://www.betfair.com/exchange/plus/search?query=${encodeURIComponent(fixture.matchTitle)}`}
+                  id="btn-drawer-odds-section-link"
+                  href={`https://www.google.com/search?q=${encodeURIComponent(`${fixture.matchTitle} odds ${fixture.betType}`)}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex min-h-[30px] items-center gap-1.5 rounded-lg border border-brand-line bg-brand-soft px-2.5 text-[11px] font-bold text-brand-ink transition-colors hover:bg-brand hover:text-white"
                 >
-                  Audit on Betfair Exchange
+                  Compare odds
                   <ExternalLink className="h-3 w-3" strokeWidth={2.5} />
                 </a>
               }
             >
-              Betfair Exchange Market Integrity
+              Market Odds
             </SectionTitle>
 
-            {fixture.betfairMarket ? (
+            {fixture.marketOdds ? (
               <div className="rounded-xl border border-line bg-surface-2 px-4 py-3.5">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[13px] font-bold text-text">
-                      {fixture.betfairMarket.selectionName}
+                      {fixture.marketOdds.selectionName}
                     </span>
-                    <Chip tone="info">Exchange only</Chip>
+                    <Chip tone="info">{fixture.marketOdds.bookmaker}</Chip>
                   </div>
                   <div className="text-right">
                     <div className="font-mono text-xl font-bold tabular-nums leading-none text-ok-ink">
                       <span className="opacity-55">@</span>
-                      {fixture.betfairMarket.decimalOdds.toFixed(2)}
-                    </div>
-                    <div className="mt-0.5 font-mono text-[10px] text-text-3">
-                      lay @{fixture.betfairMarket.layOdds.toFixed(2)}
+                      {fixture.marketOdds.decimalOdds.toFixed(2)}
                     </div>
                   </div>
                 </div>
 
-                <dl className="grid grid-cols-3 gap-3 pt-3">
-                  <div>
-                    <dt className="text-[10px] uppercase tracking-wider text-text-3">Market ID</dt>
-                    <dd className="mt-0.5">
-                      <a
-                        id="btn-drawer-market-id-link"
-                        href={`https://www.betfair.com/exchange/plus/search?query=${encodeURIComponent(fixture.betfairMarket.marketId)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-mono text-[13px] font-bold text-brand-ink underline hover:opacity-80"
-                        title="Verify Market ID directly on Betfair"
-                      >
-                        {fixture.betfairMarket.marketId}
-                        <ExternalLink className="ml-1 inline h-2.5 w-2.5 align-baseline" />
-                      </a>
-                    </dd>
-                  </div>
-                  <Detail label="Matched" mono>
-                    £{fixture.betfairMarket.liquidityMatched.toLocaleString()}
+                <dl className="grid grid-cols-2 gap-3 pt-3">
+                  <Detail label="Bookmaker" mono>
+                    {fixture.marketOdds.bookmaker}
                   </Detail>
-                  <Detail label="Depth" mono>
-                    £{fixture.betfairMarket.availableBackVolume.toLocaleString()}
+                  <Detail label="Last updated" mono>
+                    {new Date(fixture.marketOdds.lastUpdated).toLocaleString('en-GB', {
+                      day: 'numeric',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
                   </Detail>
                 </dl>
 
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-surface p-2.5 text-[11px]">
+                <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface p-2.5 text-[11px]">
                   <p className="flex items-center gap-1.5 text-text-2">
                     <Check className="h-3.5 w-3.5 shrink-0 text-ok-ink" strokeWidth={3} />
-                    <span>Sportsbook excluded · Order-book verified on Betfair Exchange</span>
+                    <span>Priced directly via TheStatsAPI's odds endpoint — a real quoted price, not an estimate.</span>
                   </p>
-                  <a
-                    id="btn-drawer-exchange-direct"
-                    href={`https://www.betfair.com/exchange/plus/search?query=${encodeURIComponent(fixture.matchTitle)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-mono text-[11px] font-bold text-brand-ink underline hover:text-brand"
-                  >
-                    Confirm Live Order Book &rarr;
-                  </a>
                 </div>
               </div>
             ) : (
               <div className="rounded-xl border border-warn-line bg-warn-soft px-4 py-3.5">
                 <p className="flex items-center gap-2 text-[13px] font-bold text-warn-ink">
                   <AlertTriangle className="h-4 w-4 shrink-0" strokeWidth={2.5} />
-                  Not yet connected — exchange odds integration pending
+                  No price on file yet
                 </p>
                 <p className="mt-1.5 text-[12px] leading-relaxed text-text-2">
-                  Betfair Exchange integration is deferred to a later phase (it needs a
-                  certificate-based login flow). This candidate's statistical criteria have been
-                  checked against real provider data, but no live price has been attached — it will
-                  show here as soon as phase 2 lands.
+                  This candidate's statistical criteria have been checked against real provider
+                  data, but TheStatsAPI has not returned a market price for this fixture yet — it
+                  will show here as soon as one is available.
                 </p>
               </div>
             )}

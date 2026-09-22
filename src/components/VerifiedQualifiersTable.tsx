@@ -176,7 +176,7 @@ export const VerifiedQualifiersTable: React.FC<VerifiedQualifiersTableProps> = (
             meta={`${filtered.length} of ${fixtures.length}`}
             action={
               <span className="hidden font-mono text-[10px] uppercase tracking-[0.12em] text-text-3 sm:inline">
-                Betfair Exchange · Sportsbook excluded
+Market odds · via TheStatsAPI
               </span>
             }
           />
@@ -266,15 +266,15 @@ export const VerifiedQualifiersTable: React.FC<VerifiedQualifiersTableProps> = (
                               <AlertTriangle className="h-3.5 w-3.5" strokeWidth={2.5} />
                             </span>
                           )}
-                          {item.betfairMarket ? (
+                          {item.marketOdds ? (
                             <PriceTag
-                              odds={item.betfairMarket.decimalOdds}
+                              odds={item.marketOdds.decimalOdds}
                               size="lg"
-                              sub={`£${item.betfairMarket.liquidityMatched.toLocaleString()} matched`}
+                              sub={item.marketOdds.bookmaker}
                             />
                           ) : (
                             <span className="text-right text-[11px] font-bold text-warn-ink">
-                              Not yet connected
+                              No price on file
                             </span>
                           )}
                         </div>
@@ -336,14 +336,14 @@ export const VerifiedQualifiersTable: React.FC<VerifiedQualifiersTableProps> = (
                         </div>
                       </div>
                       <div className="shrink-0">
-                        {item.betfairMarket ? (
+                        {item.marketOdds ? (
                           <PriceTag
-                            odds={item.betfairMarket.decimalOdds}
+                            odds={item.marketOdds.decimalOdds}
                             size="lg"
-                            sub={`£${item.betfairMarket.liquidityMatched.toLocaleString()}`}
+                            sub={item.marketOdds.bookmaker}
                           />
                         ) : (
-                          <span className="text-[11px] font-bold text-warn-ink">Not yet connected</span>
+                          <span className="text-[11px] font-bold text-warn-ink">No price on file</span>
                         )}
                       </div>
                     </div>

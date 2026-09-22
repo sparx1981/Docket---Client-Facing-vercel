@@ -523,7 +523,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           user?.email ? (
             <span className="inline-flex items-center gap-1.5 rounded-md border border-brand-line bg-surface px-2 py-0.5 font-mono text-[11px] font-semibold text-brand-ink">
               <span className="h-1.5 w-1.5 rounded-full bg-ok" />
-              Linked: {user.email}
+              Linked
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-0.5 font-mono text-[11px] text-text-3">
@@ -535,7 +535,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className="space-y-3 px-4 py-4 bg-brand-soft/20">
           <p className="text-[12px] leading-relaxed text-text-2">
             All data within <strong className="text-text">Engine Configuration</strong> (your TheStatsAPI
-            and Betfair API keys, custom rule thresholds, scan schedule, and staking parameters)
+            key, custom rule thresholds, scan schedule, and staking parameters)
             along with all <strong className="text-text">synced application data</strong> (the complete
             Archive log of verified qualifiers, settled match outcomes, P&amp;L history, and sync audit logs)
             are associated with your authenticated Google account and securely stored in our remote{' '}
@@ -568,112 +568,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </CollapsibleSection>
 
-      {/* ---- Current state ---- */}
-      <div
-        className={`rounded-xl border px-4 py-4 ${
-          hasProviderKey
-            ? 'border-ok-line bg-ok-soft'
-            : 'border-warn-line bg-warn-soft'
-        }`}
-      >
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-1 items-start gap-3">
-            <span
-              className={`mt-0.5 shrink-0 ${
-                hasProviderKey ? 'text-ok-ink' : 'text-warn-ink'
-              }`}
-            >
-              {hasProviderKey ? (
-                <ShieldCheck className="h-5 w-5" strokeWidth={2.5} />
-              ) : (
-                <AlertTriangle className="h-5 w-5" strokeWidth={2.5} />
-              )}
-            </span>
-            <div className="min-w-0">
-              <h2
-                className={`text-[13px] font-extrabold ${
-                  hasProviderKey ? 'text-ok-ink' : 'text-warn-ink'
-                }`}
-              >
-                {hasProviderKey ? 'Provider key configured' : 'No provider configured'}
-              </h2>
-              <p className="mt-0.5 text-[12px] leading-snug text-text-2">
-                {hasProviderKey
-                  ? 'Fixtures, results and team stats are pulled live from TheStatsAPI via our backend. Betfair Exchange odds are not yet connected (phase 2).'
-                  : 'Add a TheStatsAPI key below to pull real fixtures. Until then the docket and archive stay empty.'}
-              </p>
-            </div>
-          </div>
-
-          <Button
-            type="button"
-            onClick={handleTestFeeds}
-            disabled={isTesting}
-            icon={
-              <RotateCw
-                className={`h-4 w-4 ${isTesting ? 'animate-spin' : ''}`}
-                strokeWidth={2.5}
-              />
-            }
-          >
-            {isTesting ? 'Testing…' : 'Test feeds'}
-          </Button>
-        </div>
-
-        {testResult && (
-          <p className="mt-3 flex items-start gap-2 border-t border-line pt-2.5 font-mono text-[11px] leading-relaxed text-text-2">
-            <Check className="mt-px h-3.5 w-3.5 shrink-0 text-ok-ink" strokeWidth={3} />
-            {testResult}
-          </p>
-        )}
-
-        {feedHealth && feedHealth.length > 0 && (
-          <div className="mt-3 space-y-2 border-t border-line pt-2.5">
-            <p className="text-[11px] font-semibold text-text-2">
-              One real call per feed, today's date only — the same real error a full scan would hit, without waiting for one.
-            </p>
-            {feedHealth.map((h, i) => (
-              <div
-                key={`${h.sport}-${h.provider}-${h.leagueLabel || i}`}
-                className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 text-[11px] leading-relaxed ${
-                  h.status === 'ok'
-                    ? 'border-ok-line bg-ok-soft text-ok-ink'
-                    : h.status === 'rate_limited' || h.status === 'leagues_not_selected'
-                    ? 'border-warn-line bg-warn-soft text-warn-ink'
-                    : 'border-bad-line bg-bad-soft text-bad-ink'
-                }`}
-              >
-                {h.status === 'ok' ? (
-                  <ShieldCheck className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
-                ) : h.status === 'rate_limited' || h.status === 'leagues_not_selected' ? (
-                  <Clock className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
-                ) : (
-                  <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
-                )}
-                <div className="min-w-0 flex-1">
-                  <span className="font-bold uppercase tracking-wide">
-                    {h.sport === 'football' ? 'Football' : 'Tennis'} — {h.provider}
-                    {h.leagueLabel ? ` — ${h.leagueLabel}` : ''}
-                  </span>
-                  <span className="ml-1.5">
-                    {h.status === 'ok'
-                      ? `OK — ${h.recordCount} fixture(s) for today`
-                      : h.status === 'rate_limited'
-                      ? `Rate-limited / quota exhausted — ${h.message}`
-                      : h.status === 'leagues_not_selected'
-                      ? h.message
-                      : `Error — ${h.message}`}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
       {/* ---- Schedule & staking ---- */}
       <CollapsibleSection
-        title="Scan schedule &amp; staking"
+        title="Schedule"
         icon={<Clock className="h-4 w-4" strokeWidth={2.5} />}
         defaultOpen={false}
       >
@@ -817,7 +714,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       {/* ---- TheStatsAPI — the live football data provider ---- */}
       <CollapsibleSection
-        title="TheStatsAPI (live provider key)"
+        title="API Config"
         icon={<ShieldCheck className="h-4 w-4" strokeWidth={2.5} />}
         defaultOpen={false}
         action={<Chip tone={hasProviderKey ? 'ok' : 'warn'}>{hasProviderKey ? 'Configured' : 'Not configured'}</Chip>}
@@ -825,13 +722,116 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className="space-y-4 px-4 py-4">
           <p className="text-[11px] leading-relaxed text-text-2">
             TheStatsAPI.com is this app's football data provider — fixtures, results, team
-            stats, competitions and head-to-head records all come from it. The key you paste here
+            stats, competitions, odds and head-to-head records all come from it. The key you paste here
             is sent to our own backend per request (never straight to TheStatsAPI from the
             browser), which forwards it server-to-server as a Bearer token. Sportradar and
             Sportmonks were retired from this app over cost and are no longer called anywhere.
             Tennis has no configured data supplier yet — it is planned to move to its own new
             provider in a later phase.
           </p>
+
+          {/* ---- Current state ---- */}
+          <div
+            className={`rounded-xl border px-4 py-4 ${
+              hasProviderKey
+                ? 'border-ok-line bg-ok-soft'
+                : 'border-warn-line bg-warn-soft'
+            }`}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex min-w-0 flex-1 items-start gap-3">
+                <span
+                  className={`mt-0.5 shrink-0 ${
+                    hasProviderKey ? 'text-ok-ink' : 'text-warn-ink'
+                  }`}
+                >
+                  {hasProviderKey ? (
+                    <ShieldCheck className="h-5 w-5" strokeWidth={2.5} />
+                  ) : (
+                    <AlertTriangle className="h-5 w-5" strokeWidth={2.5} />
+                  )}
+                </span>
+                <div className="min-w-0">
+                  <h2
+                    className={`text-[13px] font-extrabold ${
+                      hasProviderKey ? 'text-ok-ink' : 'text-warn-ink'
+                    }`}
+                  >
+                    {hasProviderKey ? 'Provider key configured' : 'No provider configured'}
+                  </h2>
+                  <p className="mt-0.5 text-[12px] leading-snug text-text-2">
+                    {hasProviderKey
+                      ? 'Fixtures, results, team stats and market odds are pulled live from TheStatsAPI via our backend.'
+                      : 'Add a TheStatsAPI key below to pull real fixtures. Until then the docket and archive stay empty.'}
+                  </p>
+                </div>
+              </div>
+
+              <Button
+                type="button"
+                onClick={handleTestFeeds}
+                disabled={isTesting}
+                icon={
+                  <RotateCw
+                    className={`h-4 w-4 ${isTesting ? 'animate-spin' : ''}`}
+                    strokeWidth={2.5}
+                  />
+                }
+              >
+                {isTesting ? 'Testing…' : 'Test feeds'}
+              </Button>
+            </div>
+
+            {testResult && (
+              <p className="mt-3 flex items-start gap-2 border-t border-line pt-2.5 font-mono text-[11px] leading-relaxed text-text-2">
+                <Check className="mt-px h-3.5 w-3.5 shrink-0 text-ok-ink" strokeWidth={3} />
+                {testResult}
+              </p>
+            )}
+
+            {feedHealth && feedHealth.length > 0 && (
+              <div className="mt-3 space-y-2 border-t border-line pt-2.5">
+                <p className="text-[11px] font-semibold text-text-2">
+                  One real call per feed, today's date only — the same real error a full scan would hit, without waiting for one.
+                </p>
+                {feedHealth.map((h, i) => (
+                  <div
+                    key={`${h.sport}-${h.provider}-${h.leagueLabel || i}`}
+                    className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 text-[11px] leading-relaxed ${
+                      h.status === 'ok'
+                        ? 'border-ok-line bg-ok-soft text-ok-ink'
+                        : h.status === 'rate_limited' || h.status === 'leagues_not_selected'
+                        ? 'border-warn-line bg-warn-soft text-warn-ink'
+                        : 'border-bad-line bg-bad-soft text-bad-ink'
+                    }`}
+                  >
+                    {h.status === 'ok' ? (
+                      <ShieldCheck className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
+                    ) : h.status === 'rate_limited' || h.status === 'leagues_not_selected' ? (
+                      <Clock className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
+                    ) : (
+                      <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <span className="font-bold uppercase tracking-wide">
+                        {h.sport === 'football' ? 'Football' : 'Tennis'} — {h.provider}
+                        {h.leagueLabel ? ` — ${h.leagueLabel}` : ''}
+                      </span>
+                      <span className="ml-1.5">
+                        {h.status === 'ok'
+                          ? `OK — ${h.recordCount} fixture(s) for today`
+                          : h.status === 'rate_limited'
+                          ? `Rate-limited / quota exhausted — ${h.message}`
+                          : h.status === 'leagues_not_selected'
+                          ? h.message
+                          : `Error — ${h.message}`}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <div className="grid grid-cols-1 gap-4 border-t border-line pt-4">
             <Field

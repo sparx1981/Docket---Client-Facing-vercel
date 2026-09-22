@@ -703,14 +703,15 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                     <th className="rule-head px-4 py-2.5 text-right">
                       <ArchiveColumnTooltip
                         label="Odds"
-                        title="Betfair Exchange Odds"
+                        title="Market Odds"
                         align="right"
                       >
                         <p>
-                          Betfair Exchange integration is not implemented yet (phase 2) — there is
-                          no live back price to record. Backfilled and manually-filed rows show the
-                          system&rsquo;s own disclosed minimum qualifying price instead of a real
-                          market figure, and say so in their notes.
+                          Archive does not re-query TheStatsAPI's odds endpoint per historical
+                          match, so there is no live price recorded here. Backfilled and
+                          manually-filed rows show the system&rsquo;s own disclosed minimum
+                          qualifying price instead of a real market figure, and say so in their
+                          notes.
                         </p>
                         <p className="text-text-3">
                           Each system enforces its own configured price floor (Over 1.5{' '}

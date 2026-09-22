@@ -294,10 +294,10 @@ export function logVerifiedQualifierToHistory(
     match: fixture.matchTitle,
     competition: fixture.competition,
     selection: fixture.betType,
-    // Phase 1 has no Betfair Exchange integration — fall back to the
-    // system's disclosed minimum qualifying price rather than a fabricated
-    // figure when no real market price has been attached yet.
-    oddsTaken: fixture.betfairMarket?.decimalOdds ?? fixture.requiredOdds,
+    // Fall back to the system's disclosed minimum qualifying price rather
+    // than a fabricated figure when no real market price has been attached
+    // yet (TheStatsAPI has no odds on file for this fixture).
+    oddsTaken: fixture.marketOdds?.decimalOdds ?? fixture.requiredOdds,
     stake,
     outcome: 'PENDING',
     pnl: 0,

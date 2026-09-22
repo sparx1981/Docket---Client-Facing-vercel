@@ -264,7 +264,7 @@ export default function App() {
       const { fixtures: fetched, error } = await fetchCandidateFixtures(currentSettings, onProgress, signal);
       const withAudits = fetched.map((fixture) => ({
         ...fixture,
-        verificationCard: runVerificationAudit(fixture, currentSettings.ruleThresholds, undefined),
+        verificationCard: runVerificationAudit(fixture, currentSettings.ruleThresholds),
       }));
       setFixtures(withAudits);
       setFixturesError(error || null);

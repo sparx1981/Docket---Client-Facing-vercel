@@ -12,9 +12,9 @@ import { buildFootballCandidate } from './dataFeed';
  * real "as of that date" reconstruction, not a same-day snapshot. Each
  * qualifying match's win/loss comes from its real final score.
  *
- * The one thing this cannot replay is a historical Betfair Exchange price —
- * that integration doesn't exist yet even for live fixtures — so a
- * qualifying match is priced at the system's configured required odds
+ * The one thing this cannot replay is a historical market odds price —
+ * TheStatsAPI's odds endpoint is not re-queried per historical match here —
+ * so a qualifying match is priced at the system's configured required odds
  * rather than a real historical market price, the same convention already
  * used for Archive backfill (historyBackfill.ts). That is disclosed in the
  * result's scopeNote rather than left implicit.
@@ -176,6 +176,6 @@ export async function runBacktest(
     roiPct: staked > 0 ? Number(((netUnitsAtRequiredOdds / staked) * 100).toFixed(1)) : 0,
     matches,
     scopeNote:
-      'Each qualifying match is settled against its real final score. There is no historical Betfair Exchange price to test against — that integration is not built even for live fixtures — so every qualifying match here is priced at this rule\'s configured required odds rather than a real historical market price.',
+      'Each qualifying match is settled against its real final score. Backtest does not re-query TheStatsAPI\'s odds endpoint per historical match, so every qualifying match here is priced at this rule\'s configured required odds rather than a real historical market price.',
   };
 }

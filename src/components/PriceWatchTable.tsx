@@ -60,10 +60,10 @@ const GapBar: React.FC<{ current: number; required: number }> = ({
   );
 };
 
-/* Exchange odds are absent until phase 2 (Betfair) lands — say so plainly rather than showing a number. */
-const NotYetConnected: React.FC = () => (
+/* Say so plainly rather than showing a number when TheStatsAPI has no price on file for this fixture. */
+const NoPriceOnFile: React.FC = () => (
   <span className="inline-flex items-center gap-1 text-[11px] font-bold text-warn-ink">
-    Not yet connected — exchange odds integration pending
+    No price on file yet
   </span>
 );
 
@@ -199,14 +199,14 @@ export const PriceWatchTable: React.FC<PriceWatchTableProps> = ({
                 </div>
 
                 <div className="mt-2.5 flex items-center justify-between border-t border-line pt-2 font-mono text-[10px] text-text-3">
-                  <span>Holds candidates until Exchange back price meets minimum.</span>
+                  <span>Holds candidates until market odds price meets minimum.</span>
                   <span className="text-brand-ink font-semibold">From Engine Configuration</span>
                 </div>
               </div>
             )}
           </span>
-          . Some are waiting on a real exchange price below the required minimum; others are
-          waiting because Betfair Exchange integration itself is not yet connected (phase 2). Both
+          . Some are waiting on a real market price below the required minimum; others are
+          waiting because TheStatsAPI has no price on file for that fixture yet. Both
           are promoted automatically the next time a scan runs and a qualifying price is present.
         </p>
         <div className="flex shrink-0 items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-text-3">
@@ -251,7 +251,7 @@ export const PriceWatchTable: React.FC<PriceWatchTableProps> = ({
               </thead>
               <tbody>
                 {items.map((item, i) => {
-                  const current = item.betfairMarket?.decimalOdds;
+                  const current = item.marketOdds?.decimalOdds;
                   const required = item.requiredOdds;
                   const deficit = typeof current === 'number' ? current - required : undefined;
 
@@ -291,15 +291,15 @@ export const PriceWatchTable: React.FC<PriceWatchTableProps> = ({
                       </td>
 
                       <td className="px-4 py-3.5 align-top">
-                        {typeof current === 'number' && item.betfairMarket ? (
+                        {typeof current === 'number' && item.marketOdds ? (
                           <PriceTag
                             odds={current}
                             tone="warn"
                             size="md"
-                            sub={`£${item.betfairMarket.liquidityMatched.toLocaleString()} matched`}
+                            sub={item.marketOdds.bookmaker}
                           />
                         ) : (
-                          <NotYetConnected />
+                          <NoPriceOnFile />
                         )}
                       </td>
 
@@ -363,7 +363,7 @@ export const PriceWatchTable: React.FC<PriceWatchTableProps> = ({
           {/* ---- Mobile slips ---- */}
           <ul className="divide-y divide-line lg:hidden">
             {items.map((item, i) => {
-              const current = item.betfairMarket?.decimalOdds;
+              const current = item.marketOdds?.decimalOdds;
               const required = item.requiredOdds;
               const deficit = typeof current === 'number' ? current - required : undefined;
 
@@ -403,7 +403,7 @@ export const PriceWatchTable: React.FC<PriceWatchTableProps> = ({
                         {typeof current === 'number' ? (
                           <PriceTag odds={current} tone="warn" size="md" align="left" />
                         ) : (
-                          <NotYetConnected />
+                          <NoPriceOnFile />
                         )}
                       </div>
                       <div>

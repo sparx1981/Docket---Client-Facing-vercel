@@ -595,7 +595,7 @@ export const FilterHoverPopup: React.FC<FilterHoverPopupProps> = ({
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
-                    <span>Verified Qualifiers (passed Betfair price floor):</span>
+                    <span>Verified Qualifiers (passed market odds price floor):</span>
                     <span className="font-mono font-medium text-slate-700 dark:text-slate-300">
                       {breakdown.verifiedQualifiersCount}
                     </span>

@@ -109,6 +109,16 @@ app.get('/api/football/team/:teamId', async (req, res) => {
   }
 });
 
+app.get('/api/football/odds/:matchId', async (req, res) => {
+  const key = requireKey(req, res);
+  if (!key) return;
+  try {
+    res.json({ provider: 'thestatsapi', odds: await thestatsapi.getMatchOdds(key, req.params.matchId) });
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
 app.get('/api/football/h2h', async (req, res) => {
   const key = requireKey(req, res);
   if (!key) return;
