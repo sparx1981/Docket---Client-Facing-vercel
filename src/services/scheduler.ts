@@ -127,8 +127,24 @@ async function trySettleBet(bet: HistoricalBetRecord, settings: AppSettings): Pr
     if (bet.sport === 'football') {
       const fp = footballProviderFor(settings);
       if (!fp) return bet;
-      const body = await apiGet(`/api/football/results?from=${bet.date}&to=${bet.date}`, fp.key);
-      const result = (body?.results || []).find((r: any) => String(r.providerId) === providerId);
+      // Scoped to whichever leagues are actually configured, rather than an
+      // unscoped "every league" pull — a bet's own competition_id isn't
+      // stored on the record, so this checks each selected league's results
+      // for the one date in question (a single day, never a broad range).
+      const leagueIds = Array.from(
+        new Set([
+          ...settings.ruleThresholds.footballOver15.selectedLeagueIds,
+          ...settings.ruleThresholds.footballUnder35.selectedLeagueIds,
+        ])
+      );
+      if (leagueIds.length === 0) return bet;
+      const perLeague = await Promise.all(
+        leagueIds.map((competitionId) =>
+          apiGet(`/api/football/results?from=${bet.date}&to=${bet.date}&competitionId=${competitionId}`, fp.key)
+        )
+      );
+      const allResults = perLeague.flatMap((body) => body?.results || []);
+      const result = allResults.find((r: any) => String(r.providerId) === providerId);
       if (!result || typeof result.homeScore !== 'number' || typeof result.awayScore !== 'number') return bet;
 
       const totalGoals = result.homeScore + result.awayScore;

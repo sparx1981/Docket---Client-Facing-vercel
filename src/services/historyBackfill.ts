@@ -106,21 +106,41 @@ export async function backfillHistoricalResults(settings: AppSettings): Promise<
     return { records: [], error: 'No provider configured — add a TheStatsAPI key in Engine Configuration to backfill.' };
   }
 
+  // No TheStatsAPI endpoint beyond the competitions listing (needed to
+  // populate the league picker itself) may be called until the user has
+  // saved a specific league selection — an empty selection means "All
+  // leagues", the unscoped, expensive default this guard exists to prevent.
+  const leagueIds = Array.from(
+    new Set([
+      ...settings.ruleThresholds.footballOver15.selectedLeagueIds,
+      ...settings.ruleThresholds.footballUnder35.selectedLeagueIds,
+    ])
+  );
+  if (leagueIds.length === 0) {
+    return {
+      records: [],
+      error: 'No leagues selected — choose and save at least one league in Engine Configuration before backfilling.',
+    };
+  }
+
   const from = isoDateDaysAgo(DAYS_BACK);
   const to = todayIso();
   const errors: string[] = [];
   const records: HistoricalBetRecord[] = [];
 
-  try {
-    // A one-off backfill of the Archive, not a recurring scan — pulled
-    // across every league rather than scoped to either rule's own
-    // selection, since this only ever runs once per device.
-    const qs = new URLSearchParams({ from, to });
-    const body = await apiGet(`/api/football/results?${qs.toString()}`, settings.theStatsApiKey);
-    records.push(...buildFootballRecords(body?.results || [], settings.defaultStake || 100, settings.ruleThresholds));
-  } catch (err) {
-    errors.push(err instanceof Error ? err.message : String(err));
-  }
+  // One call per selected league — never the unscoped "every league"
+  // request the old version made.
+  await Promise.all(
+    leagueIds.map(async (competitionId) => {
+      try {
+        const qs = new URLSearchParams({ from, to, competitionId });
+        const body = await apiGet(`/api/football/results?${qs.toString()}`, settings.theStatsApiKey);
+        records.push(...buildFootballRecords(body?.results || [], settings.defaultStake || 100, settings.ruleThresholds));
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : String(err));
+      }
+    })
+  );
 
   records.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 

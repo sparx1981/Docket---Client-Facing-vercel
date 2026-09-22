@@ -51,6 +51,18 @@ const hasAnyProviderKey = (settings: AppSettings) =>
     settings.theStatsApiKey
   );
 
+/**
+ * True once the user has saved a specific league selection on at least one
+ * football rule. Until this is true, no TheStatsAPI endpoint beyond the
+ * competitions listing (needed to populate the league picker itself) may be
+ * called — an empty selection means "All leagues", which is exactly the
+ * unscoped, expensive default this guard exists to prevent from ever being
+ * hit silently.
+ */
+const hasAnyLeagueSelected = (settings: AppSettings) =>
+  settings.ruleThresholds.footballOver15.selectedLeagueIds.length > 0 ||
+  settings.ruleThresholds.footballUnder35.selectedLeagueIds.length > 0;
+
 export interface UserProfile {
   uid: string;
   email: string | null;
@@ -284,7 +296,7 @@ export default function App() {
     if (!backfillAttemptedRef.current && !hasAttemptedHistoricalBackfill()) {
       backfillAttemptedRef.current = true;
       markHistoricalBackfillAttempted();
-      if (getHistoricalBets().length === 0 && hasAnyProviderKey(settings)) {
+      if (getHistoricalBets().length === 0 && hasAnyProviderKey(settings) && hasAnyLeagueSelected(settings)) {
         syncPastHistoricalRecords(settings).then(({ bets, error }) => {
           setHistoricalBets(bets);
           if (error) {

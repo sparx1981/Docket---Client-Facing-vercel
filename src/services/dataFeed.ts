@@ -570,6 +570,17 @@ export async function fetchCandidateFixtures(
     for (const system of ['football_over_1_5', 'football_under_3_5'] as const) {
       const systemThresholds = system === 'football_over_1_5' ? thresholds.footballOver15 : thresholds.footballUnder35;
       if (!systemThresholds.enabled) continue;
+      // Belt-and-braces: Engine Configuration won't let a rule be saved as
+      // enabled with no league selection, but this guards the actual
+      // network call itself against ever going out unscoped regardless of
+      // how that combination arrived (an older save, another device, a
+      // direct data edit) — never trust the UI alone to prevent this.
+      if (systemThresholds.selectedLeagueIds.length === 0) {
+        errors.push(
+          `${system === 'football_over_1_5' ? 'Over 1.5 Goals' : 'Under 3.5 Goals'}: no leagues selected — skipped rather than pulling every league.`
+        );
+        continue;
+      }
       try {
         const fbResult = await buildFootballCandidates(
           football.key,
@@ -683,6 +694,23 @@ export async function fetchLiveFeedSummary(settings: AppSettings): Promise<{
     for (const system of ['football_over_1_5', 'football_under_3_5'] as const) {
       const systemThresholds =
         system === 'football_over_1_5' ? forcedThresholds.footballOver15 : forcedThresholds.footballUnder35;
+      // Never call TheStatsAPI unscoped — a rule with no saved league
+      // selection is skipped entirely rather than "forced enabled" into an
+      // All-leagues request, even though this preview forces enablement for
+      // every other rule so its Feed Impact card has something to show.
+      if (systemThresholds.selectedLeagueIds.length === 0) {
+        const info: FeedSummaryRecord = {
+          sport: 'football',
+          provider: 'THESTATSAPI',
+          totalRecordsReceived: 0,
+          fetchedAt: new Date().toISOString(),
+          queryDates: dates,
+          error: 'No leagues selected for this rule — choose and save at least one league to preview its live feed.',
+        };
+        if (system === 'football_over_1_5') footballOver15FeedInfo = info;
+        else footballUnder35FeedInfo = info;
+        continue;
+      }
       try {
         const fbResult = await buildFootballCandidates(
           football.key,
@@ -761,11 +789,13 @@ export async function fetchLiveFeedSummary(settings: AppSettings): Promise<{
 export interface FeedHealthResult {
   sport: 'football' | 'tennis';
   provider: 'THESTATSAPI' | 'SPORTRADAR' | 'NONE';
-  status: 'ok' | 'rate_limited' | 'error' | 'not_configured';
+  status: 'ok' | 'rate_limited' | 'error' | 'not_configured' | 'leagues_not_selected';
   /** Real error text from the failed call, when status isn't 'ok'. */
   message?: string;
   /** Raw fixture count for today, when status is 'ok'. */
   recordCount?: number;
+  /** Which league this particular check was scoped to — football only ever checks selected leagues, never "All". */
+  leagueLabel?: string;
   checkedAt: string;
 }
 
@@ -786,24 +816,49 @@ export async function checkFeedHealth(settings: AppSettings): Promise<FeedHealth
   const results: FeedHealthResult[] = [];
 
   if (football) {
-    try {
-      const body = await apiGet(`/api/football/fixtures?date=${today}`, football.key);
+    // Never an unscoped "every league" call — one cheap call per league the
+    // user has actually selected and saved on either rule. If neither rule
+    // has a saved selection, this doesn't call TheStatsAPI at all.
+    const leagueIds = Array.from(
+      new Set([
+        ...settings.ruleThresholds.footballOver15.selectedLeagueIds,
+        ...settings.ruleThresholds.footballUnder35.selectedLeagueIds,
+      ])
+    );
+    if (leagueIds.length === 0) {
       results.push({
         sport: 'football',
         provider: 'THESTATSAPI',
-        status: 'ok',
-        recordCount: (body?.fixtures || []).length,
+        status: 'leagues_not_selected',
+        message: 'No leagues selected — choose and save at least one league in Engine Configuration before testing feeds.',
         checkedAt: new Date().toISOString(),
       });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      results.push({
-        sport: 'football',
-        provider: 'THESTATSAPI',
-        status: classifyFeedError(message),
-        message,
-        checkedAt: new Date().toISOString(),
-      });
+    } else {
+      for (const leagueId of leagueIds) {
+        const league = settings.leagueCatalog.find((l) => l.id === leagueId);
+        const leagueLabel = league?.name || leagueId;
+        try {
+          const body = await apiGet(`/api/football/fixtures?date=${today}&competitionId=${leagueId}`, football.key);
+          results.push({
+            sport: 'football',
+            provider: 'THESTATSAPI',
+            status: 'ok',
+            recordCount: (body?.fixtures || []).length,
+            leagueLabel,
+            checkedAt: new Date().toISOString(),
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          results.push({
+            sport: 'football',
+            provider: 'THESTATSAPI',
+            status: classifyFeedError(message),
+            message,
+            leagueLabel,
+            checkedAt: new Date().toISOString(),
+          });
+        }
+      }
     }
   } else {
     results.push({ sport: 'football', provider: 'NONE', status: 'not_configured', checkedAt: new Date().toISOString() });

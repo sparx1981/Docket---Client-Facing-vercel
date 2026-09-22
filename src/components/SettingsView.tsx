@@ -632,20 +632,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <p className="text-[11px] font-semibold text-text-2">
               One real call per feed, today's date only — the same real error a full scan would hit, without waiting for one.
             </p>
-            {feedHealth.map((h) => (
+            {feedHealth.map((h, i) => (
               <div
-                key={`${h.sport}-${h.provider}`}
+                key={`${h.sport}-${h.provider}-${h.leagueLabel || i}`}
                 className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 text-[11px] leading-relaxed ${
                   h.status === 'ok'
                     ? 'border-ok-line bg-ok-soft text-ok-ink'
-                    : h.status === 'rate_limited'
+                    : h.status === 'rate_limited' || h.status === 'leagues_not_selected'
                     ? 'border-warn-line bg-warn-soft text-warn-ink'
                     : 'border-bad-line bg-bad-soft text-bad-ink'
                 }`}
               >
                 {h.status === 'ok' ? (
                   <ShieldCheck className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
-                ) : h.status === 'rate_limited' ? (
+                ) : h.status === 'rate_limited' || h.status === 'leagues_not_selected' ? (
                   <Clock className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
                 ) : (
                   <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
@@ -653,12 +653,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <div className="min-w-0 flex-1">
                   <span className="font-bold uppercase tracking-wide">
                     {h.sport === 'football' ? 'Football' : 'Tennis'} — {h.provider}
+                    {h.leagueLabel ? ` — ${h.leagueLabel}` : ''}
                   </span>
                   <span className="ml-1.5">
                     {h.status === 'ok'
                       ? `OK — ${h.recordCount} fixture(s) for today`
                       : h.status === 'rate_limited'
                       ? `Rate-limited / quota exhausted — ${h.message}`
+                      : h.status === 'leagues_not_selected'
+                      ? h.message
                       : `Error — ${h.message}`}
                   </span>
                 </div>
