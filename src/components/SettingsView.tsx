@@ -6,7 +6,6 @@ import {
   Clock,
   ExternalLink,
   HardDrive,
-  Key,
   RotateCw,
   Save,
   ShieldCheck,
@@ -136,6 +135,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     if (tennisFeedInfo) setFeedInfoTennis(tennisFeedInfo);
   }, [tennisFeedInfo]);
 
+  // Belt-and-braces alongside the UI lock below: disabling the controls
+  // stops new "enabled with no league chosen" states from being created,
+  // but doesn't retroactively flip an already-true toggle if leagues are
+  // cleared back to empty afterwards (or arrived that way from an older
+  // save). This keeps the saved data itself consistent with the rule the
+  // lock exists to enforce — a rule can never be saved as enabled while
+  // still scoped to "All leagues".
+  useEffect(() => {
+    setFormData((prev) => {
+      const over15NeedsDisable = prev.ruleThresholds.footballOver15.selectedLeagueIds.length === 0 && prev.ruleThresholds.footballOver15.enabled;
+      const under35NeedsDisable = prev.ruleThresholds.footballUnder35.selectedLeagueIds.length === 0 && prev.ruleThresholds.footballUnder35.enabled;
+      if (!over15NeedsDisable && !under35NeedsDisable) return prev;
+      return {
+        ...prev,
+        ruleThresholds: {
+          ...prev.ruleThresholds,
+          footballOver15: over15NeedsDisable ? { ...prev.ruleThresholds.footballOver15, enabled: false } : prev.ruleThresholds.footballOver15,
+          footballUnder35: under35NeedsDisable ? { ...prev.ruleThresholds.footballUnder35, enabled: false } : prev.ruleThresholds.footballUnder35,
+        },
+      };
+    });
+  }, [formData.ruleThresholds.footballOver15.selectedLeagueIds, formData.ruleThresholds.footballUnder35.selectedLeagueIds]);
+
   const footballConfigured = !!formData.theStatsApiKey;
   // Tennis has no configured data supplier since the Sportradar/Sportmonks
   // migration — kept as a constant (rather than deleted) so the tennis
@@ -217,11 +239,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   );
 
   const hasProviderKey = !!formData.theStatsApiKey;
-  // Flashscore / Tennis Abstract have no real integration in this app (no
-  // public API for either) — these fields are kept only as optional manual
-  // reference links, so this just reflects "a value is typed in", not "this
-  // is a connected feed".
-  const hasLegacyKeys = !!(formData.flashscoreApiKey || formData.tennisAbstractApiKey);
+  // An empty selection means "All leagues" — the expensive default this
+  // safeguard exists to prevent. Each rule stays locked (its toggle,
+  // thresholds and backtest all disabled) until the user has explicitly
+  // narrowed it to at least one specific league.
+  const over15Locked = formData.ruleThresholds.footballOver15.selectedLeagueIds.length === 0;
+  const under35Locked = formData.ruleThresholds.footballUnder35.selectedLeagueIds.length === 0;
 
   const set = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) =>
     setFormData((prev) => ({ ...prev, [key]: value }));
@@ -380,14 +403,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
-  const renderBacktestButton = (system: BacktestSystem) => {
+  const renderBacktestButton = (system: BacktestSystem, locked: boolean) => {
     const running = backtestRunningBySystem[system];
     return (
       <button
         type="button"
         id={`btn-run-backtest-${system}`}
         onClick={() => handleRunBacktest(system)}
-        disabled={running || !formData.theStatsApiKey}
+        disabled={running || !formData.theStatsApiKey || locked}
         className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] font-bold text-text transition-colors hover:border-brand disabled:opacity-60"
       >
         <Play className={`h-3 w-3 ${running ? 'animate-pulse text-brand' : ''}`} strokeWidth={2.5} />
@@ -501,8 +524,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       >
         <div className="space-y-3 px-4 py-4 bg-brand-soft/20">
           <p className="text-[12px] leading-relaxed text-text-2">
-            All data within <strong className="text-text">Engine Configuration</strong> (your Sportradar,
-            Sportmonks, and Betfair API keys, custom rule thresholds, scan schedule, and staking parameters)
+            All data within <strong className="text-text">Engine Configuration</strong> (your TheStatsAPI
+            and Betfair API keys, custom rule thresholds, scan schedule, and staking parameters)
             along with all <strong className="text-text">synced application data</strong> (the complete
             Archive log of verified qualifiers, settled match outcomes, P&amp;L history, and sync audit logs)
             are associated with your authenticated Google account and securely stored in our remote{' '}
@@ -566,8 +589,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </h2>
               <p className="mt-0.5 text-[12px] leading-snug text-text-2">
                 {hasProviderKey
-                  ? 'Fixtures, results and team stats are pulled live from Sportradar/Sportmonks via our backend. Betfair Exchange odds are not yet connected (phase 2).'
-                  : 'Add a Sportradar or Sportmonks API key below to pull real fixtures. Until then the docket and archive stay empty.'}
+                  ? 'Fixtures, results and team stats are pulled live from TheStatsAPI via our backend. Betfair Exchange odds are not yet connected (phase 2).'
+                  : 'Add a TheStatsAPI key below to pull real fixtures. Until then the docket and archive stay empty.'}
               </p>
             </div>
           </div>
@@ -779,137 +802,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </CollapsibleSection>
 
-      {/* ---- Combined: Sports Data Feeds & Betfair Exchange Credentials ---- */}
-      <CollapsibleSection
-        title="Direct Data Feeds &amp; Betfair Exchange Credentials"
-        icon={<Key className="h-4 w-4" strokeWidth={2.5} />}
-        defaultOpen={false}
-        action={
-          <div className="flex items-center gap-1.5">
-            <Chip tone="info">Sportsbook excluded</Chip>
-            <Chip tone={hasLegacyKeys ? 'ok' : 'warn'}>
-              {hasLegacyKeys ? 'Key entered' : 'Keys pending'}
-            </Chip>
-          </div>
-        }
-      >
-        <div className="space-y-5 px-4 py-4">
-          {/* Subsection 1: Sports Feeds */}
-          <div>
-            <div className="mb-2.5 flex items-center justify-between">
-              <h3 className="text-[12px] font-extrabold uppercase tracking-wider text-text">
-                1. Flashscore &amp; Tennis Abstract (manual reference only)
-              </h3>
-              <span className="font-mono text-[10px] text-text-3">
-                Not integrated — no public API for either
-              </span>
-            </div>
-            <p className="mb-3 text-[11px] leading-relaxed text-text-2">
-              Flashscore and Tennis Abstract have no public API this app can call — these keys are
-              not used to pull any data. They're kept here only so the "Check Google" / stats links
-              elsewhere point at the right place if you ever wire in a scraper or partner feed.
-              Real fixtures, results and team stats come from Sportradar/Sportmonks below.
-            </p>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Field
-                label="Flashscore API key"
-                htmlFor="key-flashscore"
-                hint="Not currently used to fetch data — reserved for a future integration."
-              >
-                <input
-                  id="key-flashscore"
-                  type="password"
-                  autoComplete="off"
-                  placeholder="fs_live_…"
-                  value={formData.flashscoreApiKey}
-                  onChange={(e) => set('flashscoreApiKey', e.target.value)}
-                  className={`${inputClass} font-mono`}
-                />
-              </Field>
-
-              <Field
-                label="Tennis Abstract API key"
-                htmlFor="key-tennis"
-                hint="Not currently used to fetch data — reserved for a future integration."
-              >
-                <input
-                  id="key-tennis"
-                  type="password"
-                  autoComplete="off"
-                  placeholder="ta_api_…"
-                  value={formData.tennisAbstractApiKey}
-                  onChange={(e) => set('tennisAbstractApiKey', e.target.value)}
-                  className={`${inputClass} font-mono`}
-                />
-              </Field>
-            </div>
-          </div>
-
-          {/* Subsection 2: Betfair Exchange */}
-          <div className="border-t border-line pt-4">
-            <div className="mb-2.5 flex items-center justify-between">
-              <h3 className="text-[12px] font-extrabold uppercase tracking-wider text-text">
-                2. Betfair Exchange API-NG Credentials
-              </h3>
-              <span className="font-mono text-[10px] text-warn-ink font-semibold">
-                Not yet connected — phase 2
-              </span>
-            </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Field
-                label="Application key (AppKey)"
-                htmlFor="key-bf-app"
-                hint="Betfair developer API Application Key."
-                action={
-                  <ProviderKeyLink href="https://developer.betfair.com/">
-                    Get a key
-                  </ProviderKeyLink>
-                }
-              >
-                <input
-                  id="key-bf-app"
-                  type="password"
-                  autoComplete="off"
-                  placeholder="bf_app_…"
-                  value={formData.betfairAppKey}
-                  onChange={(e) => set('betfairAppKey', e.target.value)}
-                  className={`${inputClass} font-mono`}
-                />
-              </Field>
-
-              <Field
-                label="Session token (SSOID)"
-                htmlFor="key-bf-sso"
-                hint="Authenticated Betfair SSO session token for live liquidity queries. Generated via Betfair's login API using your AppKey, not a static value from the portal."
-                action={
-                  <ProviderKeyLink href="https://developer.betfair.com/en/get-started/">
-                    How to get one
-                  </ProviderKeyLink>
-                }
-              >
-                <input
-                  id="key-bf-sso"
-                  type="password"
-                  autoComplete="off"
-                  placeholder="bf_sso_…"
-                  value={formData.betfairSessionToken}
-                  onChange={(e) => set('betfairSessionToken', e.target.value)}
-                  className={`${inputClass} font-mono`}
-                />
-              </Field>
-            </div>
-
-            <p className="mt-3 text-[11px] leading-relaxed text-text-2">
-              Betfair Exchange integration is not implemented yet — it needs a certificate-based
-              login flow that's a separate piece of work. These credentials are stored but not
-              used by any request today. Until phase 2 lands, every qualifying candidate is held
-              in Price Watch showing "Not yet connected — exchange odds integration pending"
-              instead of a price.
-            </p>
-          </div>
-        </div>
-      </CollapsibleSection>
-
       {/* ---- TheStatsAPI — the live football data provider ---- */}
       <CollapsibleSection
         title="TheStatsAPI (live provider key)"
@@ -953,6 +845,85 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </CollapsibleSection>
 
+      {/* ---- Leagues ---- */}
+      <CollapsibleSection
+        title="Leagues"
+        icon={<Database className="h-4 w-4" strokeWidth={2.5} />}
+        defaultOpen={false}
+      >
+        <div className="px-4 py-4">
+          <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-[11px] leading-relaxed text-text-2">
+                The competitions each rule's own "League" selector in Filter Thresholds picks from.
+                This list is saved with the rest of your configuration, so it survives a reload and
+                stays the same across devices — it won't reset just because the page refreshed.
+                {formData.leagueCatalogUpdatedAt && (
+                  <>
+                    {' '}
+                    Last loaded {new Date(formData.leagueCatalogUpdatedAt).toLocaleString([], {
+                      dateStyle: 'medium',
+                      timeStyle: 'short',
+                    })}
+                    {' '}· {formData.leagueCatalog.length} competitions.
+                  </>
+                )}
+              </p>
+            </div>
+            <button
+              type="button"
+              id="btn-load-leagues"
+              onClick={handleLoadLeagues}
+              disabled={leaguesLoading || !formData.theStatsApiKey}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border border-line bg-surface text-text hover:border-brand transition-colors shrink-0 disabled:opacity-60"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${leaguesLoading ? 'animate-spin text-brand' : ''}`} />
+              <span>{leaguesLoading ? 'Loading leagues…' : 'Load leagues'}</span>
+            </button>
+          </div>
+
+          {leaguesError && <p className="mb-3 text-[11px] font-medium text-bad-ink">{leaguesError}</p>}
+
+          {pendingLeagueCatalogUpdate && (
+            <div className="rounded-lg border border-warn-line bg-warn-soft p-3 space-y-2">
+              <p className="text-[12px] font-semibold text-warn-ink">
+                The refreshed league list drops {pendingLeagueCatalogUpdate.drops.reduce((n, d) => n + d.names.length, 0)}{' '}
+                league(s) currently selected in a rule:
+              </p>
+              <ul className="text-[11px] text-warn-ink space-y-0.5">
+                {pendingLeagueCatalogUpdate.drops.map((d) => (
+                  <li key={d.systemLabel}>
+                    <strong>{d.systemLabel}:</strong> {d.names.join(', ')}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[11px] text-warn-ink">
+                Applying the update removes those from the affected rule's selection (it falls back
+                toward "All" for whatever's left). Keeping the current list leaves everything as-is.
+              </p>
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  id="btn-confirm-league-update"
+                  onClick={confirmLeagueCatalogUpdate}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-bad px-2.5 py-1 text-[11px] font-bold text-on-bad hover:bg-bad-hover"
+                >
+                  Apply update, drop those leagues
+                </button>
+                <button
+                  type="button"
+                  id="btn-cancel-league-update"
+                  onClick={cancelLeagueCatalogUpdate}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] font-bold text-text hover:border-brand"
+                >
+                  Keep current list
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </CollapsibleSection>
+
       {/* ---- Filter Thresholds ---- */}
       <CollapsibleSection
         title="Filter Thresholds"
@@ -987,80 +958,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           )}
 
-          {/* League catalog */}
-          <div className="border-t border-line pt-4">
-            <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="space-y-1">
-                <h3 className="text-[12px] font-extrabold uppercase tracking-wider text-text">Leagues</h3>
-                <p className="text-[11px] leading-relaxed text-text-2">
-                  The competitions each rule's own "League" selector below picks from. This list is
-                  saved with the rest of your configuration, so it survives a reload and stays the
-                  same across devices — it won't reset just because the page refreshed.
-                  {formData.leagueCatalogUpdatedAt && (
-                    <>
-                      {' '}
-                      Last loaded {new Date(formData.leagueCatalogUpdatedAt).toLocaleString([], {
-                        dateStyle: 'medium',
-                        timeStyle: 'short',
-                      })}
-                      {' '}· {formData.leagueCatalog.length} competitions.
-                    </>
-                  )}
-                </p>
-              </div>
-              <button
-                type="button"
-                id="btn-load-leagues"
-                onClick={handleLoadLeagues}
-                disabled={leaguesLoading || !formData.theStatsApiKey}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border border-line bg-surface text-text hover:border-brand transition-colors shrink-0 disabled:opacity-60"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${leaguesLoading ? 'animate-spin text-brand' : ''}`} />
-                <span>{leaguesLoading ? 'Loading leagues…' : 'Load leagues'}</span>
-              </button>
-            </div>
-
-            {leaguesError && <p className="mb-3 text-[11px] font-medium text-bad-ink">{leaguesError}</p>}
-
-            {pendingLeagueCatalogUpdate && (
-              <div className="rounded-lg border border-warn-line bg-warn-soft p-3 space-y-2">
-                <p className="text-[12px] font-semibold text-warn-ink">
-                  The refreshed league list drops {pendingLeagueCatalogUpdate.drops.reduce((n, d) => n + d.names.length, 0)}{' '}
-                  league(s) currently selected in a rule:
-                </p>
-                <ul className="text-[11px] text-warn-ink space-y-0.5">
-                  {pendingLeagueCatalogUpdate.drops.map((d) => (
-                    <li key={d.systemLabel}>
-                      <strong>{d.systemLabel}:</strong> {d.names.join(', ')}
-                    </li>
-                  ))}
-                </ul>
-                <p className="text-[11px] text-warn-ink">
-                  Applying the update removes those from the affected rule's selection (it falls back
-                  toward "All" for whatever's left). Keeping the current list leaves everything as-is.
-                </p>
-                <div className="flex gap-2 pt-1">
-                  <button
-                    type="button"
-                    id="btn-confirm-league-update"
-                    onClick={confirmLeagueCatalogUpdate}
-                    className="inline-flex items-center gap-1.5 rounded-md bg-bad px-2.5 py-1 text-[11px] font-bold text-on-bad hover:bg-bad-hover"
-                  >
-                    Apply update, drop those leagues
-                  </button>
-                  <button
-                    type="button"
-                    id="btn-cancel-league-update"
-                    onClick={cancelLeagueCatalogUpdate}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] font-bold text-text hover:border-brand"
-                  >
-                    Keep current list
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
           {/* System A: Over 1.5 Goals */}
           <div className="border-t border-line pt-4">
             <div className="mb-3 flex items-center justify-between flex-wrap gap-2">
@@ -1075,19 +972,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 />
               </div>
               <div className="flex items-center gap-3">
-                {renderBacktestButton('football_over_1_5')}
+                {renderBacktestButton('football_over_1_5', over15Locked)}
                 <Switch
                   id="thresh-over15-enabled"
                   checked={formData.ruleThresholds.footballOver15.enabled}
                   onChange={(v) => setThreshold('footballOver15', 'enabled', v)}
                   label="Enabled"
+                  disabled={over15Locked}
                 />
               </div>
             </div>
+            {over15Locked && (
+              <div className="mb-3 rounded-lg border border-warn-line bg-warn-soft px-3 py-2 text-[11px] font-semibold text-warn-ink">
+                Select at least one league below before this rule can be enabled or configured — leaving it on
+                "All leagues" risks pulling far more records than needed on every scan.
+              </div>
+            )}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <Field label="League" htmlFor="over15-league-toggle" hint="Leagues this rule's fixture pulls, verified qualifiers, Price Watch, and backtest all scope to.">
                 {renderLeagueMultiSelect('footballOver15', 'over15-league')}
               </Field>
+              <fieldset disabled={over15Locked} className="contents">
               <Field
                 label="Min. previous-season avg goals scored"
                 htmlFor="over15-avg-scored"
@@ -1197,6 +1102,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   className={`${inputClass} font-mono`}
                 />
               </Field>
+              </fieldset>
             </div>
             {renderBacktestResult('football_over_1_5')}
           </div>
@@ -1215,19 +1121,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 />
               </div>
               <div className="flex items-center gap-3">
-                {renderBacktestButton('football_under_3_5')}
+                {renderBacktestButton('football_under_3_5', under35Locked)}
                 <Switch
                   id="thresh-under35-enabled"
                   checked={formData.ruleThresholds.footballUnder35.enabled}
                   onChange={(v) => setThreshold('footballUnder35', 'enabled', v)}
                   label="Enabled"
+                  disabled={under35Locked}
                 />
               </div>
             </div>
+            {under35Locked && (
+              <div className="mb-3 rounded-lg border border-warn-line bg-warn-soft px-3 py-2 text-[11px] font-semibold text-warn-ink">
+                Select at least one league below before this rule can be enabled or configured — leaving it on
+                "All leagues" risks pulling far more records than needed on every scan.
+              </div>
+            )}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <Field label="League" htmlFor="under35-league-toggle" hint="Leagues this rule's fixture pulls, verified qualifiers, Price Watch, and backtest all scope to.">
                 {renderLeagueMultiSelect('footballUnder35', 'under35-league')}
               </Field>
+              <fieldset disabled={under35Locked} className="contents">
               <Field
                 label="Max. previous-season avg goals scored"
                 htmlFor="under35-avg-scored"
@@ -1335,6 +1249,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   className={`${inputClass} font-mono`}
                 />
               </Field>
+              </fieldset>
             </div>
             {renderBacktestResult('football_under_3_5')}
           </div>

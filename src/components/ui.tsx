@@ -338,15 +338,20 @@ export const Switch: React.FC<{
   label: string;
   hint?: string;
   id?: string;
-}> = ({ checked, onChange, label, hint, id }) => (
-  <div className="flex items-start gap-3">
+  disabled?: boolean;
+}> = ({ checked, onChange, label, hint, id, disabled = false }) => (
+  <div className={`flex items-start gap-3 ${disabled ? 'opacity-50' : ''}`}>
     <button
       type="button"
       id={id}
       role="switch"
       aria-checked={checked}
+      aria-disabled={disabled}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
       className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full border transition-colors duration-200 ${
+        disabled ? 'cursor-not-allowed' : ''
+      } ${
         checked
           ? 'border-brand-line bg-brand'
           : 'border-line bg-surface-3'
