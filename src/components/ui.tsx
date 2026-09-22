@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Check, ChevronDown, Minus, X, Clock } from 'lucide-react';
 
 /* ==========================================================================
@@ -51,6 +51,10 @@ export const CollapsibleSection: React.FC<{
   className?: string;
   id?: string;
   buttonId?: string;
+  /** When true, the section can't be expanded at all — stays collapsed and ignores clicks. */
+  locked?: boolean;
+  /** Shown in place of the chevron toggle while locked, explaining why. */
+  lockedMessage?: React.ReactNode;
 }> = ({
   title,
   icon,
@@ -60,8 +64,15 @@ export const CollapsibleSection: React.FC<{
   className = '',
   id,
   buttonId,
+  locked = false,
+  lockedMessage,
 }) => {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(defaultOpen && !locked);
+
+  useEffect(() => {
+    if (locked) setOpen(false);
+  }, [locked]);
+
   return (
     <Plate className={className} id={id}>
       <div
@@ -72,22 +83,31 @@ export const CollapsibleSection: React.FC<{
         <button
           id={buttonId}
           type="button"
-          onClick={() => setOpen((o) => !o)}
+          onClick={() => !locked && setOpen((o) => !o)}
           aria-expanded={open}
-          className="flex min-w-0 items-center gap-2.5 text-left cursor-pointer hover:text-brand-ink transition-colors"
+          aria-disabled={locked}
+          disabled={locked}
+          className={`flex min-w-0 items-center gap-2.5 text-left transition-colors ${
+            locked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:text-brand-ink'
+          }`}
         >
           {icon && <span className="text-brand-ink shrink-0">{icon}</span>}
           <h2 className="rule-head text-text truncate">{title}</h2>
-          <ChevronDown
-            className={`h-4 w-4 shrink-0 text-text-3 transition-transform duration-200 ${
-              open ? 'rotate-180 text-brand-ink' : ''
-            }`}
-            strokeWidth={2.5}
-          />
+          {!locked && (
+            <ChevronDown
+              className={`h-4 w-4 shrink-0 text-text-3 transition-transform duration-200 ${
+                open ? 'rotate-180 text-brand-ink' : ''
+              }`}
+              strokeWidth={2.5}
+            />
+          )}
         </button>
         {action}
       </div>
-      {open && children}
+      {locked && lockedMessage && (
+        <div className="px-4 py-3 text-[11px] leading-relaxed text-text-2 bg-surface">{lockedMessage}</div>
+      )}
+      {!locked && open && children}
     </Plate>
   );
 };

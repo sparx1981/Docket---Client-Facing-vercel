@@ -95,7 +95,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     newCatalog: LeagueOption[];
     drops: { systemLabel: string; names: string[] }[];
   } | null>(null);
-  const [openLeagueDropdown, setOpenLeagueDropdown] = useState<'footballOver15' | 'footballUnder35' | null>(null);
+  // Keyed by the calling instance's idPrefix (not the system) — the same
+  // rule's League picker is rendered in two places (the Leagues section and
+  // that rule's own card), and each needs to open/close independently.
+  const [openLeagueDropdown, setOpenLeagueDropdown] = useState<string | null>(null);
 
   // Backtest — one per football rule, since the league to backtest against
   // and the "Run backtest" trigger both live inside that rule's own card now.
@@ -245,6 +248,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // narrowed it to at least one specific league.
   const over15Locked = formData.ruleThresholds.footballOver15.selectedLeagueIds.length === 0;
   const under35Locked = formData.ruleThresholds.footballUnder35.selectedLeagueIds.length === 0;
+  // Checked against the SAVED settings (the `settings` prop), not the
+  // in-progress form draft — merely ticking a league box shouldn't unlock
+  // this section until the user has actually clicked "Save configuration",
+  // otherwise navigating away without saving would leave it misleadingly open.
+  const filterThresholdsLocked =
+    settings.ruleThresholds.footballOver15.selectedLeagueIds.length === 0 &&
+    settings.ruleThresholds.footballUnder35.selectedLeagueIds.length === 0;
 
   const set = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) =>
     setFormData((prev) => ({ ...prev, [key]: value }));
@@ -449,13 +459,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   const renderLeagueMultiSelect = (system: 'footballOver15' | 'footballUnder35', idPrefix: string) => {
     const selected = formData.ruleThresholds[system].selectedLeagueIds;
-    const isOpen = openLeagueDropdown === system;
+    const isOpen = openLeagueDropdown === idPrefix;
     return (
       <div>
         <button
           type="button"
           id={`${idPrefix}-toggle`}
-          onClick={() => setOpenLeagueDropdown(isOpen ? null : system)}
+          onClick={() => setOpenLeagueDropdown(isOpen ? null : idPrefix)}
           className={`${inputClass} flex items-center justify-between text-left`}
         >
           <span>
@@ -921,6 +931,30 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             </div>
           )}
+
+          <div className="mt-4 border-t border-line pt-4 space-y-4">
+            <p className="text-[11px] leading-relaxed text-text-2">
+              Pick which leagues each rule is allowed to pull — this is required, and must be saved,
+              before Filter Thresholds unlocks below. Each rule keeps its own selection; the same
+              choice is also editable from inside that rule's own card once unlocked.
+            </p>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Field
+                label="Football — Over 1.5 Goals"
+                htmlFor="leagues-section-over15-league-toggle"
+                hint="Leagues this rule's fixture pulls, verified qualifiers, Price Watch, and backtest all scope to."
+              >
+                {renderLeagueMultiSelect('footballOver15', 'leagues-section-over15-league')}
+              </Field>
+              <Field
+                label="Football — Under 3.5 Goals"
+                htmlFor="leagues-section-under35-league-toggle"
+                hint="Leagues this rule's fixture pulls, verified qualifiers, Price Watch, and backtest all scope to."
+              >
+                {renderLeagueMultiSelect('footballUnder35', 'leagues-section-under35-league')}
+              </Field>
+            </div>
+          </div>
         </div>
       </CollapsibleSection>
 
@@ -929,6 +963,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         title="Filter Thresholds"
         icon={<SlidersHorizontal className="h-4 w-4" strokeWidth={2.5} />}
         defaultOpen={false}
+        locked={filterThresholdsLocked}
+        lockedMessage={
+          <>
+            Locked until at least one league is selected and saved in the <strong className="text-text">Leagues</strong> section
+            above — a rule's League field defaults to "All leagues", and letting this section open before you've made a real
+            choice risks configuring (and running) a rule against every competition TheStatsAPI covers. Select some leagues on
+            a rule above, then click <strong className="text-text">Save configuration</strong> to unlock this section.
+          </>
+        }
       >
         <div className="space-y-5 px-4 py-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg bg-surface-2 border border-line">
