@@ -324,6 +324,14 @@ async function buildFootballCandidates(
         if (isAbortError(err)) throw err;
         matchOdds = [];
       }
+
+      onProgress?.({
+        sport: 'football',
+        message: footballDetails
+          ? `✓ Enriched ${fx.homeOrPlayer1} vs ${fx.awayOrPlayer2}${matchOdds.length === 0 ? ' (no odds returned)' : ''}.`
+          : `✗ Missing data for ${fx.homeOrPlayer1} vs ${fx.awayOrPlayer2} — team/H2H stats incomplete, will show as no data.`,
+        recordsSoFar: rawTotal,
+      });
     }
 
     const marketTypeOver15 = matchOdds.find((o) => o.marketType === 'OVER_UNDER_15');
@@ -500,6 +508,14 @@ async function buildTennisCandidates(
         if (isAbortError(err)) throw err;
         tennisDetails = undefined;
       }
+
+      onProgress?.({
+        sport: 'tennis',
+        message: tennisDetails
+          ? `✓ Enriched ${fx.homeOrPlayer1} vs ${fx.awayOrPlayer2}.`
+          : `✗ Missing data for ${fx.homeOrPlayer1} vs ${fx.awayOrPlayer2} — player stats incomplete, will show as no data.`,
+        recordsSoFar: rawTotal,
+      });
     }
 
     candidates.push(buildTennisCandidate(fx, tennisDetails, thresholds, rawTotal));
