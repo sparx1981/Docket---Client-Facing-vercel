@@ -473,8 +473,15 @@ export interface HistoricalMatchContext {
  */
 /** A team's name is a fixed fact — cached indefinitely (process lifetime) rather than TTL'd, since it never legitimately changes mid-run. */
 const teamNameCache = new Map<string, string>();
-/** Keyed by teamId + the exact "as of" cutoff date, since several backtest candidates commonly share a matchday. */
-const recentMatchesCache = new Map<string, { value: TeamRecentMatch[] | undefined; expiresAt: number }>();
+/**
+ * Raw finished-match rows for one team up to an "as of" cutoff date. Keyed
+ * by teamId + that exact date, since several backtest candidates commonly
+ * share a matchday. Both a team's own recent-form list and (for the home
+ * team) the head-to-head meeting search used to issue two near-identical
+ * listMatches calls for this same team/date — this single cache backs
+ * both, cutting one real duplicate network call per match.
+ */
+const teamMatchesBeforeDateCache = new Map<string, { value: any[]; expiresAt: number }>();
 
 export async function getHistoricalMatchContext(
   apiKey: string,
@@ -504,19 +511,27 @@ export async function getHistoricalMatchContext(
     }
   }
 
-  async function recentBefore(teamId: string): Promise<TeamRecentMatch[] | undefined> {
+  async function matchesBeforeTeamDate(teamId: string): Promise<any[]> {
     const cacheKey = `${teamId}:${beforeDate}`;
-    const cached = recentMatchesCache.get(cacheKey);
+    const cached = teamMatchesBeforeDateCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return cached.value;
+    // Page cap of 2 covers both this function's callers: a team's last-10
+    // recent-form slice needs only page 1, but the head-to-head search
+    // below needs page 2 as well — fetching the larger cap once here means
+    // whichever caller runs first already has what the other one needs.
+    const rows = await listMatches(apiKey, { team_id: teamId, status: 'finished', date_to: beforeDate }, 2);
+    teamMatchesBeforeDateCache.set(cacheKey, { value: rows, expiresAt: Date.now() + SEASON_CACHE_TTL_MS });
+    return rows;
+  }
+
+  async function recentBefore(teamId: string): Promise<TeamRecentMatch[] | undefined> {
     try {
-      const rows = await listMatches(apiKey, { team_id: teamId, status: 'finished', date_to: beforeDate }, 1);
+      const rows = await matchesBeforeTeamDate(teamId);
       const mapped = rows
         .map((m) => mapTeamRecentMatch(m, teamId, competitionNameById))
         .filter((m): m is TeamRecentMatch => m !== null)
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      const result = mapped.length > 0 ? mapped.slice(0, 10) : undefined;
-      recentMatchesCache.set(cacheKey, { value: result, expiresAt: Date.now() + SEASON_CACHE_TTL_MS });
-      return result;
+      return mapped.length > 0 ? mapped.slice(0, 10) : undefined;
     } catch (err) {
       if (err instanceof ProviderError) return undefined;
       throw err;
@@ -544,7 +559,7 @@ export async function getHistoricalMatchContext(
   context.awayRecentMatches = awayRecentMatches;
 
   try {
-    const rows = await listMatches(apiKey, { team_id: homeId, status: 'finished', date_to: beforeDate }, 2);
+    const rows = await matchesBeforeTeamDate(homeId);
     const meetings = rows.filter((m) => m?.home_team?.id === awayId || m?.away_team?.id === awayId);
     const h2h = meetings
       .map((m): H2HMatchRecord | null => {
