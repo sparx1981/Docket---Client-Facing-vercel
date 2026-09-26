@@ -67,9 +67,16 @@ interface SettingsViewProps {
   fixtures?: CandidateFixture[];
   fixturesLoading?: boolean;
   fixturesError?: string;
-  onRefreshFixtures?: () => void;
   footballFeedInfo?: FeedSummaryRecord;
   tennisFeedInfo?: FeedSummaryRecord;
+  /**
+   * Reports whenever the local draft (formData) starts or stops differing
+   * from the last-saved settings — the header's Run Daily Scan button lives
+   * outside this component, but still needs to know, since it only ever
+   * reads from saved settings and shouldn't run against a stale
+   * configuration silently.
+   */
+  onDraftDirtyChange?: (dirty: boolean) => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -82,9 +89,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   fixtures,
   fixturesLoading = false,
   fixturesError,
-  onRefreshFixtures,
   footballFeedInfo,
   tennisFeedInfo,
+  onDraftDirtyChange,
 }) => {
   const [formData, setFormData] = useState<AppSettings>(settings);
   // What's actually live — the header's Run Daily Scan, the real scan/fetch
@@ -97,6 +104,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     () => JSON.stringify(formData) !== JSON.stringify(lastSavedData),
     [formData, lastSavedData]
   );
+
+  useEffect(() => {
+    onDraftDirtyChange?.(hasUnsavedChanges);
+    // Once this view unmounts (e.g. the user leaves the Settings tab) the
+    // draft goes with it, so from the header's perspective there's no
+    // longer anything "unsaved" to warn about.
+    return () => onDraftDirtyChange?.(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasUnsavedChanges]);
   const [testResult, setTestResult] = useState<string | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [feedHealth, setFeedHealth] = useState<FeedHealthResult[] | null>(null);
@@ -114,10 +130,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     newCatalog: LeagueOption[];
     drops: { systemLabel: string; names: string[] }[];
   } | null>(null);
-  // Keyed by the calling instance's idPrefix (not the system) — the same
-  // rule's League picker is rendered in two places (the Leagues section and
-  // that rule's own card), and each needs to open/close independently.
+  // Keyed by idPrefix — a rule's own League picker and the Leagues section's
+  // shortlist picker each need to open/close independently.
   const [openLeagueDropdown, setOpenLeagueDropdown] = useState<string | null>(null);
+  // Search text per open dropdown, keyed the same way as openLeagueDropdown.
+  const [leagueSearchTerms, setLeagueSearchTerms] = useState<Record<string, string>>({});
 
   // Backtest — one per football rule, since the league to backtest against
   // and the "Run backtest" trigger both live inside that rule's own card now.
@@ -257,9 +274,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       if (res.error) {
         setFeedError(res.error);
       }
-      if (onRefreshFixtures) {
-        onRefreshFixtures();
-      }
+      // Deliberately does NOT also call onRefreshFixtures — this button's
+      // whole job is refreshing Feed & Impact numbers below; it used to
+      // silently trigger a second, separate real fetch of the main
+      // qualifiers table too, which nothing in its confirmation or copy
+      // ever mentioned.
       setIsFeedPreviewFinished(true);
     } catch (err) {
       // A user-requested stop isn't a real failure — leave feedError empty
@@ -406,13 +425,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
-  /** Applies a freshly-fetched league catalog, pruning any rule selections that no longer resolve. */
+  /** Applies a freshly-fetched league catalog, pruning any rule selections (and the shortlist) that no longer resolve. */
   const applyLeagueCatalogUpdate = (newCatalog: LeagueOption[]) => {
     const freshIds = new Set(newCatalog.map((l) => l.id));
     setFormData((prev) => ({
       ...prev,
       leagueCatalog: newCatalog,
       leagueCatalogUpdatedAt: new Date().toISOString(),
+      leagueShortlistIds: prev.leagueShortlistIds.filter((id) => freshIds.has(id)),
       ruleThresholds: {
         ...prev.ruleThresholds,
         footballOver15: {
@@ -454,6 +474,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         })
         .filter((d): d is { systemLabel: string; names: string[] } => d !== null);
 
+      const missingShortlistIds = formData.leagueShortlistIds.filter((id) => !freshIds.has(id));
+      if (missingShortlistIds.length > 0) {
+        drops.push({
+          systemLabel: 'Leagues shortlist',
+          names: missingShortlistIds.map((id) => formData.leagueCatalog.find((l) => l.id === id)?.name || id),
+        });
+      }
+
       if (drops.length > 0) {
         setPendingLeagueCatalogUpdate({ newCatalog: sorted, drops });
       } else {
@@ -484,6 +512,42 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         ruleThresholds: {
           ...prev.ruleThresholds,
           [system]: { ...prev.ruleThresholds[system], selectedLeagueIds: Array.from(selected) },
+        },
+      };
+    });
+  };
+
+  // Toggles a league in the curated shortlist (Leagues section). Narrowing
+  // the shortlist also prunes any rule's own selection down to what's still
+  // in it — otherwise a rule could keep a league selected that its own
+  // picker no longer even shows, silently pulling fixtures for something
+  // the shortlist says is no longer in scope. An emptied-out shortlist
+  // (nothing left in it at all) is treated as "not curated" rather than
+  // "nothing allowed", so rule selections are left alone in that case —
+  // consistent with leagueShortlistIds.length === 0 meaning no restriction.
+  const toggleShortlistLeague = (id: string) => {
+    setFormData((prev) => {
+      const selected = new Set(prev.leagueShortlistIds);
+      if (selected.has(id)) selected.delete(id);
+      else selected.add(id);
+      const nextShortlist = Array.from(selected);
+
+      const prune = (ids: string[]) =>
+        nextShortlist.length === 0 ? ids : ids.filter((leagueId) => nextShortlist.includes(leagueId));
+
+      return {
+        ...prev,
+        leagueShortlistIds: nextShortlist,
+        ruleThresholds: {
+          ...prev.ruleThresholds,
+          footballOver15: {
+            ...prev.ruleThresholds.footballOver15,
+            selectedLeagueIds: prune(prev.ruleThresholds.footballOver15.selectedLeagueIds),
+          },
+          footballUnder35: {
+            ...prev.ruleThresholds.footballUnder35,
+            selectedLeagueIds: prune(prev.ruleThresholds.footballUnder35.selectedLeagueIds),
+          },
         },
       };
     });
@@ -553,16 +617,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       );
     }
     return (
-      <button
-        type="button"
-        id={`btn-run-backtest-${system}`}
-        onClick={() => handleRunBacktest(system)}
-        disabled={!formData.theStatsApiKey || locked}
-        className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] font-bold text-text transition-colors hover:border-brand disabled:opacity-60"
-      >
-        <Play className="h-3 w-3" strokeWidth={2.5} />
-        <span>Run backtest</span>
-      </button>
+      <div className="inline-flex flex-col items-start gap-1">
+        <button
+          type="button"
+          id={`btn-run-backtest-${system}`}
+          onClick={() => handleRunBacktest(system)}
+          disabled={!formData.theStatsApiKey || locked || hasUnsavedChanges}
+          title={hasUnsavedChanges ? 'Save configuration first — results from an unsaved draft could stop matching reality the moment you change your mind and save something else.' : undefined}
+          className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] font-bold text-text transition-colors hover:border-brand disabled:opacity-60"
+        >
+          <Play className="h-3 w-3" strokeWidth={2.5} />
+          <span>Run backtest</span>
+        </button>
+        {hasUnsavedChanges && !locked && (
+          <span className="text-[10px] font-semibold text-warn-ink">Save configuration to enable backtesting.</span>
+        )}
+      </div>
     );
   };
 
@@ -597,6 +667,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const renderLeagueMultiSelect = (system: 'footballOver15' | 'footballUnder35', idPrefix: string) => {
     const selected = formData.ruleThresholds[system].selectedLeagueIds;
     const isOpen = openLeagueDropdown === idPrefix;
+    const hasShortlist = formData.leagueShortlistIds.length > 0;
+    // A curated shortlist (Leagues section, above) narrows what this rule
+    // can even pick from; with none set yet, every rule falls back to the
+    // full raw catalog so nothing that worked before this feature existed
+    // silently stops working.
+    const pool = hasShortlist
+      ? formData.leagueCatalog.filter((l) => formData.leagueShortlistIds.includes(l.id))
+      : formData.leagueCatalog;
+    const searchTerm = leagueSearchTerms[idPrefix] || '';
+    const filtered = searchTerm.trim()
+      ? pool.filter(
+          (l) =>
+            l.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (l.country || '').toLowerCase().includes(searchTerm.toLowerCase())
+        )
+      : pool;
+
     return (
       <div>
         <button
@@ -611,11 +698,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
         </button>
         {isOpen && (
-          <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-line divide-y divide-line">
-            {formData.leagueCatalog.length === 0 ? (
-              <p className="p-3 text-[11px] text-text-2">No leagues loaded yet — use "Load leagues" below.</p>
-            ) : (
-              formData.leagueCatalog.map((league) => {
+          <div className="mt-2 rounded-lg border border-line">
+            {pool.length > 0 && (
+              <div className="border-b border-line p-2">
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setLeagueSearchTerms((prev) => ({ ...prev, [idPrefix]: e.target.value }))}
+                  placeholder="Search leagues…"
+                  className={`${inputClass} text-[11px]`}
+                />
+              </div>
+            )}
+            <div className="max-h-48 overflow-y-auto divide-y divide-line">
+              {formData.leagueCatalog.length === 0 ? (
+                <p className="p-3 text-[11px] text-text-2">No leagues loaded yet — use "Load leagues" below.</p>
+              ) : !hasShortlist ? (
+                <p className="p-3 text-[11px] text-text-2">
+                  Showing the full raw catalog — curate a shortlist in the <strong className="text-text">Leagues</strong> section above to narrow this list.
+                </p>
+              ) : filtered.length === 0 ? (
+                <p className="p-3 text-[11px] text-text-2">No leagues match "{searchTerm}".</p>
+              ) : null}
+              {filtered.map((league) => {
                 const checked = selected.includes(league.id);
                 return (
                   <label
@@ -634,8 +739,93 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     {league.country && <span className="shrink-0 text-text-2">{league.country}</span>}
                   </label>
                 );
-              })
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderLeagueShortlistPicker = () => {
+    const idPrefix = 'league-shortlist';
+    const selected = formData.leagueShortlistIds;
+    const isOpen = openLeagueDropdown === idPrefix;
+    const searchTerm = leagueSearchTerms[idPrefix] || '';
+    const filtered = searchTerm.trim()
+      ? formData.leagueCatalog.filter(
+          (l) =>
+            l.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (l.country || '').toLowerCase().includes(searchTerm.toLowerCase())
+        )
+      : formData.leagueCatalog;
+
+    return (
+      <div>
+        <button
+          type="button"
+          id={`${idPrefix}-toggle`}
+          onClick={() => setOpenLeagueDropdown(isOpen ? null : idPrefix)}
+          className={`${inputClass} flex items-center justify-between text-left`}
+        >
+          <span>
+            {selected.length === 0
+              ? 'No shortlist — every rule sees the full raw catalog'
+              : `${selected.length} league${selected.length === 1 ? '' : 's'} shortlisted`}
+          </span>
+          <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        </button>
+        {isOpen && (
+          <div className="mt-2 rounded-lg border border-line">
+            {formData.leagueCatalog.length > 0 && (
+              <div className="flex items-center gap-2 border-b border-line p-2">
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setLeagueSearchTerms((prev) => ({ ...prev, [idPrefix]: e.target.value }))}
+                  placeholder="Search leagues…"
+                  className={`${inputClass} text-[11px]`}
+                />
+                {selected.length > 0 && (
+                  <button
+                    type="button"
+                    id="btn-clear-league-shortlist"
+                    onClick={() => setFormData((prev) => ({ ...prev, leagueShortlistIds: [] }))}
+                    className="shrink-0 rounded-md border border-line px-2 py-1 text-[11px] font-semibold text-text-2 hover:border-brand hover:text-text"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
             )}
+            <div className="max-h-64 overflow-y-auto divide-y divide-line">
+              {formData.leagueCatalog.length === 0 ? (
+                <p className="p-3 text-[11px] text-text-2">No leagues loaded yet — use "Load leagues" below.</p>
+              ) : filtered.length === 0 ? (
+                <p className="p-3 text-[11px] text-text-2">No leagues match "{searchTerm}".</p>
+              ) : (
+                filtered.map((league) => {
+                  const checked = selected.includes(league.id);
+                  return (
+                    <label
+                      key={league.id}
+                      className="flex items-center justify-between gap-3 px-3 py-1.5 text-[11px] cursor-pointer hover:bg-surface-2"
+                    >
+                      <span className="flex items-center gap-2 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleShortlistLeague(league.id)}
+                          className="shrink-0"
+                        />
+                        <span className="truncate text-text">{league.name}</span>
+                      </span>
+                      {league.country && <span className="shrink-0 text-text-2">{league.country}</span>}
+                    </label>
+                  );
+                })
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -1016,9 +1206,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="space-y-1">
               <p className="text-[11px] leading-relaxed text-text-2">
-                The competitions each rule's own "League" selector in Filter Thresholds picks from.
-                This list is saved with the rest of your configuration, so it survives a reload and
-                stays the same across devices — it won't reset just because the page refreshed.
+                The full raw catalog TheStatsAPI returns. This list is saved with the rest of your
+                configuration, so it survives a reload and stays the same across devices — it won't
+                reset just because the page refreshed.
                 {formData.leagueCatalogUpdatedAt && (
                   <>
                     {' '}
@@ -1049,7 +1239,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="rounded-lg border border-warn-line bg-warn-soft p-3 space-y-2">
               <p className="text-[12px] font-semibold text-warn-ink">
                 The refreshed league list drops {pendingLeagueCatalogUpdate.drops.reduce((n, d) => n + d.names.length, 0)}{' '}
-                league(s) currently selected in a rule:
+                league(s) currently selected in a rule or in the shortlist below:
               </p>
               <ul className="text-[11px] text-warn-ink space-y-0.5">
                 {pendingLeagueCatalogUpdate.drops.map((d) => (
@@ -1060,7 +1250,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </ul>
               <p className="text-[11px] text-warn-ink">
                 Applying the update removes those from the affected rule's selection (it falls back
-                toward "All" for whatever's left). Keeping the current list leaves everything as-is.
+                toward "All" for whatever's left) and from the shortlist. Keeping the current list
+                leaves everything as-is.
               </p>
               <div className="flex gap-2 pt-1">
                 <button
@@ -1082,6 +1273,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             </div>
           )}
+
+          <div className="mt-4 border-t border-line pt-4 space-y-3">
+            <p className="text-[11px] leading-relaxed text-text-2">
+              Optionally narrow the raw catalog above down to a shortlist — search and multi-select
+              the leagues you actually care about. Once you save a non-empty shortlist, every League
+              field below (including each rule's own, inside Filter Thresholds) only offers leagues
+              from it instead of the entire raw catalog. Leave it empty and every rule keeps picking
+              from the full catalog, same as before this existed.
+            </p>
+            <Field
+              label="Leagues shortlist"
+              htmlFor="league-shortlist-toggle"
+              hint="Narrows what every League field below can pick from. Empty means no narrowing."
+            >
+              {renderLeagueShortlistPicker()}
+            </Field>
+          </div>
 
           <div className="mt-4 border-t border-line pt-4 space-y-4">
             <p className="text-[11px] leading-relaxed text-text-2">
@@ -1131,7 +1339,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 Live Data Feed Impact & Filter Reductions
               </p>
               <p className="text-[11px] leading-relaxed text-text-2">
-                Hover over any rule header or threshold label below to inspect total records received from the live feed and the breakdown of matches eliminated by each filter. Only live data from configured APIs is displayed — no placeholder data.
+                Hover over any rule header or threshold label below to inspect total records received from the live feed and the breakdown of matches eliminated by each filter. Only live data from configured APIs is displayed — no placeholder data. Only fetches a rule's data if that rule is Enabled above.
               </p>
             </div>
             <button
@@ -1142,7 +1350,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border border-line bg-surface text-text hover:border-brand transition-colors shrink-0 disabled:opacity-60"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingFeed ? 'animate-spin text-brand' : ''}`} />
-              <span>{isRefreshingFeed ? 'Querying feed…' : 'Refresh live feed'}</span>
+              <span>{isRefreshingFeed ? 'Refreshing…' : 'Refresh Feed & Impact Numbers'}</span>
             </button>
           </div>
 

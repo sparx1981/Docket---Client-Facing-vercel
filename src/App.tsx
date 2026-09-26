@@ -96,6 +96,11 @@ export default function App() {
     getStoredLastScanTimestamp()
   );
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  // Reported by SettingsView whenever its local draft differs from saved
+  // settings — a scan only ever reads saved settings, so the header button
+  // is disabled (with a warning) rather than silently running against
+  // whatever was last saved while newer edits sit unsaved on-screen.
+  const [hasUnsavedSettingsChanges, setHasUnsavedSettingsChanges] = useState(false);
   // True while the modal is showing the "here's what will download, confirm
   // to proceed" step — set on every "Run Daily Scan" click, before any
   // provider call is made. Only clicking "Start scan" inside the modal
@@ -441,6 +446,14 @@ export default function App() {
   // Nothing is requested from any provider until the user explicitly clicks
   // "Start scan" inside that modal (handleConfirmStartScan below).
   const handleRunScan = () => {
+    // Belt-and-braces alongside the header button's own disabled state — a
+    // scan only ever reads saved settings, so an unsaved draft (from any
+    // entry point, not just the header, e.g. the empty-state CTA) should
+    // never silently kick one off against stale configuration.
+    if (hasUnsavedSettingsChanges) {
+      setActiveTab('settings');
+      return;
+    }
     if (isScanRunning) {
       // A background load (mount, login, settings save) is already
       // fetching — reveal its real progress and the Stop control instead
@@ -587,6 +600,7 @@ export default function App() {
         scanRecordsSoFar={isScanRunning ? scanFootballRecords + scanTennisRecords : undefined}
         onRunScan={handleRunScan}
         onStopScan={handleStopScan}
+        hasUnsavedSettingsChanges={hasUnsavedSettingsChanges}
         canStopScan={isScanRunning}
         lastScanTimestamp={lastScanTimestamp}
         onOpenSyncHistory={() => setIsSyncHistoryOpen(true)}
@@ -646,7 +660,7 @@ export default function App() {
             fixtures={fixtures}
             fixturesLoading={fixturesLoading}
             fixturesError={fixturesError || undefined}
-            onRefreshFixtures={() => loadFixtures(settings)}
+            onDraftDirtyChange={setHasUnsavedSettingsChanges}
           />
         )}
       </AppShell>

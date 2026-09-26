@@ -78,6 +78,8 @@ interface AppShellProps {
   onRunScan: () => void;
   /** Actually cancels the in-flight scan/load — only called after the header's own confirm step. Omit to hide the stop control entirely. */
   onStopScan?: () => void;
+  /** True while Settings has edits that haven't been saved yet — a scan reads only from saved settings, so it's disabled rather than silently running against stale configuration. */
+  hasUnsavedSettingsChanges?: boolean;
   /** True only while there's a real in-flight fetch to cancel — narrower than isScanning, which stays true while a finished modal is still on screen. */
   canStopScan?: boolean;
   lastScanTimestamp: string | null;
@@ -124,6 +126,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   onRunScan,
   onStopScan,
   canStopScan = false,
+  hasUnsavedSettingsChanges = false,
   lastScanTimestamp,
   onOpenSyncHistory,
   onOpenSectionInfo,
@@ -390,12 +393,31 @@ export const AppShell: React.FC<AppShellProps> = ({
                 <History className="h-3 w-3 text-text-3 ml-0.5" />
               </button>
 
+              {hasUnsavedSettingsChanges && (
+                <button
+                  type="button"
+                  id="btn-header-unsaved-settings-warning"
+                  onClick={() => setActiveTab('settings')}
+                  title="You have unsaved changes in Settings — save them to run a scan."
+                  className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-warn-line bg-warn-soft px-2.5 py-1.5 text-[11px] font-bold text-warn-ink transition-colors hover:bg-warn-soft/70"
+                >
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn animate-pulse" />
+                  Unsaved Settings
+                </button>
+              )}
+
               <div className="relative inline-flex items-stretch">
                 <button
                   id="btn-run-daily-scan"
                   onClick={onRunScan}
-                  disabled={scanModalOpen}
-                  title={isScanning && !scanModalOpen ? 'A fetch is already running — click to view progress' : undefined}
+                  disabled={scanModalOpen || hasUnsavedSettingsChanges}
+                  title={
+                    hasUnsavedSettingsChanges && !scanModalOpen
+                      ? 'Save your Settings changes first — a scan runs against saved settings, not an unsaved draft.'
+                      : isScanning && !scanModalOpen
+                      ? 'A fetch is already running — click to view progress'
+                      : undefined
+                  }
                   className={`inline-flex min-h-[40px] items-center gap-2 bg-cta px-3.5 text-[13px] font-extrabold text-on-cta shadow-plate transition-all duration-200 hover:bg-cta-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-text-3 disabled:shadow-none sm:px-4 ${
                     canStopScan && onStopScan ? 'rounded-l-lg' : 'rounded-lg'
                   }`}

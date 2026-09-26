@@ -148,6 +148,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoSettleCompleted: true,
   ruleThresholds: DEFAULT_RULE_THRESHOLDS,
   leagueCatalog: [],
+  leagueShortlistIds: [],
 };
 
 /**
@@ -189,6 +190,7 @@ export function getStoredSettings(): AppSettings {
       ...DEFAULT_SETTINGS,
       ...parsed,
       leagueCatalog: Array.isArray(parsed?.leagueCatalog) ? parsed.leagueCatalog : [],
+      leagueShortlistIds: Array.isArray(parsed?.leagueShortlistIds) ? parsed.leagueShortlistIds : [],
       ruleThresholds,
     };
   } catch {
@@ -508,6 +510,9 @@ export async function hydrateUserDataFromCloud(
       ...DEFAULT_SETTINGS,
       ...cloudData.settings,
       leagueCatalog: Array.isArray(cloudData.settings?.leagueCatalog) ? cloudData.settings.leagueCatalog : [],
+      leagueShortlistIds: Array.isArray(cloudData.settings?.leagueShortlistIds)
+        ? cloudData.settings.leagueShortlistIds
+        : [],
       ruleThresholds: cloudRuleThresholds,
     };
 

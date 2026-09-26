@@ -680,21 +680,20 @@ export async function fetchCandidateFixtures(
 }
 
 /**
- * Plain-language summary of what "Refresh live feed" is actually about to
- * download — the confirmation prompt in front of that button, mirroring
- * describeScanPlan above. Unlike a real scan, this preview always fetches
- * both football rules regardless of whether their own Enabled toggle is on
- * (so Filter Thresholds can show a rule's live impact before it's turned
- * on), and it reflects the currently-edited draft, not the last-saved
- * settings — both worth spelling out explicitly rather than leaving the
- * user to assume it behaves like the daily scan.
+ * Plain-language summary of what "Refresh Feed & Impact Numbers" is
+ * actually about to download — the confirmation prompt in front of that
+ * button, mirroring describeScanPlan above. Only a rule that's currently
+ * enabled gets fetched (same as a real scan), and it reflects the
+ * currently-edited draft, not the last-saved settings — worth spelling out
+ * explicitly rather than leaving the user to assume it behaves like the
+ * daily scan.
  */
 export function describeLiveFeedPreviewPlan(settings: AppSettings): { lines: ScanPlanLine[]; hasAnyWork: boolean } {
   const lines: ScanPlanLine[] = [];
 
   if (!settings.theStatsApiKey) {
     return {
-      lines: [{ label: 'Nothing configured', detail: 'No TheStatsAPI key is set in Engine Configuration — this preview would download nothing.' }],
+      lines: [{ label: 'Nothing configured', detail: 'No TheStatsAPI key is set in Engine Configuration — this would download nothing.' }],
       hasAnyWork: false,
     };
   }
@@ -707,6 +706,13 @@ export function describeLiveFeedPreviewPlan(settings: AppSettings): { lines: Sca
   let hasAnyWork = false;
   for (const rule of rules) {
     const thresholds = settings.ruleThresholds[rule.key];
+    if (!thresholds.enabled) {
+      lines.push({
+        label: rule.title,
+        detail: 'Not enabled — nothing will be fetched for it. Enable this rule to include it here.',
+      });
+      continue;
+    }
     if (thresholds.selectedLeagueIds.length === 0) {
       lines.push({
         label: rule.title,
@@ -718,7 +724,7 @@ export function describeLiveFeedPreviewPlan(settings: AppSettings): { lines: Sca
     const scope = describeLeagueScope(thresholds.selectedLeagueIds, settings.leagueCatalog);
     lines.push({
       label: rule.title,
-      detail: `Always previewed, whether or not this rule's Enabled toggle above is on. Download: every scheduled fixture over the next ${DAYS_AHEAD} days from ${scope}. Enrich: up to ${MAX_ENRICHED_FIXTURES_PER_SPORT} of those matches also get each team's season stats, recent form, and head-to-head history pulled in. Filter: every one of those fixtures is then screened against this rule's own current (unsaved) thresholds, so the Filter Thresholds panel below can show its live impact.`,
+      detail: `Download: every scheduled fixture over the next ${DAYS_AHEAD} days from ${scope}. Enrich: up to ${MAX_ENRICHED_FIXTURES_PER_SPORT} of those matches also get each team's season stats, recent form, and head-to-head history pulled in. Filter: every one of those fixtures is then screened against this rule's own current (unsaved) thresholds, so the Filter & Impact numbers below reflect it.`,
     });
   }
 
@@ -731,9 +737,11 @@ export function describeLiveFeedPreviewPlan(settings: AppSettings): { lines: Sca
 }
 
 /**
- * Fetches the live data feed directly for all systems (even if currently toggled off)
- * so that the Filter Thresholds hover popups can show accurate feed counts and filter impact
- * across all configured providers.
+ * Fetches the live data feed for every currently-enabled system, so the
+ * Filter Thresholds hover popups can show accurate feed counts and filter
+ * impact from real data. A disabled rule is skipped entirely — same as a
+ * real scan would skip it — rather than forced on just to give its popup
+ * something to show.
  */
 export async function fetchLiveFeedSummary(
   settings: AppSettings,
@@ -757,21 +765,32 @@ export async function fetchLiveFeedSummary(
   let footballUnder35FeedInfo: FeedSummaryRecord | undefined;
   let tennisFeedInfo: FeedSummaryRecord | undefined;
 
-  // Force systems to enabled for the live feed analysis so candidate records exist
-  const forcedThresholds: RuleThresholds = {
-    footballOver15: { ...settings.ruleThresholds.footballOver15, enabled: true },
-    footballUnder35: { ...settings.ruleThresholds.footballUnder35, enabled: true },
-    tennisStraightSets: { ...settings.ruleThresholds.tennisStraightSets, enabled: true },
-  };
-
   if (football) {
     for (const system of ['football_over_1_5', 'football_under_3_5'] as const) {
       const systemThresholds =
-        system === 'football_over_1_5' ? forcedThresholds.footballOver15 : forcedThresholds.footballUnder35;
+        system === 'football_over_1_5' ? settings.ruleThresholds.footballOver15 : settings.ruleThresholds.footballUnder35;
+      // Only preview a rule that's actually enabled — this used to force
+      // every rule "on" regardless of its real toggle so the Feed & Impact
+      // panel always had something to show, but that meant clicking refresh
+      // made real, rate-limited provider calls for a rule you'd deliberately
+      // switched off, with nothing downloaded actually reflecting what the
+      // app would do. A disabled rule downloads nothing here either, same as
+      // a real scan would skip it.
+      if (!systemThresholds.enabled) {
+        const info: FeedSummaryRecord = {
+          sport: 'football',
+          provider: 'THESTATSAPI',
+          totalRecordsReceived: 0,
+          fetchedAt: new Date().toISOString(),
+          queryDates: dates,
+          error: 'This rule is not enabled — nothing is fetched for it until it is.',
+        };
+        if (system === 'football_over_1_5') footballOver15FeedInfo = info;
+        else footballUnder35FeedInfo = info;
+        continue;
+      }
       // Never call TheStatsAPI unscoped — a rule with no saved league
-      // selection is skipped entirely rather than "forced enabled" into an
-      // All-leagues request, even though this preview forces enablement for
-      // every other rule so its Feed Impact card has something to show.
+      // selection is skipped entirely rather than pulling every league.
       if (systemThresholds.selectedLeagueIds.length === 0) {
         const info: FeedSummaryRecord = {
           sport: 'football',
@@ -790,7 +809,7 @@ export async function fetchLiveFeedSummary(
           football.key,
           dates,
           system,
-          forcedThresholds,
+          settings.ruleThresholds,
           systemThresholds.selectedLeagueIds,
           onProgress,
           signal
@@ -826,9 +845,9 @@ export async function fetchLiveFeedSummary(
     }
   }
 
-  if (tennis) {
+  if (tennis && settings.ruleThresholds.tennisStraightSets.enabled) {
     try {
-      const tnResult = await buildTennisCandidates(tennis.key, dates, forcedThresholds, onProgress, signal);
+      const tnResult = await buildTennisCandidates(tennis.key, dates, settings.ruleThresholds, onProgress, signal);
       fixtures.push(...tnResult.candidates);
       tennisFeedInfo = {
         sport: 'tennis',

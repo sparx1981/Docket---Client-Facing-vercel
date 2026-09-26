@@ -304,6 +304,15 @@ export interface AppSettings {
   leagueCatalog: LeagueOption[];
   /** When leagueCatalog was last refreshed from TheStatsAPI. */
   leagueCatalogUpdatedAt?: string;
+  /**
+   * A curated subset of leagueCatalog, picked once in the "Leagues" section
+   * instead of every rule choosing straight from the full (often huge) raw
+   * provider catalog. When non-empty, each rule's own League picker offers
+   * only these; when empty, no shortlist has been set yet and every rule's
+   * picker falls back to the full raw catalog, so existing saved
+   * configurations keep working unchanged.
+   */
+  leagueShortlistIds: string[];
 }
 
 /** One TheStatsAPI football competition, as shown in a rule's league selector. */
