@@ -719,6 +719,41 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       .filter((r) => r.system === system)
       .sort((a, b) => new Date(b.runAt).getTime() - new Date(a.runAt).getTime())[0];
 
+  /** Shared by the live result panel and each saved-run card, so both show
+   *  the same Wins/Losses/Win rate/Required odds/Net units/ROI tiles. */
+  const buildBacktestTiles = (result: BacktestSummary) => [
+    { label: 'Wins', value: `${result.wins}`, tone: 'text-text' },
+    { label: 'Losses', value: `${result.losses}`, tone: 'text-text' },
+    { label: 'Win rate', value: `${result.winRatePct}%`, tone: 'text-text' },
+    { label: 'Required odds', value: result.requiredOdds.toFixed(2), tone: 'text-text' },
+    {
+      label: 'Net units',
+      value: `${result.netUnitsAtRequiredOdds >= 0 ? '+' : ''}${result.netUnitsAtRequiredOdds}`,
+      tone: result.netUnitsAtRequiredOdds >= 0 ? 'text-ok-ink' : 'text-bad-ink',
+    },
+    {
+      label: 'ROI',
+      value: `${result.roiPct >= 0 ? '+' : ''}${result.roiPct}%`,
+      tone: result.roiPct >= 0 ? 'text-ok-ink' : 'text-bad-ink',
+    },
+  ];
+
+  const renderTileGrid = (result: BacktestSummary) => (
+    <dl className="grid grid-cols-3 divide-line sm:grid-cols-6 sm:divide-x">
+      {buildBacktestTiles(result).map((t, i) => (
+        <div
+          key={t.label}
+          className={`p-2.5 ${i < 3 ? 'border-b border-line sm:border-b-0' : ''} ${
+            i % 3 !== 2 ? 'border-r border-line sm:border-r-0' : ''
+          }`}
+        >
+          <dt className="text-[9.5px] font-bold uppercase tracking-wide text-text-3">{t.label}</dt>
+          <dd className={`font-mono text-[15px] font-bold leading-tight tabular-nums ${t.tone}`}>{t.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+
   const renderBacktestHistory = (system: BacktestSystem) => {
     const runsForSystem = backtestRuns.filter((r) => r.system === system);
     if (runsForSystem.length === 0) return null;
@@ -780,46 +815,38 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           )}
         </button>
         {isOpen && (
-        <div className="max-h-64 space-y-1.5 overflow-y-auto border-t border-line p-2 pr-1">
+        <div className="max-h-[32rem] space-y-3 overflow-y-auto border-t border-line p-2">
           {sorted.map((run) => (
-            <div
-              key={run.id}
-              className="flex items-center justify-between gap-2 rounded-md border border-line bg-surface-2 px-2.5 py-1.5 text-[11px]"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-text">
-                  <span>{new Date(run.runAt).toLocaleString()}</span>
-                  <span className={run.summary.roiPct >= 0 ? 'font-bold text-ok-ink' : 'font-bold text-bad-ink'}>
-                    ROI {run.summary.roiPct >= 0 ? '+' : ''}
-                    {run.summary.roiPct}%
-                  </span>
-                  <span>Win rate {run.summary.winRatePct}%</span>
-                  <span>
-                    Net {run.summary.netUnitsAtRequiredOdds >= 0 ? '+' : ''}
-                    {run.summary.netUnitsAtRequiredOdds}u
-                  </span>
-                  <span>{run.summary.sampleSize} qualified</span>
+            <div key={run.id} className="rounded-lg border border-line bg-surface-2 overflow-hidden">
+              <div className="flex items-start justify-between gap-3 border-b border-line px-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-[12px] font-semibold text-text">
+                    {run.summary.leagueLabel} · {new Date(run.runAt).toLocaleString()}
+                  </p>
+                  <p className="mt-0.5 truncate text-[11px] leading-relaxed text-text-2">
+                    {configLabel(run.ruleSnapshot)} · {run.summary.sampleSize} would have qualified
+                  </p>
                 </div>
-                <p className="truncate text-[10px] text-text-3">
-                  {run.summary.leagueLabel} · {configLabel(run.ruleSnapshot)}
-                </p>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handleExportBacktestCsv(run)}
+                    title="Export this saved run to a CSV file"
+                    className="rounded-md border border-line bg-surface p-1.5 text-text-3 transition-colors hover:border-brand hover:text-brand-ink"
+                  >
+                    <Download className="h-3 w-3" strokeWidth={2.5} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteBacktestRun(run.id)}
+                    title="Delete this saved run"
+                    className="rounded-md border border-line bg-surface p-1.5 text-text-3 transition-colors hover:border-bad-line hover:text-bad-ink"
+                  >
+                    <X className="h-3 w-3" strokeWidth={2.5} />
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => handleExportBacktestCsv(run)}
-                title="Export this saved run to a CSV file"
-                className="shrink-0 rounded p-1 text-text-3 transition-colors hover:bg-brand-soft hover:text-brand-ink"
-              >
-                <Download className="h-3 w-3" strokeWidth={2.5} />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDeleteBacktestRun(run.id)}
-                title="Delete this saved run"
-                className="shrink-0 rounded p-1 text-text-3 transition-colors hover:bg-bad-soft hover:text-bad-ink"
-              >
-                <X className="h-3 w-3" strokeWidth={2.5} />
-              </button>
+              {renderTileGrid(run.summary)}
             </div>
           ))}
         </div>
@@ -832,25 +859,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     const result = backtestResultBySystem[system];
     const error = backtestErrorBySystem[system];
     if (!result && !error) return null;
-
-    const tiles = result
-      ? [
-          { label: 'Wins', value: `${result.wins}`, tone: 'text-text' },
-          { label: 'Losses', value: `${result.losses}`, tone: 'text-text' },
-          { label: 'Win rate', value: `${result.winRatePct}%`, tone: 'text-text' },
-          { label: 'Required odds', value: result.requiredOdds.toFixed(2), tone: 'text-text' },
-          {
-            label: 'Net units',
-            value: `${result.netUnitsAtRequiredOdds >= 0 ? '+' : ''}${result.netUnitsAtRequiredOdds}`,
-            tone: result.netUnitsAtRequiredOdds >= 0 ? 'text-ok-ink' : 'text-bad-ink',
-          },
-          {
-            label: 'ROI',
-            value: `${result.roiPct >= 0 ? '+' : ''}${result.roiPct}%`,
-            tone: result.roiPct >= 0 ? 'text-ok-ink' : 'text-bad-ink',
-          },
-        ]
-      : [];
 
     return (
       <div className="mt-4">
@@ -886,21 +894,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 );
               })()}
             </div>
-            <dl className="grid grid-cols-3 divide-line sm:grid-cols-6 sm:divide-x">
-              {tiles.map((t, i) => (
-                <div
-                  key={t.label}
-                  className={`p-2.5 ${i < 3 ? 'border-b border-line sm:border-b-0' : ''} ${
-                    i % 3 !== 2 ? 'border-r border-line sm:border-r-0' : ''
-                  }`}
-                >
-                  <dt className="text-[9.5px] font-bold uppercase tracking-wide text-text-3">{t.label}</dt>
-                  <dd className={`font-mono text-[15px] font-bold leading-tight tabular-nums ${t.tone}`}>
-                    {t.value}
-                  </dd>
-                </div>
-              ))}
-            </dl>
+            {renderTileGrid(result)}
             <p className="border-t border-line px-3 py-2 text-[10px] leading-relaxed text-text-2">
               {result.scopeNote}
             </p>
