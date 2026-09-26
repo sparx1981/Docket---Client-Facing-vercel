@@ -182,11 +182,15 @@ export async function fetchJson(
     const text = await response.text();
 
     if (!response.ok) {
-      // Providers typically return a small JSON or plain-text error body.
+      // Providers typically return a small JSON or plain-text error body —
+      // but "message"/"error" is sometimes itself an object (e.g. a
+      // validation-error payload), which would crash the .slice() calls
+      // below if used as-is, so it's always normalized to a string here.
       let detail = text;
       try {
         const parsed = JSON.parse(text);
-        detail = parsed?.message || parsed?.error || text;
+        const raw = parsed?.message ?? parsed?.error ?? text;
+        detail = typeof raw === 'string' ? raw : JSON.stringify(raw);
       } catch {
         // keep raw text
       }

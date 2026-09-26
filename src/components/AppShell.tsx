@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { AppSettings, SystemAnalytics } from '../types';
+import { VersionLine } from './VersionBadge';
 
 export type TabKey = 'verified' | 'pricewatch' | 'analytics' | 'settings';
 
@@ -324,6 +325,7 @@ export const AppShell: React.FC<AppShellProps> = ({
             </div>
           </div>
         )}
+        <VersionLine />
       </aside>
 
       {/* ---------------- Main column ---------------- */}

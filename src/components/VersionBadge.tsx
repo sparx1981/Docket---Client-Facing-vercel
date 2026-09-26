@@ -11,3 +11,10 @@ export const VersionBadge: React.FC = () => (
     v{__APP_VERSION__} · {__APP_BUILD_TIME__}
   </div>
 );
+
+/** Same info as VersionBadge, but laid out in normal document flow (not a fixed overlay) — for the sidebar footer, which already has its own bottom-left content. */
+export const VersionLine: React.FC = () => (
+  <div className="mx-3 mb-2 select-none font-mono text-[9px] text-text-3/70">
+    v{__APP_VERSION__} · {__APP_BUILD_TIME__}
+  </div>
+);

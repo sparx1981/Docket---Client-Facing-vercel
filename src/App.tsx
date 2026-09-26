@@ -593,7 +593,6 @@ export default function App() {
 
   return (
     <>
-      <VersionBadge />
       <AppShell
         activeTab={activeTab}
         setActiveTab={setActiveTab}
