@@ -120,6 +120,8 @@ export interface VerificationAuditCard {
 
 export interface CandidateFixture {
   id: string;
+  /** The provider's own raw match id (e.g. TheStatsAPI's "mt_..."), as opposed to `id`, which is prefixed per rule system. Needed to re-query just the odds endpoint for this exact fixture without re-deriving it from `id`. */
+  providerId: string;
   sport: Sport;
   system: SystemType;
   matchTitle: string;
@@ -171,6 +173,8 @@ export interface CandidateFixture {
   verificationCard?: VerificationAuditCard;
   /** Total count of raw records received from the relevant provider API in this scan */
   rawFeedTotal?: number;
+  /** When this fixture's marketOdds was last actually fetched — set on every full scan, and bumped by a standalone "Refresh Odds" that re-queries only the odds endpoint without re-running the rest of the scan. */
+  oddsCheckedAt?: string;
 }
 
 export interface HistoricalBetRecord {

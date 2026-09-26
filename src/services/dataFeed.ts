@@ -391,6 +391,7 @@ export function buildFootballCandidate(
 
   const candidate: CandidateFixture = {
     id: `${idPrefix}-${fx.providerId}`,
+    providerId: fx.providerId,
     sport: 'football',
     system,
     matchTitle,
@@ -414,6 +415,7 @@ export function buildFootballCandidate(
     footballDetails,
     marketOdds,
     rawFeedTotal: rawTotal,
+    oddsCheckedAt: new Date().toISOString(),
   };
 
   const screening = evaluateFixture(candidate, thresholds);
@@ -577,6 +579,7 @@ function buildTennisCandidate(
 
   const candidate: CandidateFixture = {
     id: `TN-SETS-${fx.providerId}`,
+    providerId: fx.providerId,
     sport: 'tennis',
     system: 'tennis_straight_sets',
     matchTitle,
@@ -789,6 +792,85 @@ export function describeLiveFeedPreviewPlan(settings: AppSettings): { lines: Sca
   });
 
   return { lines, hasAnyWork };
+}
+
+export interface OddsRefreshProgressEvent {
+  completed: number;
+  total: number;
+}
+
+/**
+ * Re-checks only the market odds for a set of already-enriched fixtures.
+ * Team stats, H2H and recent form are untouched and reused as-is — those
+ * are slow-moving historical facts, unlike odds, which move constantly
+ * (TheStatsAPI's own opening vs last_seen prices differ on nearly every
+ * match). A full re-scan costs ~4 provider calls per fixture (two team
+ * profiles, H2H, odds); this costs one (the odds endpoint alone), deduped
+ * across the Over 1.5 / Under 3.5 pair when both track the same match —
+ * exactly the check Price Watch's own description already implies
+ * happens ("re-checked on the next scan"), just without needing a full one.
+ */
+export async function refreshOddsForFixtures(
+  fixtures: CandidateFixture[],
+  settings: AppSettings,
+  onProgress?: (event: OddsRefreshProgressEvent) => void,
+  signal?: AbortSignal
+): Promise<CandidateFixture[]> {
+  const football = choosefootballProvider(settings);
+  if (!football) return fixtures;
+
+  const now = Date.now();
+  const refreshableIds = Array.from(
+    new Set(
+      fixtures
+        .filter((f) => f.sport === 'football' && new Date(f.matchTime).getTime() > now)
+        .map((f) => f.providerId)
+    )
+  );
+
+  const oddsByProviderId = new Map<string, MatchOddsData[]>();
+  onProgress?.({ completed: 0, total: refreshableIds.length });
+
+  for (const [index, providerId] of refreshableIds.entries()) {
+    if (index > 0) await sleep(ENRICHMENT_PACING_MS, signal);
+    try {
+      const oddsBody = await apiGet(`/api/football/market-odds/${providerId}`, football.key, signal);
+      oddsByProviderId.set(providerId, Array.isArray(oddsBody?.odds) ? oddsBody.odds : []);
+    } catch (err) {
+      if (isAbortError(err)) throw err;
+      // Leave this match's odds untouched on a failed re-check — a
+      // transient error here should never blank out a price that was
+      // already confirmed on the last real scan.
+    }
+    onProgress?.({ completed: index + 1, total: refreshableIds.length });
+  }
+
+  const checkedAt = new Date().toISOString();
+  return fixtures.map((f) => {
+    if (f.sport !== 'football' || !oddsByProviderId.has(f.providerId)) return f;
+    const matchOdds = oddsByProviderId.get(f.providerId)!;
+    const marketOdds =
+      f.system === 'football_over_1_5'
+        ? matchOdds.find((o) => o.marketType === 'OVER_UNDER_15')
+        : matchOdds.find((o) => o.marketType === 'OVER_UNDER_35');
+    const updated: CandidateFixture = {
+      ...f,
+      currentOdds: marketOdds?.decimalOdds ?? 0,
+      oddsDifference: (marketOdds?.decimalOdds ?? 0) - f.requiredOdds,
+      marketOdds,
+      oddsCheckedAt: checkedAt,
+    };
+    const screening = evaluateFixture(updated, settings.ruleThresholds);
+    updated.status = screening.isVerifiedQualifier
+      ? 'VERIFIED_QUALIFIER'
+      : screening.isPriceWatch
+      ? 'PRICE_WATCH'
+      : screening.isPreliminaryQualifier
+      ? 'PRELIMINARY_QUALIFIER'
+      : 'FAILED';
+    updated.failureReason = screening.failureReason;
+    return updated;
+  });
 }
 
 /**

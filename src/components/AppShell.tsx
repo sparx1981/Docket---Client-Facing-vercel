@@ -13,6 +13,7 @@ import {
   HardDrive,
   Timer,
   OctagonAlert,
+  RefreshCw,
   X,
 } from 'lucide-react';
 import { AppSettings, SystemAnalytics } from '../types';
@@ -129,6 +130,14 @@ interface AppShellProps {
   /** True only while there's a real in-flight fetch to cancel — narrower than isScanning, which stays true while a finished modal is still on screen. */
   canStopScan?: boolean;
   lastScanTimestamp: string | null;
+  /** True when there's at least one football fixture on screen worth re-pricing, and no full scan is already running. */
+  canRefreshOdds?: boolean;
+  isRefreshingOdds?: boolean;
+  oddsRefreshProgress?: { completed: number; total: number } | null;
+  /** The oldest odds check among current football fixtures — how stale the least-recently-checked price actually is. Null when nothing's been scanned yet. */
+  oldestOddsCheckedAt?: string | null;
+  onRefreshOdds?: () => void;
+  onStopRefreshOdds?: () => void;
   onOpenSyncHistory: () => void;
   onOpenSectionInfo: (section: TabKey) => void;
   children: React.ReactNode;
@@ -174,6 +183,12 @@ export const AppShell: React.FC<AppShellProps> = ({
   canStopScan = false,
   hasUnsavedSettingsChanges = false,
   lastScanTimestamp,
+  canRefreshOdds = false,
+  isRefreshingOdds = false,
+  oddsRefreshProgress = null,
+  oldestOddsCheckedAt = null,
+  onRefreshOdds,
+  onStopRefreshOdds,
   onOpenSyncHistory,
   onOpenSectionInfo,
   children,
@@ -220,6 +235,15 @@ export const AppShell: React.FC<AppShellProps> = ({
         hour: '2-digit',
         minute: '2-digit',
       });
+    } catch {
+      return 'Today';
+    }
+  };
+
+  const formatOddsCheckedAt = (iso: string | null) => {
+    if (!iso) return 'Not yet checked';
+    try {
+      return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     } catch {
       return 'Today';
     }
@@ -448,6 +472,52 @@ export const AppShell: React.FC<AppShellProps> = ({
                 <span className="xs:hidden">{formatScan(lastScanTimestamp)}</span>
                 <History className="h-3 w-3 text-text-3 ml-0.5" />
               </button>
+
+              {canRefreshOdds && onRefreshOdds && (
+                <div className="hidden md:inline-flex items-stretch">
+                  {isRefreshingOdds ? (
+                    <div className="inline-flex items-center gap-1.5">
+                      <span
+                        title="Re-checking market odds for currently-held fixtures — team stats and H2H are untouched."
+                        className="inline-flex items-center gap-1.5 rounded-l-lg border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[11px] font-bold text-text"
+                      >
+                        <RefreshCw className="h-3 w-3 animate-spin text-brand" strokeWidth={2.5} />
+                        <span>
+                          Refreshing odds
+                          {oddsRefreshProgress ? ` (${oddsRefreshProgress.completed}/${oddsRefreshProgress.total})` : '…'}
+                        </span>
+                      </span>
+                      {onStopRefreshOdds && (
+                        <button
+                          type="button"
+                          id="btn-stop-refresh-odds"
+                          onClick={onStopRefreshOdds}
+                          title="Stop refreshing odds"
+                          className="inline-flex items-center justify-center rounded-r-lg border border-l-0 border-line bg-surface-2 px-2 py-1.5 text-bad-ink transition-colors hover:bg-bad-soft"
+                        >
+                          <X className="h-3 w-3" strokeWidth={2.5} />
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      id="btn-refresh-odds"
+                      onClick={onRefreshOdds}
+                      disabled={isScanning}
+                      title={
+                        oldestOddsCheckedAt
+                          ? `Odds last checked ${formatOddsCheckedAt(oldestOddsCheckedAt)} — re-check just the market price for held fixtures without a full re-scan.`
+                          : 'Re-check just the market price for held fixtures without a full re-scan.'
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[11px] text-text-2 transition-colors hover:border-brand hover:bg-surface-3 hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <RefreshCw className="h-3 w-3 text-text-3" strokeWidth={2.5} />
+                      <span>Odds as of {formatOddsCheckedAt(oldestOddsCheckedAt)}</span>
+                    </button>
+                  )}
+                </div>
+              )}
 
               {hasUnsavedSettingsChanges && (
                 <button

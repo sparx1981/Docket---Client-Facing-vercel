@@ -44,6 +44,7 @@ const SYNC_LOGS_KEY = 'sports_selection_sync_logs_v2';
 const BACKTEST_RUNS_KEY = 'sports_selection_backtest_runs_v1';
 /** Keeps the saved list from growing unbounded across many experimental configs. */
 const MAX_STORED_BACKTEST_RUNS = 100;
+const FIXTURES_KEY = 'sports_selection_fixtures_v1';
 const BACKFILL_ATTEMPTED_KEY = 'sports_selection_backfill_attempted_v1';
 const LEGACY_PURGE_KEY = 'sports_selection_legacy_purge_v1';
 
@@ -492,6 +493,45 @@ export function deleteBacktestRun(id: string): BacktestRunRecord[] {
   const updated = getStoredBacktestRuns().filter((r) => r.id !== id);
   saveBacktestRuns(updated);
   return updated;
+}
+
+/** True once a fixture's own kickoff/start time has passed — a stale Verified Qualifier or Price Watch entry should never be shown as if the match hasn't happened yet. */
+function hasKickedOff(fixture: CandidateFixture): boolean {
+  const t = new Date(fixture.matchTime).getTime();
+  return !Number.isFinite(t) || t <= Date.now();
+}
+
+/**
+ * The last scan's classified fixtures (Verified Qualifiers / Price Watch),
+ * persisted so a refresh doesn't wipe them back to empty. Deliberately
+ * localStorage only, not Firestore — this is a live-data cache tied to
+ * this device's last real scan, not a durable record like settings or the
+ * Archive ledger, and doesn't need cross-device sync. Any fixture whose
+ * kickoff time has already passed is pruned on read, so a stale entry is
+ * never shown as if the match hasn't happened yet.
+ */
+export function getStoredFixtures(): CandidateFixture[] {
+  try {
+    const raw = localStorage.getItem(FIXTURES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const fresh = parsed.filter((f: CandidateFixture) => !hasKickedOff(f));
+    if (fresh.length !== parsed.length) {
+      localStorage.setItem(FIXTURES_KEY, JSON.stringify(fresh));
+    }
+    return fresh;
+  } catch {
+    return [];
+  }
+}
+
+export function saveStoredFixtures(fixtures: CandidateFixture[]): void {
+  try {
+    localStorage.setItem(FIXTURES_KEY, JSON.stringify(fixtures));
+  } catch (err) {
+    console.error('Failed to save fixtures to localStorage', err);
+  }
 }
 
 /**

@@ -6,17 +6,25 @@ import {
   VerificationAuditCard,
   SyncLogRecord,
 } from './types';
-import { describeScanPlan, FeedProgressEvent, fetchCandidateFixtures } from './services/dataFeed';
+import {
+  describeScanPlan,
+  FeedProgressEvent,
+  fetchCandidateFixtures,
+  OddsRefreshProgressEvent,
+  refreshOddsForFixtures,
+} from './services/dataFeed';
 import { runVerificationAudit } from './services/verificationEngine';
 import {
   calculateSystemAnalytics,
   getHistoricalBets,
+  getStoredFixtures,
   getStoredLastScanTimestamp,
   getStoredSettings,
   getStoredSyncLogs,
   hasAttemptedHistoricalBackfill,
   logVerifiedQualifierToHistory,
   markHistoricalBackfillAttempted,
+  saveStoredFixtures,
   saveStoredSettings,
   syncPastHistoricalRecords,
   setActiveUserContext,
@@ -133,10 +141,21 @@ export default function App() {
   const [selectedFixture, setSelectedFixture] = useState<CandidateFixture | null>(null);
   const [selectedAudit, setSelectedAudit] = useState<VerificationAuditCard | null>(null);
 
-  const [fixtures, setFixtures] = useState<CandidateFixture[]>([]);
+  const [fixtures, setFixtures] = useState<CandidateFixture[]>(() => getStoredFixtures());
+  const [isRefreshingOdds, setIsRefreshingOdds] = useState(false);
+  const [oddsRefreshProgress, setOddsRefreshProgress] = useState<OddsRefreshProgressEvent | null>(null);
+  const oddsRefreshAbortControllerRef = useRef<AbortController | null>(null);
 
   const backfillAttemptedRef = useRef(false);
   const scheduledScanInFlightRef = useRef(false);
+
+  // Persists the last scan's classified fixtures (Verified Qualifiers /
+  // Price Watch) to localStorage so a refresh doesn't lose them — see
+  // getStoredFixtures/saveStoredFixtures for why this is device-local only,
+  // not synced to Firestore.
+  useEffect(() => {
+    saveStoredFixtures(fixtures);
+  }, [fixtures]);
 
   // Monitor Firebase Auth state
   useEffect(() => {
@@ -291,6 +310,42 @@ export default function App() {
     }
   };
 
+  // A standalone odds-only re-check for the fixtures already on screen —
+  // team stats/H2H/recent form are untouched, so this costs one provider
+  // call per match instead of the ~4 a full "Run Daily Scan" costs.
+  const handleRefreshOdds = async () => {
+    if (isRefreshingOdds || isScanRunning) return;
+    const controller = new AbortController();
+    oddsRefreshAbortControllerRef.current = controller;
+    setIsRefreshingOdds(true);
+    setOddsRefreshProgress(null);
+    try {
+      const updated = await refreshOddsForFixtures(
+        fixtures,
+        settings,
+        (evt) => setOddsRefreshProgress(evt),
+        controller.signal
+      );
+      const withAudits = updated.map((fixture) => ({
+        ...fixture,
+        verificationCard: runVerificationAudit(fixture, settings.ruleThresholds),
+      }));
+      setFixtures(withAudits);
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        setFixturesError(err instanceof Error ? err.message : 'Failed to refresh odds');
+      }
+    } finally {
+      oddsRefreshAbortControllerRef.current = null;
+      setIsRefreshingOdds(false);
+      setOddsRefreshProgress(null);
+    }
+  };
+
+  const handleStopRefreshOdds = () => {
+    oddsRefreshAbortControllerRef.current?.abort();
+  };
+
   // Initial load: deliberately does NOT call loadFixtures() — a fixture
   // pull must only happen at the configured schedule time or via an
   // explicit manual trigger, never automatically on every app open. The
@@ -362,6 +417,19 @@ export default function App() {
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings, lastScanTimestamp]);
+
+  // The oldest odds check among current football fixtures — surfacing the
+  // oldest (not the newest) is deliberate: it tells you how stale your
+  // least-recently-checked price actually is, which is what "should I
+  // refresh?" really depends on.
+  const oldestOddsCheckedAt = useMemo(() => {
+    const timestamps = fixtures
+      .filter((f) => f.sport === 'football' && f.oddsCheckedAt)
+      .map((f) => new Date(f.oddsCheckedAt as string).getTime())
+      .filter((t) => Number.isFinite(t));
+    if (timestamps.length === 0) return null;
+    return new Date(Math.min(...timestamps)).toISOString();
+  }, [fixtures]);
 
   const handleSyncHistoricalRecords = async () => {
     if (isSyncingHistory) return;
@@ -608,6 +676,12 @@ export default function App() {
         hasUnsavedSettingsChanges={hasUnsavedSettingsChanges}
         canStopScan={isScanRunning}
         lastScanTimestamp={lastScanTimestamp}
+        canRefreshOdds={fixtures.some((f) => f.sport === 'football')}
+        isRefreshingOdds={isRefreshingOdds}
+        oddsRefreshProgress={oddsRefreshProgress}
+        oldestOddsCheckedAt={oldestOddsCheckedAt}
+        onRefreshOdds={handleRefreshOdds}
+        onStopRefreshOdds={handleStopRefreshOdds}
         onOpenSyncHistory={() => setIsSyncHistoryOpen(true)}
         onOpenSectionInfo={(section) => setInfoModalSection(section)}
         autoScanNotice={autoScanNotice}
