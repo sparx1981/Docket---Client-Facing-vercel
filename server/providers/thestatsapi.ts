@@ -318,6 +318,19 @@ async function getPreviousSeasonInfo(
   return { seasonId: prev.id, seasonName: prev.name, expiresAt: Date.now() + SEASON_CACHE_TTL_MS };
 }
 
+/**
+ * Backtest evaluates dozens of historical matches that constantly repeat
+ * the same teams (a league backtest samples that league's own fixture
+ * list, so the same clubs recur) and often the same historical cutoff date
+ * (several candidate matches share a matchday). A team's previous-season
+ * aggregate is a fixed historical fact once that season is over — caching
+ * it here removes real duplicate calls to TheStatsAPI across one backtest
+ * run, rather than just squeezing the rate-limit pacing tighter. Same TTL
+ * shape as the season caches above, and safe across warm serverless
+ * invocations the same way those already are.
+ */
+const seasonStatsCache = new Map<string, { value: FootballPrevSeasonStats | undefined; expiresAt: number }>();
+
 async function fetchSeasonStats(
   apiKey: string,
   teamId: string,
@@ -325,6 +338,10 @@ async function fetchSeasonStats(
   leagueName: string,
   season: SeasonInfo
 ): Promise<FootballPrevSeasonStats | undefined> {
+  const cacheKey = `${teamId}:${season.seasonId}`;
+  const cached = seasonStatsCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
   const statsData = await fetchJson(
     PROVIDER,
     `${BASE_URL}/football/teams/${teamId}/stats`,
@@ -333,9 +350,10 @@ async function fetchSeasonStats(
   );
   const s = statsData?.data;
   if (!s || typeof s.matches_played !== 'number' || typeof s.goals_for !== 'number' || typeof s.goals_against !== 'number') {
+    seasonStatsCache.set(cacheKey, { value: undefined, expiresAt: Date.now() + SEASON_CACHE_TTL_MS });
     return undefined;
   }
-  return {
+  const result: FootballPrevSeasonStats = {
     team: teamName,
     season: season.seasonName,
     league: leagueName,
@@ -345,6 +363,8 @@ async function fetchSeasonStats(
     avgGoalsScored: s.matches_played > 0 ? s.goals_for / s.matches_played : 0,
     avgGoalsConceded: s.matches_played > 0 ? s.goals_against / s.matches_played : 0,
   };
+  seasonStatsCache.set(cacheKey, { value: result, expiresAt: Date.now() + SEASON_CACHE_TTL_MS });
+  return result;
 }
 
 function mapTeamRecentMatch(m: any, teamId: string, competitionNameById: Map<string, string>): TeamRecentMatch | null {
@@ -451,6 +471,11 @@ export interface HistoricalMatchContext {
  * match. Used by the Backtest feature to replay a rule's real statistical
  * filters against history, not just settle final scores.
  */
+/** A team's name is a fixed fact — cached indefinitely (process lifetime) rather than TTL'd, since it never legitimately changes mid-run. */
+const teamNameCache = new Map<string, string>();
+/** Keyed by teamId + the exact "as of" cutoff date, since several backtest candidates commonly share a matchday. */
+const recentMatchesCache = new Map<string, { value: TeamRecentMatch[] | undefined; expiresAt: number }>();
+
 export async function getHistoricalMatchContext(
   apiKey: string,
   params: { homeId: string; awayId: string; competitionId: string; seasonId: string; matchDate: string },
@@ -467,22 +492,31 @@ export async function getHistoricalMatchContext(
   });
 
   async function teamName(teamId: string): Promise<string> {
+    const cached = teamNameCache.get(teamId);
+    if (cached) return cached;
     try {
       const detail = await fetchJson(PROVIDER, `${BASE_URL}/football/teams/${teamId}`, {}, { headers: authHeaders(apiKey) });
-      return detail?.data?.name || 'Unknown team';
+      const name = detail?.data?.name || 'Unknown team';
+      teamNameCache.set(teamId, name);
+      return name;
     } catch {
       return 'Unknown team';
     }
   }
 
   async function recentBefore(teamId: string): Promise<TeamRecentMatch[] | undefined> {
+    const cacheKey = `${teamId}:${beforeDate}`;
+    const cached = recentMatchesCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
     try {
       const rows = await listMatches(apiKey, { team_id: teamId, status: 'finished', date_to: beforeDate }, 1);
       const mapped = rows
         .map((m) => mapTeamRecentMatch(m, teamId, competitionNameById))
         .filter((m): m is TeamRecentMatch => m !== null)
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      return mapped.length > 0 ? mapped.slice(0, 10) : undefined;
+      const result = mapped.length > 0 ? mapped.slice(0, 10) : undefined;
+      recentMatchesCache.set(cacheKey, { value: result, expiresAt: Date.now() + SEASON_CACHE_TTL_MS });
+      return result;
     } catch (err) {
       if (err instanceof ProviderError) return undefined;
       throw err;

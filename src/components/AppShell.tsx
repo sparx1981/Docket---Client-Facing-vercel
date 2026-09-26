@@ -423,13 +423,13 @@ export const AppShell: React.FC<AppShellProps> = ({
                   id="header-auto-scan-status"
                   onClick={onOpenSyncHistory}
                   className="hidden xl:inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[11px] text-text-2 cursor-pointer transition-colors hover:border-brand hover:text-text shadow-2xs"
-                  title={`Auto-Scan scheduler is actively running. Scheduled daily at ${settings.dailyScanScheduleUtc} UTC. Click to view sync history.`}
+                  title={`Auto-Scan scheduler is actively running. Next scan is scheduled daily at ${settings.dailyScanScheduleUtc} UTC. Click to view sync history.`}
                 >
                   <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-ok opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-ok"></span>
                   </span>
-                  <span>Auto-Scan: {settings.dailyScanScheduleUtc} UTC</span>
+                  <span>Next Scan: {settings.dailyScanScheduleUtc} UTC</span>
                 </div>
               )}
 
@@ -444,7 +444,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                     lastScanTimestamp ? 'bg-ok' : 'bg-warn'
                   }`}
                 />
-                <span className="hidden xs:inline">Last scan {formatScan(lastScanTimestamp)}</span>
+                <span className="hidden xs:inline">Last Scanned {formatScan(lastScanTimestamp)}</span>
                 <span className="xs:hidden">{formatScan(lastScanTimestamp)}</span>
                 <History className="h-3 w-3 text-text-3 ml-0.5" />
               </button>
