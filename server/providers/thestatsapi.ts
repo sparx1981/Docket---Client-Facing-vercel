@@ -575,6 +575,10 @@ export async function getMatchOdds(apiKey: string, matchId: string): Promise<Mat
     { headers: authHeaders(apiKey) }
   );
   const rows: any[] = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+  // TEMP DEBUG: every odds row has come back empty in production — dumping
+  // the raw shape once to confirm the real field names before fixing the
+  // guesses below. Remove once the mapping is corrected.
+  console.log(`[debug] raw odds response for match ${matchId}:`, JSON.stringify(data).slice(0, 2000));
   const out: MatchOddsEntry[] = [];
   for (const row of rows) {
     const bookmaker: string | undefined = row?.bookmaker ?? row?.bookmaker_name ?? row?.provider ?? row?.source;
