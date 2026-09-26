@@ -366,9 +366,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // in-progress form draft — merely ticking a league box shouldn't unlock
   // this section until the user has actually clicked "Save configuration",
   // otherwise navigating away without saving would leave it misleadingly open.
-  const filterThresholdsLocked =
-    settings.ruleThresholds.footballOver15.selectedLeagueIds.length === 0 &&
-    settings.ruleThresholds.footballUnder35.selectedLeagueIds.length === 0;
+  // Gated on the Leagues shortlist rather than either rule's own selection —
+  // saving a shortlist is now the one thing that unlocks this section; each
+  // rule still separately requires its own league selection before it can
+  // actually run (see over15Locked/under35Locked below).
+  const filterThresholdsLocked = settings.leagueShortlistIds.length === 0;
 
   const set = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) =>
     setFormData((prev) => ({ ...prev, [key]: value }));
@@ -1276,43 +1278,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
           <div className="mt-4 border-t border-line pt-4 space-y-3">
             <p className="text-[11px] leading-relaxed text-text-2">
-              Optionally narrow the raw catalog above down to a shortlist — search and multi-select
-              the leagues you actually care about. Once you save a non-empty shortlist, every League
-              field below (including each rule's own, inside Filter Thresholds) only offers leagues
-              from it instead of the entire raw catalog. Leave it empty and every rule keeps picking
-              from the full catalog, same as before this existed.
+              Narrow the raw catalog above down to a shortlist — search and multi-select the leagues
+              you actually care about. Once you save a non-empty shortlist, every League field below
+              (including each rule's own, inside Filter Thresholds) only offers leagues from it
+              instead of the entire raw catalog — and saving one here is what unlocks Filter
+              Thresholds below.
             </p>
             <Field
               label="Leagues shortlist"
               htmlFor="league-shortlist-toggle"
-              hint="Narrows what every League field below can pick from. Empty means no narrowing."
+              hint="Narrows what every League field below can pick from, and unlocks Filter Thresholds once saved."
             >
               {renderLeagueShortlistPicker()}
             </Field>
-          </div>
-
-          <div className="mt-4 border-t border-line pt-4 space-y-4">
-            <p className="text-[11px] leading-relaxed text-text-2">
-              Pick which leagues each rule is allowed to pull — this is required, and must be saved,
-              before Filter Thresholds unlocks below. Each rule keeps its own selection; the same
-              choice is also editable from inside that rule's own card once unlocked.
-            </p>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Field
-                label="Football — Over 1.5 Goals"
-                htmlFor="leagues-section-over15-league-toggle"
-                hint="Leagues this rule's fixture pulls, verified qualifiers, Price Watch, and backtest all scope to."
-              >
-                {renderLeagueMultiSelect('footballOver15', 'leagues-section-over15-league')}
-              </Field>
-              <Field
-                label="Football — Under 3.5 Goals"
-                htmlFor="leagues-section-under35-league-toggle"
-                hint="Leagues this rule's fixture pulls, verified qualifiers, Price Watch, and backtest all scope to."
-              >
-                {renderLeagueMultiSelect('footballUnder35', 'leagues-section-under35-league')}
-              </Field>
-            </div>
           </div>
         </div>
       </CollapsibleSection>
@@ -1325,10 +1303,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         locked={filterThresholdsLocked}
         lockedMessage={
           <>
-            Locked until at least one league is selected and saved in the <strong className="text-text">Leagues</strong> section
-            above — a rule's League field defaults to "All leagues", and letting this section open before you've made a real
-            choice risks configuring (and running) a rule against every competition TheStatsAPI covers. Select some leagues on
-            a rule above, then click <strong className="text-text">Save configuration</strong> to unlock this section.
+            Locked until a <strong className="text-text">Leagues shortlist</strong> is chosen and saved in the{' '}
+            <strong className="text-text">Leagues</strong> section above — a rule's League field defaults to "All leagues", and
+            letting this section open before you've made a real choice risks configuring (and running) a rule against every
+            competition TheStatsAPI covers. Pick a shortlist above, then click <strong className="text-text">Save configuration</strong>{' '}
+            to unlock this section.
           </>
         }
       >
