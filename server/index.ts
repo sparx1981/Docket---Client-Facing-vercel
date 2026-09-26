@@ -19,6 +19,20 @@ import * as thestatsapi from './providers/thestatsapi';
  * Sportradar.
  */
 
+// A closed/backpressured stdout pipe (the host's log capture disconnecting,
+// or just falling behind) makes Node's next console.log throw an unhandled
+// EPIPE — and with no listener on the stream's own 'error' event, that
+// crashes the entire process. tsx watch only restarts on file changes, not
+// on a raw crash, so this previously took the whole backend down mid-scan
+// until something external noticed and rebuilt the container. Logging is
+// not worth a process crash, so any write error here is swallowed instead.
+process.stdout.on('error', (err: { code?: string }) => {
+  if (err.code !== 'EPIPE') throw err;
+});
+process.stderr.on('error', (err: { code?: string }) => {
+  if (err.code !== 'EPIPE') throw err;
+});
+
 const app = express();
 const PORT = Number(process.env.API_PORT) || 8787;
 

@@ -215,7 +215,11 @@ export async function fetchJson(
 
     try {
       const data = JSON.parse(text);
-      console.log(`[api] ← ${provider} ${response.status} for ${loggedUrl}:`, JSON.stringify(data));
+      // Logging the full body (some responses, like the competitions
+      // catalog, run to hundreds of KB) generates enough stdout volume to
+      // risk overwhelming the host's log capture — length is enough to
+      // confirm a real response came back without paying that cost.
+      console.log(`[api] ← ${provider} ${response.status} for ${loggedUrl}: ${text.length} bytes`);
       return data;
     } catch (err) {
       console.error(`[api] ✗ ${provider} returned non-JSON for ${loggedUrl}`);
