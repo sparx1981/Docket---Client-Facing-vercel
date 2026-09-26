@@ -82,16 +82,6 @@ export interface UserProfile {
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
-  const [isGuest, setIsGuest] = useState<boolean>(() => {
-    try {
-      return (
-        sessionStorage.getItem('sports_selection_guest_mode') === 'true' ||
-        localStorage.getItem('sports_selection_guest_mode') === 'true'
-      );
-    } catch {
-      return false;
-    }
-  });
   const [authChecking, setAuthChecking] = useState(true);
   const [authActionLoading, setAuthActionLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -170,7 +160,6 @@ export default function App() {
         };
         setCurrentUser(userProfile);
         setActiveUserContext(userProfile);
-        setIsGuest(false);
 
         try {
           const hydrated = await hydrateUserDataFromCloud(firebaseUser.uid, userProfile);
@@ -211,24 +200,12 @@ export default function App() {
     }
   };
 
-  const handleContinueAsGuest = () => {
-    try {
-      sessionStorage.setItem('sports_selection_guest_mode', 'true');
-    } catch {}
-    setIsGuest(true);
-  };
-
   const handleSignOut = async () => {
     try {
       await logOut();
     } catch (err) {
       console.error('Logout error:', err);
     }
-    try {
-      sessionStorage.removeItem('sports_selection_guest_mode');
-      localStorage.removeItem('sports_selection_guest_mode');
-    } catch {}
-    setIsGuest(false);
     setCurrentUser(null);
     setActiveUserContext(null);
   };
@@ -646,12 +623,11 @@ export default function App() {
     );
   }
 
-  if (!currentUser && !isGuest) {
+  if (!currentUser) {
     return (
       <>
         <LoginScreen
           onSignInWithGoogle={handleSignInWithGoogle}
-          onContinueAsGuest={handleContinueAsGuest}
           isLoading={authActionLoading}
           error={authError}
         />
@@ -688,8 +664,7 @@ export default function App() {
         autoScanNotice={autoScanNotice}
         onDismissAutoScanNotice={() => setAutoScanNotice(null)}
         user={currentUser}
-        onSignOut={currentUser || isGuest ? handleSignOut : undefined}
-        isCloudConnected={Boolean(currentUser)}
+        onSignOut={handleSignOut}
         banner={
           <ProviderStatusBanner
             settings={settings}

@@ -1022,10 +1022,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             verified qualifiers, settled match outcomes, P&amp;L history, and sync audit logs), and every{' '}
             <strong className="text-text">saved backtest run</strong> (each rule configuration you tested
             and its result) are associated with your authenticated Google account and securely stored in
-            our remote <strong className="text-text">Firebase Firestore cloud database</strong> —{' '}
-            <strong className="text-text">provided you are signed in with Google.</strong> Browsing in Guest
-            Mode (no Google sign-in) skips Firestore entirely: everything above still saves, but only to
-            this browser's local storage, on this one device.
+            our remote <strong className="text-text">Firebase Firestore cloud database</strong>.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1 text-[11.5px] leading-relaxed">
@@ -1035,23 +1032,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 Opening the app on any phone, tablet, laptop, or new browser and signing in with your
                 Google account automatically restores your saved API keys, custom rule thresholds, entire
                 Archive ledger, and every saved backtest run. Everything is synced to your account across
-                all devices. Guest Mode does not sync anywhere — it's this one browser only, until you sign in.
+                all devices.
               </p>
             </div>
 
             <div className="rounded-lg border border-line bg-surface p-2.5">
               <p className="font-bold text-text">Browser storage vs Firestore cloud database:</p>
               <p className="mt-0.5 text-text-2">
-                If you're signed in with Google, clearing your browser cache or site data, using a private
-                window, or reinstalling the browser will <strong className="text-text">NOT</strong> delete
-                your configuration, Archive log, or backtest history — they remain safely preserved in the
-                remote Firebase database; sign back in with the same Google account anywhere to restore
-                them. In Guest Mode, the same data lives only in this browser's local storage, so clearing
-                site data or switching devices <strong className="text-text">WILL</strong> erase it — sign
-                in with Google to move it to the cloud instead. Either way, what's{' '}
-                <strong className="text-text">never</strong> stored anywhere is the live, in-memory Verified
-                Qualifiers / Price Watch fixtures from your last scan — those refresh from a new scan and
-                are described further via each tab's own storage badge. You can also use the Archive log's{' '}
+                Clearing your browser cache or site data, using a private window, or reinstalling the
+                browser will <strong className="text-text">NOT</strong> delete your configuration, Archive
+                log, or backtest history — they remain safely preserved in the remote Firebase database;
+                sign back in with the same Google account anywhere to restore them. The one exception is
+                your last scan's Verified Qualifiers / Price Watch fixtures — those live only in this
+                browser's local storage (not synced to the cloud), since live odds move constantly and
+                syncing a snapshot across devices risks showing a stale price as if it were current; see
+                each tab's own storage badge for details. You can also use the Archive log's{' '}
                 <strong className="text-text">Export CSV</strong> button periodically if you want an
                 independent offline file backup.
               </p>

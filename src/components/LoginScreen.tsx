@@ -4,7 +4,6 @@ import { SealMark } from './AppShell';
 
 interface LoginScreenProps {
   onSignInWithGoogle: () => Promise<void>;
-  onContinueAsGuest?: () => void;
   isLoading?: boolean;
   error?: string | null;
 }

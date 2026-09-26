@@ -10,7 +10,6 @@ import {
   LogOut,
   Cloud,
   Database,
-  HardDrive,
   Timer,
   OctagonAlert,
   RefreshCw,
@@ -68,7 +67,7 @@ interface NavItem {
   count?: number;
 }
 
-type StorageTier = 'cloud' | 'browser' | 'local';
+type StorageTier = 'cloud' | 'local';
 
 const STORAGE_TIER_CONTENT: Record<
   StorageTier,
@@ -81,19 +80,12 @@ const STORAGE_TIER_CONTENT: Record<
     tooltip:
       "Stored in Firebase Firestore under your signed-in Google account. Clearing your browser cache or site data, using a private window, reinstalling the browser, or switching devices will NOT delete this — sign in with the same Google account anywhere to get it back.",
   },
-  browser: {
-    label: 'Browser',
-    icon: <HardDrive className="h-3 w-3" strokeWidth={2.5} />,
-    className: 'border-warn-line bg-warn-soft text-warn-ink',
-    tooltip:
-      "You're in Guest Mode, so this is saved only to this browser's local storage — not synced to any account. Clearing your browser cache or site data, or switching devices, WILL erase it. Sign in with Google to back it up in the cloud instead.",
-  },
   local: {
     label: 'Local',
     icon: <Timer className="h-3 w-3" strokeWidth={2.5} />,
     className: 'border-line bg-surface-2 text-text-3',
     tooltip:
-      "This is live scan data held only in memory for this browser tab. Refreshing the page, closing the tab, or opening the app on another device clears it immediately — run a new scan to rebuild it. This is deliberate: live odds can move within minutes, so caching this data risks showing you a stale price as if it were current.",
+      "This is scan data held only in this browser's local storage, not synced to your account. It survives a refresh, but is pruned automatically once a fixture's kickoff time passes, and cleared entirely if you clear this browser's site data. This is deliberate: live odds can move within minutes, so syncing this data across devices risks showing you a stale price as if it were current.",
   },
 };
 
@@ -147,7 +139,6 @@ interface AppShellProps {
   onDismissAutoScanNotice?: () => void;
   user?: { email?: string | null; displayName?: string | null; photoURL?: string | null; uid?: string } | null;
   onSignOut?: () => void;
-  isCloudConnected?: boolean;
 }
 
 const TITLES: Record<TabKey, { title: string; strap: string }> = {
@@ -202,7 +193,6 @@ export const AppShell: React.FC<AppShellProps> = ({
   onDismissAutoScanNotice,
   user = null,
   onSignOut,
-  isCloudConnected = true,
 }) => {
   const items: NavItem[] = [
     {
@@ -439,13 +429,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                 )}
                 {activeTab !== 'help' && (
                   <StorageBadge
-                    tier={
-                      activeTab === 'verified' || activeTab === 'pricewatch'
-                        ? 'local'
-                        : isCloudConnected
-                          ? 'cloud'
-                          : 'browser'
-                    }
+                    tier={activeTab === 'verified' || activeTab === 'pricewatch' ? 'local' : 'cloud'}
                   />
                 )}
               </div>
