@@ -53,6 +53,7 @@ import { SectionInfoModal } from './components/SectionInfoModal';
 import { SyncHistoryModal } from './components/SyncHistoryModal';
 import { LoginScreen } from './components/LoginScreen';
 import { HelpView } from './components/HelpView';
+import { OnboardingModal } from './components/OnboardingModal';
 import { VersionBadge } from './components/VersionBadge';
 
 /** True once at least one real provider key is configured — governs whether we attempt any network call at all. */
@@ -115,6 +116,7 @@ export default function App() {
   const scanAbortControllerRef = useRef<AbortController | null>(null);
   const [isSyncHistoryOpen, setIsSyncHistoryOpen] = useState(false);
   const [infoModalSection, setInfoModalSection] = useState<TabKey | null>(null);
+  const [tourOpen, setTourOpen] = useState(false);
   const [syncLogs, setSyncLogs] = useState<SyncLogRecord[]>(() => getStoredSyncLogs());
   const [autoScanNotice, setAutoScanNotice] = useState<{
     message: string;
@@ -720,8 +722,14 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'help' && <HelpView />}
+        {activeTab === 'help' && <HelpView onStartTour={() => setTourOpen(true)} />}
       </AppShell>
+
+      <OnboardingModal
+        isOpen={tourOpen}
+        onClose={() => setTourOpen(false)}
+        onNavigate={setActiveTab}
+      />
 
       <VerificationDrawer
         isOpen={drawerOpen}

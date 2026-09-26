@@ -1,19 +1,25 @@
 import React, { useState } from 'react';
-import { Sparkles, BookOpen, ArrowLeft } from 'lucide-react';
+import { Sparkles, BookOpen, ArrowLeft, History } from 'lucide-react';
 import { USER_GUIDE_SECTIONS, GUIDE_UPDATED_AT } from '../content/userGuide';
-import { OnboardingModal } from './OnboardingModal';
+import { CHANGELOG } from '../content/changelog';
 
-export const HelpView: React.FC = () => {
-  const [showGuide, setShowGuide] = useState(false);
-  const [tourOpen, setTourOpen] = useState(false);
+interface HelpViewProps {
+  /** Opens the guided tour — owned by App.tsx, not HelpView, since the tour navigates across tabs and must keep running after this component unmounts. */
+  onStartTour: () => void;
+}
 
-  if (showGuide) {
+type HelpPage = 'menu' | 'guide' | 'changelog';
+
+export const HelpView: React.FC<HelpViewProps> = ({ onStartTour }) => {
+  const [page, setPage] = useState<HelpPage>('menu');
+
+  if (page === 'guide') {
     return (
       <div className="mx-auto max-w-3xl space-y-6 px-4 py-6 sm:px-0">
         <button
           type="button"
           id="btn-back-to-help"
-          onClick={() => setShowGuide(false)}
+          onClick={() => setPage('menu')}
           className="inline-flex items-center gap-1.5 text-[12px] font-bold text-brand-ink hover:underline"
         >
           <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2.5} />
@@ -78,12 +84,47 @@ export const HelpView: React.FC = () => {
     );
   }
 
+  if (page === 'changelog') {
+    return (
+      <div className="mx-auto max-w-2xl space-y-6 px-4 py-6 sm:px-0">
+        <button
+          type="button"
+          id="btn-back-to-help"
+          onClick={() => setPage('menu')}
+          className="inline-flex items-center gap-1.5 text-[12px] font-bold text-brand-ink hover:underline"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2.5} />
+          Back to Help
+        </button>
+
+        <div>
+          <h1 className="text-[22px] font-extrabold tracking-tight text-text">Changelog</h1>
+          <p className="mt-1 text-[12px] text-text-3">One entry per day changes ship, newest first.</p>
+        </div>
+
+        {CHANGELOG.map((entry) => (
+          <section key={entry.date} className="rounded-xl border border-line bg-surface p-5">
+            <h2 className="mb-3 font-mono text-[13px] font-extrabold text-brand-ink">{entry.date}</h2>
+            <ul className="space-y-2 text-[13px] leading-relaxed text-text-2">
+              {entry.items.map((item, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className="text-brand-ink">•</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-2xl space-y-4 px-4 py-6 sm:px-0">
       <button
         type="button"
         id="btn-start-tour"
-        onClick={() => setTourOpen(true)}
+        onClick={onStartTour}
         className="flex w-full items-center gap-4 rounded-xl border border-line bg-surface p-5 text-left transition-colors hover:border-brand hover:bg-brand-soft/40"
       >
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-brand-line bg-brand-soft text-brand-ink">
@@ -92,8 +133,8 @@ export const HelpView: React.FC = () => {
         <div>
           <p className="text-[14px] font-extrabold text-text">Take the guided tour</p>
           <p className="mt-0.5 text-[12px] text-text-2">
-            A short, six-step walkthrough of what each area of the app does — Engine Configuration, Verified
-            Qualifiers, Price Watch, and Archive & Performance.
+            A short walkthrough that takes you to each real screen — Engine Configuration, Verified
+            Qualifiers, Price Watch, and Archive & Performance — as it explains what it does.
           </p>
         </div>
       </button>
@@ -101,7 +142,7 @@ export const HelpView: React.FC = () => {
       <button
         type="button"
         id="btn-open-user-guide"
-        onClick={() => setShowGuide(true)}
+        onClick={() => setPage('guide')}
         className="flex w-full items-center gap-4 rounded-xl border border-line bg-surface p-5 text-left transition-colors hover:border-brand hover:bg-brand-soft/40"
       >
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-brand-line bg-brand-soft text-brand-ink">
@@ -116,7 +157,20 @@ export const HelpView: React.FC = () => {
         </div>
       </button>
 
-      <OnboardingModal isOpen={tourOpen} onClose={() => setTourOpen(false)} />
+      <button
+        type="button"
+        id="btn-open-changelog"
+        onClick={() => setPage('changelog')}
+        className="flex w-full items-center gap-4 rounded-xl border border-line bg-surface p-5 text-left transition-colors hover:border-brand hover:bg-brand-soft/40"
+      >
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-brand-line bg-brand-soft text-brand-ink">
+          <History className="h-5 w-5" strokeWidth={2.5} />
+        </div>
+        <div>
+          <p className="text-[14px] font-extrabold text-text">Changelog</p>
+          <p className="mt-0.5 text-[12px] text-text-2">What's changed, one entry per day.</p>
+        </div>
+      </button>
     </div>
   );
 };

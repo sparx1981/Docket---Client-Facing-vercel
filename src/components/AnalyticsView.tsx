@@ -719,8 +719,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                           {t.footballUnder35.enabled ? `≥${t.footballUnder35.minExchangeOdds.toFixed(2)}` : 'disabled'}, Straight Sets{' '}
                           {t.tennisStraightSets.enabled ? `≥${t.tennisStraightSets.minExchangeOdds.toFixed(2)}` : 'disabled'}
                           , editable in Engine Configuration &rarr; Filter Thresholds, to avoid
-                          excessive risk and ensure positive mathematical expectancy once a real
-                          exchange price is connected.
+                          excessive risk and ensure positive mathematical expectancy against
+                          TheStatsAPI's real market odds.
                         </p>
                       </ArchiveColumnTooltip>
                     </th>
