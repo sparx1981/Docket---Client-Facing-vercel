@@ -43,13 +43,19 @@ interface BacktestCandidateMatch {
   finalScore: string;
 }
 
+export interface BacktestProgressEvent {
+  completed: number;
+  total: number;
+}
+
 export async function runBacktest(
   settings: AppSettings,
   system: Extract<SystemType, 'football_over_1_5' | 'football_under_3_5'>,
   leagueIds: string[],
   leagueLabel: string,
   sampleSize = 200,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onProgress?: (evt: BacktestProgressEvent) => void
 ): Promise<BacktestSummary> {
   if (!settings.theStatsApiKey) {
     throw new Error('Add a TheStatsAPI key in Engine Configuration before running a backtest.');
@@ -80,7 +86,9 @@ export async function runBacktest(
   const toEvaluate = candidates.slice(0, MAX_EVALUATED_MATCHES);
   const matches: BacktestMatchResult[] = [];
 
-  for (const c of toEvaluate) {
+  onProgress?.({ completed: 0, total: toEvaluate.length });
+
+  for (const [index, c] of toEvaluate.entries()) {
     const ctxQs = new URLSearchParams({
       homeId: c.homeId,
       awayId: c.awayId,
@@ -107,6 +115,8 @@ export async function runBacktest(
       // footballDetails, which the rules engine treats as missing data
       // (never a fabricated pass), so it simply won't qualify.
     }
+
+    onProgress?.({ completed: index + 1, total: toEvaluate.length });
 
     const footballDetails =
       context.homePrevSeason &&

@@ -155,6 +155,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     football_over_1_5: null,
     football_under_3_5: null,
   });
+  const [backtestProgressBySystem, setBacktestProgressBySystem] = useState<
+    Record<BacktestSystem, { completed: number; total: number } | null>
+  >({
+    football_over_1_5: null,
+    football_under_3_5: null,
+  });
   // Lets a running backtest actually be cancelled — one controller per rule
   // card, since either system's backtest can be running independently.
   const backtestAbortControllersRef = useRef<Record<BacktestSystem, AbortController | null>>({
@@ -561,6 +567,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setBacktestRunningBySystem((prev) => ({ ...prev, [system]: true }));
     setBacktestErrorBySystem((prev) => ({ ...prev, [system]: null }));
     setBacktestResultBySystem((prev) => ({ ...prev, [system]: null }));
+    setBacktestProgressBySystem((prev) => ({ ...prev, [system]: null }));
     try {
       const ruleKey = system === 'football_over_1_5' ? 'footballOver15' : 'footballUnder35';
       const leagueIds = formData.ruleThresholds[ruleKey].selectedLeagueIds;
@@ -568,7 +575,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         leagueIds.length === 0
           ? 'All leagues'
           : leagueIds.map((id) => formData.leagueCatalog.find((l) => l.id === id)?.name || id).join(', ');
-      const result = await runBacktest(formData, system, leagueIds, leagueLabel, 200, controller.signal);
+      const result = await runBacktest(
+        formData,
+        system,
+        leagueIds,
+        leagueLabel,
+        200,
+        controller.signal,
+        (evt) => setBacktestProgressBySystem((prev) => ({ ...prev, [system]: evt }))
+      );
       setBacktestResultBySystem((prev) => ({ ...prev, [system]: result }));
     } catch (err) {
       // A user-requested stop isn't a real failure — leave the error banner
@@ -579,6 +594,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     } finally {
       backtestAbortControllersRef.current[system] = null;
       setBacktestRunningBySystem((prev) => ({ ...prev, [system]: false }));
+      setBacktestProgressBySystem((prev) => ({ ...prev, [system]: null }));
     }
   };
 
@@ -599,22 +615,36 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const renderBacktestButton = (system: BacktestSystem, locked: boolean) => {
     const running = backtestRunningBySystem[system];
     if (running) {
+      const progress = backtestProgressBySystem[system];
+      const pct = progress && progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
       return (
-        <div className="inline-flex items-center gap-1.5">
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] font-bold text-text">
-            <Play className="h-3 w-3 animate-pulse text-brand" strokeWidth={2.5} />
-            <span>Running backtest…</span>
-          </span>
-          <button
-            type="button"
-            id={`btn-stop-backtest-${system}`}
-            onClick={() => handleStopBacktest(system)}
-            title="Stop this backtest"
-            className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-[11px] font-bold text-bad-ink transition-colors hover:bg-bad-soft"
-          >
-            <X className="h-3 w-3" strokeWidth={2.5} />
-            <span>Stop</span>
-          </button>
+        <div className="inline-flex flex-col items-start gap-1.5">
+          <div className="inline-flex items-center gap-1.5">
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] font-bold text-text">
+              <Play className="h-3 w-3 animate-pulse text-brand" strokeWidth={2.5} />
+              <span>
+                Running backtest{progress ? ` — match ${progress.completed} of ${progress.total}` : '…'}
+              </span>
+            </span>
+            <button
+              type="button"
+              id={`btn-stop-backtest-${system}`}
+              onClick={() => handleStopBacktest(system)}
+              title="Stop this backtest"
+              className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-[11px] font-bold text-bad-ink transition-colors hover:bg-bad-soft"
+            >
+              <X className="h-3 w-3" strokeWidth={2.5} />
+              <span>Stop</span>
+            </button>
+          </div>
+          {progress && (
+            <div className="h-1.5 w-48 overflow-hidden rounded-full bg-brand-line">
+              <div
+                className="h-full rounded-full bg-brand transition-all duration-300"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          )}
         </div>
       );
     }
