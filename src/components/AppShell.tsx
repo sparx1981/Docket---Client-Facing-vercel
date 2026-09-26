@@ -14,12 +14,13 @@ import {
   Timer,
   OctagonAlert,
   RefreshCw,
+  HelpCircle,
   X,
 } from 'lucide-react';
 import { AppSettings, SystemAnalytics } from '../types';
 import { VersionLine } from './VersionBadge';
 
-export type TabKey = 'verified' | 'pricewatch' | 'analytics' | 'settings';
+export type TabKey = 'verified' | 'pricewatch' | 'analytics' | 'settings' | 'help';
 
 /* The seal. Drawn, not borrowed: a stamp rosette with a ruled centre bar —
    the mark that gets pressed onto every verified docket. */
@@ -166,6 +167,10 @@ const TITLES: Record<TabKey, { title: string; strap: string }> = {
     title: 'Engine Configuration',
     strap: 'Data providers, exchange credentials, and the daily scan routine',
   },
+  help: {
+    title: 'Help',
+    strap: 'A guided tour of the app, and the full user guide',
+  },
 };
 
 export const AppShell: React.FC<AppShellProps> = ({
@@ -225,6 +230,12 @@ export const AppShell: React.FC<AppShellProps> = ({
       label: 'Engine Configuration',
       shortLabel: 'Engine',
       icon: <Sliders className="h-[18px] w-[18px]" strokeWidth={2} />,
+    },
+    {
+      key: 'help',
+      label: 'Help',
+      shortLabel: 'Help',
+      icon: <HelpCircle className="h-[18px] w-[18px]" strokeWidth={2} />,
     },
   ];
 
@@ -426,15 +437,17 @@ export const AppShell: React.FC<AppShellProps> = ({
                     <Info className="h-3.5 w-3.5" strokeWidth={2.5} />
                   </button>
                 )}
-                <StorageBadge
-                  tier={
-                    activeTab === 'verified' || activeTab === 'pricewatch'
-                      ? 'local'
-                      : isCloudConnected
-                        ? 'cloud'
-                        : 'browser'
-                  }
-                />
+                {activeTab !== 'help' && (
+                  <StorageBadge
+                    tier={
+                      activeTab === 'verified' || activeTab === 'pricewatch'
+                        ? 'local'
+                        : isCloudConnected
+                          ? 'cloud'
+                          : 'browser'
+                    }
+                  />
+                )}
               </div>
               <p className="hidden truncate text-[12px] text-text-2 sm:block">
                 {page.strap}

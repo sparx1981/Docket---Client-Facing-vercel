@@ -52,6 +52,7 @@ import { ScanProgressModal } from './components/ScanProgressModal';
 import { SectionInfoModal } from './components/SectionInfoModal';
 import { SyncHistoryModal } from './components/SyncHistoryModal';
 import { LoginScreen } from './components/LoginScreen';
+import { HelpView } from './components/HelpView';
 import { VersionBadge } from './components/VersionBadge';
 
 /** True once at least one real provider key is configured — governs whether we attempt any network call at all. */
@@ -743,6 +744,8 @@ export default function App() {
             onDraftDirtyChange={setHasUnsavedSettingsChanges}
           />
         )}
+
+        {activeTab === 'help' && <HelpView />}
       </AppShell>
 
       <VerificationDrawer
