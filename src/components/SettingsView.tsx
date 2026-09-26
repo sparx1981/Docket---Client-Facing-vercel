@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   AlertTriangle,
   Check,
@@ -16,6 +16,7 @@ import {
   Database,
   Cloud,
   RefreshCw,
+  X,
 } from 'lucide-react';
 import { AppSettings, BacktestSummary, CandidateFixture, FeedSummaryRecord, LeagueOption, RuleThresholds } from '../types';
 import {
@@ -116,6 +117,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     football_under_3_5: null,
   });
   const [backtestErrorBySystem, setBacktestErrorBySystem] = useState<Record<BacktestSystem, string | null>>({
+    football_over_1_5: null,
+    football_under_3_5: null,
+  });
+  // Lets a running backtest actually be cancelled — one controller per rule
+  // card, since either system's backtest can be running independently.
+  const backtestAbortControllersRef = useRef<Record<BacktestSystem, AbortController | null>>({
     football_over_1_5: null,
     football_under_3_5: null,
   });
@@ -394,6 +401,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   const handleRunBacktest = async (system: BacktestSystem) => {
+    const controller = new AbortController();
+    backtestAbortControllersRef.current[system] = controller;
     setBacktestRunningBySystem((prev) => ({ ...prev, [system]: true }));
     setBacktestErrorBySystem((prev) => ({ ...prev, [system]: null }));
     setBacktestResultBySystem((prev) => ({ ...prev, [system]: null }));
@@ -404,27 +413,66 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         leagueIds.length === 0
           ? 'All leagues'
           : leagueIds.map((id) => formData.leagueCatalog.find((l) => l.id === id)?.name || id).join(', ');
-      const result = await runBacktest(formData, system, leagueIds, leagueLabel, 200);
+      const result = await runBacktest(formData, system, leagueIds, leagueLabel, 200, controller.signal);
       setBacktestResultBySystem((prev) => ({ ...prev, [system]: result }));
     } catch (err) {
-      setBacktestErrorBySystem((prev) => ({ ...prev, [system]: err instanceof Error ? err.message : String(err) }));
+      // A user-requested stop isn't a real failure — leave the error banner
+      // empty rather than surfacing an "AbortError" as if the provider failed.
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        setBacktestErrorBySystem((prev) => ({ ...prev, [system]: err instanceof Error ? err.message : String(err) }));
+      }
     } finally {
+      backtestAbortControllersRef.current[system] = null;
       setBacktestRunningBySystem((prev) => ({ ...prev, [system]: false }));
     }
   };
 
+  const handleStopBacktest = (system: BacktestSystem) => {
+    backtestAbortControllersRef.current[system]?.abort();
+  };
+
+  // Abort any in-flight backtest if this view unmounts (e.g. the user
+  // navigates away) rather than leaving it running with nothing left to
+  // ever read its result.
+  useEffect(() => {
+    return () => {
+      backtestAbortControllersRef.current.football_over_1_5?.abort();
+      backtestAbortControllersRef.current.football_under_3_5?.abort();
+    };
+  }, []);
+
   const renderBacktestButton = (system: BacktestSystem, locked: boolean) => {
     const running = backtestRunningBySystem[system];
+    if (running) {
+      return (
+        <div className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] font-bold text-text">
+            <Play className="h-3 w-3 animate-pulse text-brand" strokeWidth={2.5} />
+            <span>Running backtest…</span>
+          </span>
+          <button
+            type="button"
+            id={`btn-stop-backtest-${system}`}
+            onClick={() => handleStopBacktest(system)}
+            title="Stop this backtest"
+            className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-[11px] font-bold text-bad-ink transition-colors hover:bg-bad-soft"
+          >
+            <X className="h-3 w-3" strokeWidth={2.5} />
+            <span>Stop</span>
+          </button>
+        </div>
+      );
+    }
     return (
       <button
         type="button"
         id={`btn-run-backtest-${system}`}
         onClick={() => handleRunBacktest(system)}
-        disabled={running || !formData.theStatsApiKey || locked}
+        disabled={!formData.theStatsApiKey || locked}
         className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] font-bold text-text transition-colors hover:border-brand disabled:opacity-60"
       >
-        <Play className={`h-3 w-3 ${running ? 'animate-pulse text-brand' : ''}`} strokeWidth={2.5} />
-        <span>{running ? 'Running backtest…' : 'Run backtest'}</span>
+        <Play className="h-3 w-3" strokeWidth={2.5} />
+        <span>Run backtest</span>
       </button>
     );
   };

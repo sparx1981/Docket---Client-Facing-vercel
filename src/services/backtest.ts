@@ -48,7 +48,8 @@ export async function runBacktest(
   system: Extract<SystemType, 'football_over_1_5' | 'football_under_3_5'>,
   leagueIds: string[],
   leagueLabel: string,
-  sampleSize = 200
+  sampleSize = 200,
+  signal?: AbortSignal
 ): Promise<BacktestSummary> {
   if (!settings.theStatsApiKey) {
     throw new Error('Add a TheStatsAPI key in Engine Configuration before running a backtest.');
@@ -62,7 +63,7 @@ export async function runBacktest(
     leagueIdsToQuery.map(async (leagueId) => {
       const qs = new URLSearchParams({ limit: String(sampleSize) });
       if (leagueId) qs.set('competitionId', leagueId);
-      const body = await apiGet(`/api/football/backtest-results?${qs.toString()}`, settings.theStatsApiKey);
+      const body = await apiGet(`/api/football/backtest-results?${qs.toString()}`, settings.theStatsApiKey, signal);
       return (body?.matches || []) as BacktestCandidateMatch[];
     })
   );
@@ -95,9 +96,13 @@ export async function runBacktest(
       h2hMatches?: any[];
     } = {};
     try {
-      const ctxBody = await apiGet(`/api/football/backtest-context?${ctxQs.toString()}`, settings.theStatsApiKey);
+      const ctxBody = await apiGet(`/api/football/backtest-context?${ctxQs.toString()}`, settings.theStatsApiKey, signal);
       context = ctxBody?.context || {};
-    } catch {
+    } catch (err) {
+      // A user-requested stop must actually stop the loop rather than being
+      // swallowed as "missing data" for this one match and carrying on to
+      // the next — that's how a cancelled backtest used to keep running.
+      if (err instanceof DOMException && err.name === 'AbortError') throw err;
       // Leave context empty — the candidate below is then evaluated with no
       // footballDetails, which the rules engine treats as missing data
       // (never a fabricated pass), so it simply won't qualify.
