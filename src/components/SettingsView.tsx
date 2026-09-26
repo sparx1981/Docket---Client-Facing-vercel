@@ -16,6 +16,7 @@ import {
   Database,
   Cloud,
   RefreshCw,
+  Download,
   X,
 } from 'lucide-react';
 import { AppSettings, BacktestRunRecord, BacktestSummary, CandidateFixture, FeedSummaryRecord, LeagueOption, RuleThresholds } from '../types';
@@ -38,7 +39,7 @@ import {
   fetchLeagues,
   fetchLiveFeedSummary,
 } from '../services/dataFeed';
-import { BacktestProgressEvent, runBacktest } from '../services/backtest';
+import { BacktestProgressEvent, buildBacktestCsv, downloadCsv, runBacktest } from '../services/backtest';
 import { deleteBacktestRun, getStoredBacktestRuns, logBacktestRun } from '../services/storage';
 import { ScanProgressModal } from './ScanProgressModal';
 
@@ -705,6 +706,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setBacktestRuns(deleteBacktestRun(id));
   };
 
+  const handleExportBacktestCsv = (run: BacktestRunRecord) => {
+    const csv = buildBacktestCsv(run);
+    downloadCsv(`backtest-${run.system}-${run.runAt.slice(0, 10)}.csv`, csv);
+  };
+
+  /** Every completed run is saved immediately (handleRunBacktest), so the
+   *  most recent saved run for a system is the same run its live result
+   *  card is currently showing. */
+  const latestBacktestRun = (system: BacktestSystem): BacktestRunRecord | undefined =>
+    backtestRuns
+      .filter((r) => r.system === system)
+      .sort((a, b) => new Date(b.runAt).getTime() - new Date(a.runAt).getTime())[0];
+
   const renderBacktestHistory = (system: BacktestSystem) => {
     const runsForSystem = backtestRuns.filter((r) => r.system === system);
     if (runsForSystem.length === 0) return null;
@@ -792,6 +806,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
               <button
                 type="button"
+                onClick={() => handleExportBacktestCsv(run)}
+                title="Export this saved run to a CSV file"
+                className="shrink-0 rounded p-1 text-text-3 transition-colors hover:bg-brand-soft hover:text-brand-ink"
+              >
+                <Download className="h-3 w-3" strokeWidth={2.5} />
+              </button>
+              <button
+                type="button"
                 onClick={() => handleDeleteBacktestRun(run.id)}
                 title="Delete this saved run"
                 className="shrink-0 rounded p-1 text-text-3 transition-colors hover:bg-bad-soft hover:text-bad-ink"
@@ -835,17 +857,34 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         {error && <p className="mb-2 text-[11px] font-medium text-bad-ink">{error}</p>}
         {result && (
           <div className="rounded-lg border border-line bg-surface-2 overflow-hidden">
-            <div className="border-b border-line px-3 py-2.5">
-              <p className="text-[12px] font-semibold text-text">
-                {result.leagueLabel} · {result.candidateCount} finished matches found
-              </p>
-              <p className="mt-0.5 text-[11px] leading-relaxed text-text-2">
-                {result.evaluatedCount} of {result.candidateCount} evaluated with full historical context
-                {result.evaluatedCount < result.candidateCount
-                  ? ' — capped, since each evaluated match costs several live provider calls (team form, H2H)'
-                  : ''}{' '}
-                · {result.sampleSize} would have qualified
-              </p>
+            <div className="flex items-start justify-between gap-3 border-b border-line px-3 py-2.5">
+              <div className="min-w-0">
+                <p className="text-[12px] font-semibold text-text">
+                  {result.leagueLabel} · {result.candidateCount} finished matches found
+                </p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-text-2">
+                  {result.evaluatedCount} of {result.candidateCount} evaluated with full historical context
+                  {result.evaluatedCount < result.candidateCount
+                    ? ' — capped, since each evaluated match costs several live provider calls (team form, H2H)'
+                    : ''}{' '}
+                  · {result.sampleSize} would have qualified
+                </p>
+              </div>
+              {(() => {
+                const latestRun = latestBacktestRun(system);
+                return (
+                  <button
+                    type="button"
+                    onClick={() => latestRun && handleExportBacktestCsv(latestRun)}
+                    disabled={!latestRun}
+                    title="Export this result to a CSV file"
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] font-bold text-text transition-colors hover:border-brand disabled:opacity-60"
+                  >
+                    <Download className="h-3 w-3" strokeWidth={2.5} />
+                    <span>Export CSV</span>
+                  </button>
+                );
+              })()}
             </div>
             <dl className="grid grid-cols-3 divide-line sm:grid-cols-6 sm:divide-x">
               {tiles.map((t, i) => (
@@ -1172,14 +1211,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <Field
               label="Notification email"
               htmlFor="notify-email"
-              hint="Where new verified qualifiers are sent."
+              hint="Not yet implemented — no email is ever sent by this app. Kept here for when it ships."
+              action={<Chip tone="neutral">Not implemented</Chip>}
             >
               <input
                 id="notify-email"
                 type="email"
+                disabled
                 value={formData.notificationEmail}
                 onChange={(e) => set('notificationEmail', e.target.value)}
-                className={inputClass}
+                className={`${inputClass} opacity-60 cursor-not-allowed`}
               />
             </Field>
 
@@ -1187,8 +1228,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               id="notify-enabled"
               checked={formData.emailNotificationsEnabled}
               onChange={(v) => set('emailNotificationsEnabled', v)}
+              disabled
               label="Alert on new verified qualifiers"
-              hint="Sends as soon as a selection clears the audit."
+              hint="Not yet implemented — nothing currently sends an email, regardless of this setting."
             />
 
             <Switch

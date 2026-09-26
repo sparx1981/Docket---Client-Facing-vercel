@@ -42,6 +42,8 @@ const BANNED = [
   [/expected goals rate ≥2\.40/, 'a fabricated filter number with no corresponding real rule'],
   [/ranking gap ≥40 spots/, 'a fabricated filter number with no corresponding real rule'],
   [/Over 1\.5 &ge;1\.15, Under 3\.5/, 'a hardcoded price-floor claim that ignores configured Filter Thresholds'],
+  [/Where new verified qualifiers are sent/, 'a fabricated claim that email notifications are wired up — nothing ever sends one'],
+  [/Sends as soon as a selection clears the audit/, 'a fabricated claim that email notifications are wired up — nothing ever sends one'],
 ];
 
 /** Files that may legitimately reference a banned phrase (e.g. this file, or a changelog). */

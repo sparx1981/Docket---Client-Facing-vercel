@@ -1,4 +1,4 @@
-import { AppSettings, BacktestMatchResult, BacktestSummary, SystemType } from '../types';
+import { AppSettings, BacktestMatchResult, BacktestRunRecord, BacktestSummary, RuleThresholds, SystemType } from '../types';
 import { apiGet } from './backendClient';
 import { buildFootballCandidate } from './dataFeed';
 
@@ -203,4 +203,83 @@ export async function runBacktest(
     scopeNote:
       'Each qualifying match is settled against its real final score. Backtest does not re-query TheStatsAPI\'s odds endpoint per historical match, so every qualifying match here is priced at this rule\'s configured required odds rather than a real historical market price.',
   };
+}
+
+const SYSTEM_LABEL: Record<'football_over_1_5' | 'football_under_3_5', string> = {
+  football_over_1_5: 'Football — Over 1.5 Goals',
+  football_under_3_5: 'Football — Under 3.5 Goals',
+};
+
+function describeRuleSnapshot(
+  system: 'football_over_1_5' | 'football_under_3_5',
+  snapshot: RuleThresholds['footballOver15'] | RuleThresholds['footballUnder35']
+): string {
+  if (system === 'football_over_1_5') {
+    const s = snapshot as RuleThresholds['footballOver15'];
+    return `Min. previous-season avg goals scored >= ${s.minPrevSeasonAvgScored}; Min. H2H Over 1.5 rate >= ${Math.round(
+      s.minH2HOver15Rate * 100
+    )}%; Min. recent scoring count >= ${s.minRecentScoredCount} (of last 5); Min. exchange odds >= ${s.minExchangeOdds.toFixed(2)}`;
+  }
+  const s = snapshot as RuleThresholds['footballUnder35'];
+  return `Max. previous-season avg goals scored <= ${s.maxPrevSeasonAvgScored}; Max. previous-season avg goals conceded <= ${s.maxPrevSeasonAvgConceded}; Min. H2H Under 3.5 rate >= ${Math.round(
+    s.minH2HUnder35Rate * 100
+  )}%; Min. recent Under 3.5 count >= ${s.minRecentUnder35Count} (of last 5); Min. exchange odds >= ${s.minExchangeOdds.toFixed(2)}`;
+}
+
+function csvCell(value: string | number | undefined | null): string {
+  const str = value === undefined || value === null ? '' : String(value);
+  return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+}
+
+/**
+ * Builds a CSV a user can independently check the app's own backtest claims
+ * against: a run header block (when it ran, which rule and thresholds were
+ * applied, and the summary numbers shown on screen), a blank gap, then the
+ * real per-match rows the summary was computed from.
+ */
+export function buildBacktestCsv(run: BacktestRunRecord): string {
+  const { summary, ruleSnapshot, runAt } = run;
+  const system = summary.system as 'football_over_1_5' | 'football_under_3_5';
+
+  const metaRows: (string | number)[][] = [
+    ['Backtest run at', new Date(runAt).toLocaleString()],
+    ['Rule', SYSTEM_LABEL[system]],
+    ['League scope', summary.leagueLabel],
+    ['Thresholds applied', describeRuleSnapshot(system, ruleSnapshot)],
+    ['Finished matches found', summary.candidateCount],
+    ['Evaluated with full historical context', summary.evaluatedCount],
+    ['Would have qualified', summary.sampleSize],
+    ['Wins', summary.wins],
+    ['Losses', summary.losses],
+    ['Win rate %', summary.winRatePct],
+    ['Required odds', summary.requiredOdds.toFixed(2)],
+    ['Net units (flat 1u stake)', summary.netUnitsAtRequiredOdds],
+    ['ROI %', summary.roiPct],
+    ['Scope note', summary.scopeNote],
+  ];
+
+  const headerRow = ['Date', 'Match', 'Competition', 'Final Score', 'Outcome'];
+  const dataRows = summary.matches.map((m) => [m.date, m.match, m.competition, m.finalScore, m.won ? 'WON' : 'LOST']);
+
+  const lines = [
+    ...metaRows.map((r) => r.map(csvCell).join(',')),
+    '',
+    '',
+    headerRow.map(csvCell).join(','),
+    ...dataRows.map((r) => r.map(csvCell).join(',')),
+  ];
+
+  return lines.join('\n');
+}
+
+export function downloadCsv(filename: string, csv: string): void {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
