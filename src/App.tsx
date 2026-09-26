@@ -44,6 +44,7 @@ import { ScanProgressModal } from './components/ScanProgressModal';
 import { SectionInfoModal } from './components/SectionInfoModal';
 import { SyncHistoryModal } from './components/SyncHistoryModal';
 import { LoginScreen } from './components/LoginScreen';
+import { VersionBadge } from './components/VersionBadge';
 
 /** True once at least one real provider key is configured — governs whether we attempt any network call at all. */
 const hasAnyProviderKey = (settings: AppSettings) =>
@@ -571,23 +572,28 @@ export default function App() {
           <div className="h-10 w-10 animate-spin rounded-full border-2 border-brand border-t-transparent shadow-xs" />
           <p className="font-mono text-xs text-text-3 font-medium">Initializing The Docket…</p>
         </div>
+        <VersionBadge />
       </div>
     );
   }
 
   if (!currentUser && !isGuest) {
     return (
-      <LoginScreen
-        onSignInWithGoogle={handleSignInWithGoogle}
-        onContinueAsGuest={handleContinueAsGuest}
-        isLoading={authActionLoading}
-        error={authError}
-      />
+      <>
+        <LoginScreen
+          onSignInWithGoogle={handleSignInWithGoogle}
+          onContinueAsGuest={handleContinueAsGuest}
+          isLoading={authActionLoading}
+          error={authError}
+        />
+        <VersionBadge />
+      </>
     );
   }
 
   return (
     <>
+      <VersionBadge />
       <AppShell
         activeTab={activeTab}
         setActiveTab={setActiveTab}

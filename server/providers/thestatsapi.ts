@@ -550,22 +550,16 @@ export interface MatchOddsEntry {
   lastUpdated: string;
 }
 
-function marketTypeFromRaw(raw: string | undefined): MatchOddsEntry['marketType'] | null {
-  const v = (raw || '').toLowerCase();
-  if (v.includes('1.5') || v.includes('1_5') || v.includes('15')) return 'OVER_UNDER_15';
-  if (v.includes('3.5') || v.includes('3_5') || v.includes('35')) return 'OVER_UNDER_35';
-  if (v.includes('set')) return 'SET_BETTING';
-  return null;
-}
-
 /**
- * Real odds for a single match, from TheStatsAPI's own odds endpoint —
- * whichever bookmaker(s) it returns, not limited to any one exchange or
- * sportsbook. The exact field names below are read defensively (several
- * plausible spellings tried per field) since this endpoint's response
- * shape has not yet been exercised against a live key in this environment;
- * any entry missing a usable bookmaker name, market type or numeric price
- * is skipped rather than guessed at.
+ * Real odds for a single match, from TheStatsAPI's own odds endpoint. The
+ * live response shape (confirmed against production logs) is:
+ *   { data: { bookmakers: [ { bookmaker, markets: { total_goals: {
+ *     "1.5": { over: { opening, last_seen }, under: {...} },
+ *     "3.5": { over: {...}, under: {...} }, ... } } } ] } }
+ * — a per-bookmaker markets object keyed by line, not a flat row list.
+ * Only the two lines the app's rule systems actually use are extracted:
+ * Over 1.5 (football_over_1_5) and Under 3.5 (football_under_3_5). Price
+ * is the current market price (last_seen), not the opening line.
  */
 export async function getMatchOdds(apiKey: string, matchId: string): Promise<MatchOddsEntry[]> {
   const data = await fetchJson(
@@ -574,26 +568,34 @@ export async function getMatchOdds(apiKey: string, matchId: string): Promise<Mat
     {},
     { headers: authHeaders(apiKey) }
   );
-  const rows: any[] = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
-  // TEMP DEBUG: every odds row has come back empty in production — dumping
-  // the raw shape once to confirm the real field names before fixing the
-  // guesses below. Remove once the mapping is corrected.
-  console.log(`[debug] raw odds response for match ${matchId}:`, JSON.stringify(data).slice(0, 2000));
+  const bookmakers: any[] = Array.isArray(data?.data?.bookmakers) ? data.data.bookmakers : [];
   const out: MatchOddsEntry[] = [];
-  for (const row of rows) {
-    const bookmaker: string | undefined = row?.bookmaker ?? row?.bookmaker_name ?? row?.provider ?? row?.source;
-    const marketType = marketTypeFromRaw(row?.market ?? row?.market_type ?? row?.type);
-    const selectionName: string | undefined = row?.selection ?? row?.selection_name ?? row?.outcome ?? row?.name;
-    const rawPrice = row?.decimal_odds ?? row?.decimalOdds ?? row?.price ?? row?.odds;
-    const decimalOdds = typeof rawPrice === 'number' ? rawPrice : typeof rawPrice === 'string' ? Number(rawPrice) : NaN;
-    if (!bookmaker || !marketType || !selectionName || !Number.isFinite(decimalOdds)) continue;
-    out.push({
-      bookmaker,
-      marketType,
-      selectionName,
-      decimalOdds,
-      lastUpdated: row?.last_updated ?? row?.updated_at ?? new Date().toISOString(),
-    });
+  for (const bm of bookmakers) {
+    const bookmaker: string | undefined = bm?.bookmaker;
+    const totalGoals = bm?.markets?.total_goals;
+    if (!bookmaker || !totalGoals) continue;
+
+    const over15Price = Number(totalGoals['1.5']?.over?.last_seen ?? totalGoals['1.5']?.over?.opening);
+    if (Number.isFinite(over15Price)) {
+      out.push({
+        bookmaker,
+        marketType: 'OVER_UNDER_15',
+        selectionName: 'Over 1.5',
+        decimalOdds: over15Price,
+        lastUpdated: new Date().toISOString(),
+      });
+    }
+
+    const under35Price = Number(totalGoals['3.5']?.under?.last_seen ?? totalGoals['3.5']?.under?.opening);
+    if (Number.isFinite(under35Price)) {
+      out.push({
+        bookmaker,
+        marketType: 'OVER_UNDER_35',
+        selectionName: 'Under 3.5',
+        decimalOdds: under35Price,
+        lastUpdated: new Date().toISOString(),
+      });
+    }
   }
   return out;
 }

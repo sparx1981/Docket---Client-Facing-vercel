@@ -6,6 +6,12 @@ import {defineConfig} from 'vite';
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
+    define: {
+      // Vercel sets VERCEL_GIT_COMMIT_SHA during the build step automatically;
+      // falls back to 'dev' for local runs where it's unset.
+      __APP_VERSION__: JSON.stringify((process.env.VERCEL_GIT_COMMIT_SHA || 'dev').slice(0, 7)),
+      __APP_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
