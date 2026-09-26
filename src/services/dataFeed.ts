@@ -71,6 +71,26 @@ export const MAX_ENRICHED_FIXTURES_PER_SPORT = 40;
 // extra seconds across a whole scan for not hammering it.
 const ENRICHMENT_PACING_MS = 250;
 
+// Over 1.5 and Under 3.5 each enrich fixtures independently (see the comment
+// on buildFootballCandidates), which doubles team/H2H/odds calls to the same
+// matches whenever the two rules' league selections overlap — a likely
+// contributor to the backend exhausting its "still starting" retry budget
+// under load. This cache is created fresh per fetchCandidateFixtures call and
+// shared across both systems' calls to buildFootballCandidates, so the same
+// team/H2H/odds request made twice in one scan reuses the first result
+// (or its failure) instead of hitting the backend again.
+type EnrichmentCache = Map<string, Promise<any>>;
+
+function cachedApiGet(cache: EnrichmentCache | undefined, path: string, key: string, signal?: AbortSignal): Promise<any> {
+  if (!cache) return apiGet(path, key, signal);
+  let pending = cache.get(path);
+  if (!pending) {
+    pending = apiGet(path, key, signal);
+    cache.set(path, pending);
+  }
+  return pending;
+}
+
 // How many days ahead (including today) to pull a fixture card for.
 export const DAYS_AHEAD = 3;
 
@@ -189,12 +209,12 @@ export interface RawFootballFixture {
 /**
  * Fetches and screens fixtures for exactly one football system, scoped to
  * that system's own league selection. Over 1.5 and Under 3.5 can target
- * different leagues, so they are no longer fetched together from one shared
- * raw fixture list — each gets its own fetch (and, for any fixture that
- * needs enrichment, its own team-stats/H2H calls), even when their league
- * selections overlap. That's a real cost increase over a single shared
- * fetch when the two rules diverge; it stays proportional (and bounded by
- * MAX_ENRICHED_FIXTURES_PER_SPORT) when they don't.
+ * different leagues, so the raw fixture list itself is still fetched
+ * separately per system. Team/H2H/odds enrichment calls, however, are keyed
+ * by team/match id through the optional `enrichmentCache` — when the caller
+ * shares one cache across both systems' calls (fetchCandidateFixtures does),
+ * a fixture that appears in both systems' fixture lists (the common case
+ * when their league selections overlap) is only enriched once.
  */
 async function buildFootballCandidates(
   key: string,
@@ -203,7 +223,8 @@ async function buildFootballCandidates(
   thresholds: RuleThresholds,
   selectedLeagueIds: string[],
   onProgress?: FeedProgressCallback,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  enrichmentCache?: EnrichmentCache
 ): Promise<{ candidates: CandidateFixture[]; rawTotal: number; partialError?: string }> {
   const allRawFixtures: RawFootballFixture[] = [];
   const dateErrors: string[] = [];
@@ -278,9 +299,9 @@ async function buildFootballCandidates(
       if (i > 0) await sleep(ENRICHMENT_PACING_MS, signal);
       try {
         const [homeProfile, awayProfile, h2h] = await Promise.all([
-          apiGet(`/api/football/team/${fx.homeId}`, key, signal),
-          apiGet(`/api/football/team/${fx.awayId}`, key, signal),
-          apiGet(`/api/football/h2h?team1=${fx.homeId}&team2=${fx.awayId}`, key, signal),
+          cachedApiGet(enrichmentCache, `/api/football/team/${fx.homeId}`, key, signal),
+          cachedApiGet(enrichmentCache, `/api/football/team/${fx.awayId}`, key, signal),
+          cachedApiGet(enrichmentCache, `/api/football/h2h?team1=${fx.homeId}&team2=${fx.awayId}`, key, signal),
         ]);
 
         const homePrevSeason: FootballPrevSeasonStats | undefined = homeProfile?.team?.prevSeason;
@@ -318,7 +339,7 @@ async function buildFootballCandidates(
       }
 
       try {
-        const oddsBody = await apiGet(`/api/football/odds/${fx.providerId}`, key, signal);
+        const oddsBody = await cachedApiGet(enrichmentCache, `/api/football/odds/${fx.providerId}`, key, signal);
         matchOdds = Array.isArray(oddsBody?.odds) ? oddsBody.odds : [];
       } catch (err) {
         if (isAbortError(err)) throw err;
@@ -612,6 +633,7 @@ export async function fetchCandidateFixtures(
   let footballOver15FeedInfo: FeedSummaryRecord | undefined;
   let footballUnder35FeedInfo: FeedSummaryRecord | undefined;
   let tennisFeedInfo: FeedSummaryRecord | undefined;
+  const footballEnrichmentCache: EnrichmentCache = new Map();
 
   if (football) {
     for (const system of ['football_over_1_5', 'football_under_3_5'] as const) {
@@ -636,7 +658,8 @@ export async function fetchCandidateFixtures(
           thresholds,
           systemThresholds.selectedLeagueIds,
           onProgress,
-          signal
+          signal,
+          footballEnrichmentCache
         );
         fixtures.push(...fbResult.candidates);
         const info: FeedSummaryRecord = {
@@ -792,6 +815,7 @@ export async function fetchLiveFeedSummary(
   let footballOver15FeedInfo: FeedSummaryRecord | undefined;
   let footballUnder35FeedInfo: FeedSummaryRecord | undefined;
   let tennisFeedInfo: FeedSummaryRecord | undefined;
+  const footballEnrichmentCache: EnrichmentCache = new Map();
 
   if (football) {
     for (const system of ['football_over_1_5', 'football_under_3_5'] as const) {
@@ -840,7 +864,8 @@ export async function fetchLiveFeedSummary(
           settings.ruleThresholds,
           systemThresholds.selectedLeagueIds,
           onProgress,
-          signal
+          signal,
+          footballEnrichmentCache
         );
         fixtures.push(...fbResult.candidates);
         const info: FeedSummaryRecord = {
