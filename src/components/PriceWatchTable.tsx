@@ -210,7 +210,7 @@ export const PriceWatchTable: React.FC<PriceWatchTableProps> = ({
           are promoted automatically the next time a scan runs and a qualifying price is present.
         </p>
         <div className="flex shrink-0 items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-text-3">
-          <span>Re-checked on the next scan</span>
+          <span>Re-checked on the next scan, or via Refresh Odds</span>
         </div>
       </div>
 
@@ -336,7 +336,7 @@ export const PriceWatchTable: React.FC<PriceWatchTableProps> = ({
                           </>
                         ) : (
                           <div className="text-[11px] text-text-3">
-                            Will show progress once a real exchange price is connected.
+                            Progress will show once TheStatsAPI has a price on file for this fixture.
                           </div>
                         )}
                       </td>
@@ -417,7 +417,7 @@ export const PriceWatchTable: React.FC<PriceWatchTableProps> = ({
                         <GapBar current={current} required={required} />
                       ) : (
                         <div className="text-[11px] text-text-3">
-                          Will show progress once a real exchange price is connected.
+                          Progress will show once TheStatsAPI has a price on file for this fixture.
                         </div>
                       )}
                     </div>
