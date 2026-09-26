@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, Loader2, ShieldCheck, Sliders } from 'lucide-react';
+import { AlertTriangle, Clock, Loader2, ShieldCheck, Sliders } from 'lucide-react';
 import { AppSettings } from '../types';
 
 interface ProviderStatusBannerProps {
@@ -9,6 +9,8 @@ interface ProviderStatusBannerProps {
   providerHealth?: { ok: boolean; checkedAt: string } | null;
   /** Human-readable error surfaced by the last fixture pull, if any. */
   fixturesError?: string | null;
+  /** True only while a fetch is actually in flight — distinguishes "checking right now" from "no scan has run yet this session", which used to show the same "Checking…" wording either way. */
+  fixturesLoading?: boolean;
 }
 
 export const ProviderStatusBanner: React.FC<ProviderStatusBannerProps> = ({
@@ -16,6 +18,7 @@ export const ProviderStatusBanner: React.FC<ProviderStatusBannerProps> = ({
   onOpenSettings,
   providerHealth,
   fixturesError,
+  fixturesLoading = false,
 }) => {
   const hasAnyKey = Boolean(settings.theStatsApiKey);
   // Nothing will actually be scanned — and so no provider call will ever be
@@ -37,11 +40,16 @@ export const ProviderStatusBanner: React.FC<ProviderStatusBannerProps> = ({
     label = 'Awaiting setup';
     message = 'No rule is both enabled and has leagues selected yet — no provider call will be made until one is. Configure this in Engine Configuration.';
   } else if (hasAnyKey) {
-    if (!providerHealth) {
+    if (fixturesLoading) {
       tone = 'warn';
       icon = <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />;
       label = 'Checking…';
-      message = 'Contacting the configured provider for the first time this session.';
+      message = 'Contacting the configured provider now — this can take a moment while fixtures are enriched.';
+    } else if (!providerHealth) {
+      tone = 'warn';
+      icon = <Clock className="h-4 w-4" strokeWidth={2.5} />;
+      label = 'Not yet run';
+      message = 'No scan has been run yet this session — click Run Daily Scan, or wait for the scheduled time, to contact the provider.';
     } else if (providerHealth.ok) {
       tone = 'ok';
       icon = <ShieldCheck className="h-4 w-4" strokeWidth={2.5} />;

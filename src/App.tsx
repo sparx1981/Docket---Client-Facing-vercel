@@ -620,6 +620,7 @@ export default function App() {
             settings={settings}
             providerHealth={providerHealth}
             fixturesError={fixturesError}
+            fixturesLoading={fixturesLoading}
             onOpenSettings={() => setActiveTab('settings')}
           />
         }
