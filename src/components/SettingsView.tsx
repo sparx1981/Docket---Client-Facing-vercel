@@ -173,6 +173,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     football_over_1_5: 'recent',
     football_under_3_5: 'recent',
   });
+  // Saved runs starts collapsed — it's a comparison/reference list, not the
+  // primary thing to look at right after a run finishes.
+  const [backtestHistoryOpenBySystem, setBacktestHistoryOpenBySystem] = useState<
+    Record<BacktestSystem, boolean>
+  >({
+    football_over_1_5: false,
+    football_under_3_5: false,
+  });
   // Lets a running backtest actually be cancelled — one controller per rule
   // card, since either system's backtest can be running independently.
   const backtestAbortControllersRef = useRef<Record<BacktestSystem, AbortController | null>>({
@@ -707,6 +715,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         ? b.summary.roiPct - a.summary.roiPct
         : new Date(b.runAt).getTime() - new Date(a.runAt).getTime()
     );
+    const isOpen = backtestHistoryOpenBySystem[system];
 
     const ruleKey = system === 'football_over_1_5' ? 'footballOver15' : 'footballUnder35';
     const configLabel = (snapshot: BacktestRunRecord['ruleSnapshot']): string => {
@@ -719,29 +728,45 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     };
 
     return (
-      <div className="mt-4">
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-text-3">
+      <div className="mt-4 rounded-lg border border-line">
+        <button
+          type="button"
+          onClick={() => setBacktestHistoryOpenBySystem((prev) => ({ ...prev, [system]: !isOpen }))}
+          aria-expanded={isOpen}
+          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+        >
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-text-3">
+            <ChevronDown
+              className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+              strokeWidth={2.5}
+            />
             Saved runs ({runsForSystem.length})
-          </p>
-          <div className="inline-flex items-center gap-1 text-[10px] font-semibold">
-            <button
-              type="button"
-              onClick={() => setBacktestHistorySortBySystem((prev) => ({ ...prev, [system]: 'recent' }))}
-              className={`rounded px-1.5 py-0.5 ${sortMode === 'recent' ? 'bg-brand text-white' : 'text-text-3 hover:bg-surface-2'}`}
+          </span>
+          {isOpen && (
+            <span
+              role="group"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 text-[10px] font-semibold"
             >
-              Most recent
-            </button>
-            <button
-              type="button"
-              onClick={() => setBacktestHistorySortBySystem((prev) => ({ ...prev, [system]: 'roi' }))}
-              className={`rounded px-1.5 py-0.5 ${sortMode === 'roi' ? 'bg-brand text-white' : 'text-text-3 hover:bg-surface-2'}`}
-            >
-              Best ROI
-            </button>
-          </div>
-        </div>
-        <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
+              <button
+                type="button"
+                onClick={() => setBacktestHistorySortBySystem((prev) => ({ ...prev, [system]: 'recent' }))}
+                className={`rounded px-1.5 py-0.5 ${sortMode === 'recent' ? 'bg-brand text-white' : 'text-text-3 hover:bg-surface-2'}`}
+              >
+                Most recent
+              </button>
+              <button
+                type="button"
+                onClick={() => setBacktestHistorySortBySystem((prev) => ({ ...prev, [system]: 'roi' }))}
+                className={`rounded px-1.5 py-0.5 ${sortMode === 'roi' ? 'bg-brand text-white' : 'text-text-3 hover:bg-surface-2'}`}
+              >
+                Best ROI
+              </button>
+            </span>
+          )}
+        </button>
+        {isOpen && (
+        <div className="max-h-64 space-y-1.5 overflow-y-auto border-t border-line p-2 pr-1">
           {sorted.map((run) => (
             <div
               key={run.id}
@@ -776,6 +801,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           ))}
         </div>
+        )}
       </div>
     );
   };
@@ -784,24 +810,61 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     const result = backtestResultBySystem[system];
     const error = backtestErrorBySystem[system];
     if (!result && !error) return null;
+
+    const tiles = result
+      ? [
+          { label: 'Wins', value: `${result.wins}`, tone: 'text-text' },
+          { label: 'Losses', value: `${result.losses}`, tone: 'text-text' },
+          { label: 'Win rate', value: `${result.winRatePct}%`, tone: 'text-text' },
+          { label: 'Required odds', value: result.requiredOdds.toFixed(2), tone: 'text-text' },
+          {
+            label: 'Net units',
+            value: `${result.netUnitsAtRequiredOdds >= 0 ? '+' : ''}${result.netUnitsAtRequiredOdds}`,
+            tone: result.netUnitsAtRequiredOdds >= 0 ? 'text-ok-ink' : 'text-bad-ink',
+          },
+          {
+            label: 'ROI',
+            value: `${result.roiPct >= 0 ? '+' : ''}${result.roiPct}%`,
+            tone: result.roiPct >= 0 ? 'text-ok-ink' : 'text-bad-ink',
+          },
+        ]
+      : [];
+
     return (
       <div className="mt-4">
         {error && <p className="mb-2 text-[11px] font-medium text-bad-ink">{error}</p>}
         {result && (
-          <div className="rounded-lg border border-line bg-surface-2 p-3 space-y-2">
-            <p className="text-[12px] font-semibold text-text">
-              {result.leagueLabel} · {result.candidateCount} finished matches found · {result.evaluatedCount} evaluated
-              with full historical context · {result.sampleSize} would have qualified
-            </p>
-            <div className="flex flex-wrap gap-x-5 gap-y-1 text-[12px] font-mono text-text">
-              <span>Wins: {result.wins}</span>
-              <span>Losses: {result.losses}</span>
-              <span>Win rate: {result.winRatePct}%</span>
-              <span>Required odds: {result.requiredOdds.toFixed(2)}</span>
-              <span>Net units: {result.netUnitsAtRequiredOdds >= 0 ? '+' : ''}{result.netUnitsAtRequiredOdds}</span>
-              <span>ROI: {result.roiPct}%</span>
+          <div className="rounded-lg border border-line bg-surface-2 overflow-hidden">
+            <div className="border-b border-line px-3 py-2.5">
+              <p className="text-[12px] font-semibold text-text">
+                {result.leagueLabel} · {result.candidateCount} finished matches found
+              </p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-text-2">
+                {result.evaluatedCount} of {result.candidateCount} evaluated with full historical context
+                {result.evaluatedCount < result.candidateCount
+                  ? ' — capped, since each evaluated match costs several live provider calls (team form, H2H)'
+                  : ''}{' '}
+                · {result.sampleSize} would have qualified
+              </p>
             </div>
-            <p className="text-[10px] leading-relaxed text-text-2">{result.scopeNote}</p>
+            <dl className="grid grid-cols-3 divide-line sm:grid-cols-6 sm:divide-x">
+              {tiles.map((t, i) => (
+                <div
+                  key={t.label}
+                  className={`p-2.5 ${i < 3 ? 'border-b border-line sm:border-b-0' : ''} ${
+                    i % 3 !== 2 ? 'border-r border-line sm:border-r-0' : ''
+                  }`}
+                >
+                  <dt className="text-[9.5px] font-bold uppercase tracking-wide text-text-3">{t.label}</dt>
+                  <dd className={`font-mono text-[15px] font-bold leading-tight tabular-nums ${t.tone}`}>
+                    {t.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <p className="border-t border-line px-3 py-2 text-[10px] leading-relaxed text-text-2">
+              {result.scopeNote}
+            </p>
           </div>
         )}
       </div>
@@ -1505,7 +1568,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 />
               </div>
               <div className="flex items-center gap-3">
-                {renderBacktestButton('football_over_1_5', over15Locked)}
                 <Switch
                   id="thresh-over15-enabled"
                   checked={formData.ruleThresholds.footballOver15.enabled}
@@ -1637,6 +1699,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </Field>
               </fieldset>
             </div>
+            <div className="mt-4">{renderBacktestButton('football_over_1_5', over15Locked)}</div>
             {renderBacktestResult('football_over_1_5')}
             {renderBacktestHistory('football_over_1_5')}
           </div>
@@ -1655,7 +1718,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 />
               </div>
               <div className="flex items-center gap-3">
-                {renderBacktestButton('football_under_3_5', under35Locked)}
                 <Switch
                   id="thresh-under35-enabled"
                   checked={formData.ruleThresholds.footballUnder35.enabled}
@@ -1785,6 +1847,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </Field>
               </fieldset>
             </div>
+            <div className="mt-4">{renderBacktestButton('football_under_3_5', under35Locked)}</div>
             {renderBacktestResult('football_under_3_5')}
             {renderBacktestHistory('football_under_3_5')}
           </div>

@@ -83,7 +83,7 @@ const STEPS: OnboardingStep[] = [
     expandSectionButtonId: 'btn-toggle-filter-thresholds',
     targetSelector: '#btn-run-backtest-football_over_1_5',
     body: [
-      'Optional but recommended: each rule has its own "Run Backtest" button, next to its enabled toggle. It replays your exact configuration against real historical matches, so you can see how it would have performed before trusting it live.',
+      'Optional but recommended: each rule has its own "Run Backtest" button, below its threshold fields. It replays your exact configuration against real historical matches, so you can see how it would have performed before trusting it live.',
       'Every completed run is saved automatically, so you can compare different configurations later.',
     ],
   },
