@@ -4,12 +4,14 @@ import { SealMark } from './AppShell';
 
 interface LoginScreenProps {
   onSignInWithGoogle: () => Promise<void>;
+  onTestSignIn?: () => Promise<void>;
   isLoading?: boolean;
   error?: string | null;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
   onSignInWithGoogle,
+  onTestSignIn,
   isLoading = false,
   error = null,
 }) => {
@@ -95,6 +97,18 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               )}
               <span>{isLoading ? 'Signing In…' : 'Sign in with Google'}</span>
             </button>
+
+            {import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true' && onTestSignIn && (
+              <button
+                id="btn-test-sign-in"
+                type="button"
+                disabled={isLoading}
+                onClick={onTestSignIn}
+                className="w-full rounded-xl border border-dashed border-line-strong px-4 py-2.5 text-xs font-bold text-text-2 hover:bg-surface-2 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+              >
+                Test Sign-In (Firebase Auth Emulator)
+              </button>
+            )}
           </div>
         </div>
       </div>

@@ -5,13 +5,16 @@ import {
   getDoc,
   setDoc,
   Firestore,
+  connectFirestoreEmulator,
 } from 'firebase/firestore';
 import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInAnonymously,
   signOut,
   onAuthStateChanged,
+  connectAuthEmulator,
   User,
 } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -43,6 +46,15 @@ googleProvider.setCustomParameters({
   prompt: 'select_account',
 });
 
+// Only set by the e2e Playwright config's dev-server env, never in a
+// production build — real Google Sign-In can't be automated headlessly, so
+// e2e tests run the app against the Firebase Auth/Firestore Emulator Suite
+// instead of the real backend.
+if (import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true') {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectFirestoreEmulator(db, '127.0.0.1', 8085);
+}
+
 export interface UserCloudData {
   uid: string;
   email: string | null;
@@ -61,6 +73,17 @@ export interface UserCloudData {
  */
 export async function signInWithGoogle(): Promise<User> {
   const result = await signInWithPopup(auth, googleProvider);
+  return result.user;
+}
+
+/**
+ * Anonymous sign-in used only by e2e tests running against the Firebase
+ * Auth Emulator (see the emulator guard above) — real Google OAuth can't be
+ * automated headlessly. LoginScreen only renders the button that calls this
+ * when the same emulator flag is set, so it's unreachable in production.
+ */
+export async function signInForTests(): Promise<User> {
+  const result = await signInAnonymously(auth);
   return result.user;
 }
 

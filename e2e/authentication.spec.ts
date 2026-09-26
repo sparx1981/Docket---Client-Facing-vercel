@@ -1,33 +1,35 @@
 import { test, expect } from '@playwright/test';
+import { signIn } from './authHelpers';
 
 test.describe('Authentication & Cloud Synchronization UI', () => {
-  test('displays the Google Login entry screen by default for new visitors', async ({ page }) => {
+  test('displays the Google Sign-In entry screen by default for signed-out visitors', async ({ page }) => {
     await page.goto('/');
-    
-    // Login screen elements
-    await expect(page.locator('#login-screen')).toBeVisible();
-    await expect(page.locator('#btn-google-sign-in')).toBeVisible();
-    await expect(page.locator('#btn-guest-continue')).toBeVisible();
-    
-    // Cloud storage & authentication messaging
-    await expect(page.locator('#login-screen')).toContainText('Sign in with Google');
-    await expect(page.locator('#login-screen')).toContainText('Firebase Firestore');
-    await expect(page.locator('#login-screen')).toContainText('Cross-Device Engine Sync');
+
+    await expect(page.locator('#btn-google-login')).toBeVisible();
+    await expect(page.getByText('Sign in with Google')).toBeVisible();
+    await expect(page.getByText('The Docket')).toBeVisible();
+
+    // No app shell content should be reachable while signed out.
+    await expect(page.locator('#nav-verified')).toHaveCount(0);
   });
 
-  test('continuing as guest/sandbox enters the Docket application shell', async ({ page }) => {
-    await page.goto('/');
-    await page.click('#btn-guest-continue');
-    
-    // Verifies application shell is rendered
+  test('signing in enters the Docket application shell and shows Firebase cloud sync messaging', async ({ page }) => {
+    await signIn(page);
+
     await expect(page.locator('#nav-verified')).toBeVisible();
     await expect(page.locator('#nav-settings')).toBeVisible();
-    
-    // Can navigate to Settings and see Firebase database callout
+    await expect(page.locator('#nav-help')).toBeVisible();
+
     await page.click('#nav-settings');
     await expect(page.locator('#settings-view')).toBeVisible();
-    await expect(page.locator('#settings-view')).toContainText('Firebase Firestore');
-    await page.getByRole('button', { name: /Cloud-Persisted Engine & Synced Betting Data/i }).click();
+    await page.click('#btn-toggle-cloud-storage');
     await expect(page.locator('#settings-view')).toContainText('Firebase Firestore cloud database');
+    await expect(page.locator('#settings-view')).toContainText('Cloud-Persisted Engine');
+  });
+
+  test('signing out returns to the login screen', async ({ page }) => {
+    await signIn(page);
+    await page.click('#btn-header-sign-out');
+    await expect(page.locator('#btn-google-login')).toBeVisible();
   });
 });

@@ -32,6 +32,7 @@ import {
 } from './services/storage';
 import {
   signInWithGoogle,
+  signInForTests,
   logOut,
   subscribeToAuthChanges,
   persistUserSettingsToCloud,
@@ -197,6 +198,19 @@ export default function App() {
       console.error('Google Sign In failed:', err);
       setAuthError(err?.message || 'Failed to sign in with Google.');
       throw err;
+    } finally {
+      setAuthActionLoading(false);
+    }
+  };
+
+  const handleTestSignIn = async () => {
+    setAuthActionLoading(true);
+    setAuthError(null);
+    try {
+      await signInForTests();
+    } catch (err: any) {
+      console.error('Emulator test sign-in failed:', err);
+      setAuthError(err?.message || 'Failed to sign in.');
     } finally {
       setAuthActionLoading(false);
     }
@@ -630,6 +644,7 @@ export default function App() {
       <>
         <LoginScreen
           onSignInWithGoogle={handleSignInWithGoogle}
+          onTestSignIn={handleTestSignIn}
           isLoading={authActionLoading}
           error={authError}
         />

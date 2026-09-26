@@ -1,14 +1,18 @@
 import { test, expect, Page } from '@playwright/test';
+import { signIn } from './authHelpers';
 
 /**
- * End-to-end proof that the real data pipeline (Settings → backend proxy →
- * dataFeed.ts → rulesEngine.ts → UI) actually works, without needing a real
- * Sportradar/Sportmonks subscription. The backend itself isn't running in
- * this test (playwright.config.ts only starts the Vite frontend), so every
- * `/api/*` call is intercepted here and answered with a hand-built response
- * shaped exactly like server/index.ts's real contract. If dataFeed.ts's
- * parsing of that shape ever drifts, this test breaks — which is the point.
+ * End-to-end proof that the real data pipeline (Engine Configuration →
+ * backend proxy → dataFeed.ts → rulesEngine.ts → UI) actually works, without
+ * needing a real TheStatsAPI subscription. The backend itself isn't running
+ * in this test (playwright.config.ts only starts the Vite frontend), so
+ * every `/api/*` call is intercepted here and answered with a hand-built
+ * response shaped exactly like server/app.ts's real contract. If
+ * dataFeed.ts's parsing of that shape ever drifts, this test breaks — which
+ * is the point.
  */
+
+const MOCK_COMPETITIONS = [{ id: 'comp-1', name: 'Mock Premier League', country: 'Testland', type: 'league' }];
 
 const HOME_TEAM = {
   team: 'Mock City',
@@ -53,16 +57,18 @@ const H2H_MATCHES = Array.from({ length: 5 }, (_, i) => ({
 }));
 
 async function mockBackend(page: Page) {
-  let fixturesCallCount = 0;
+  await page.route('**/api/football/competitions*', (route) =>
+    route.fulfill({ json: { competitions: MOCK_COMPETITIONS } })
+  );
 
+  let fixturesCallCount = 0;
   await page.route('**/api/football/fixtures*', async (route) => {
     fixturesCallCount += 1;
     if (fixturesCallCount > 1) {
-      return route.fulfill({ json: { provider: 'sportradar', fixtures: [] } });
+      return route.fulfill({ json: { fixtures: [] } });
     }
     return route.fulfill({
       json: {
-        provider: 'sportradar',
         fixtures: [
           {
             providerId: 'mock-1',
@@ -83,53 +89,97 @@ async function mockBackend(page: Page) {
     const url = route.request().url();
     const isHome = url.includes('home-1');
     return route.fulfill({
-      json: {
-        provider: 'sportradar',
-        team: {
-          prevSeason: isHome ? HOME_TEAM : AWAY_TEAM,
-          recentMatches: RECENT_MATCHES,
-        },
-      },
+      json: { team: { prevSeason: isHome ? HOME_TEAM : AWAY_TEAM, recentMatches: RECENT_MATCHES } },
     });
   });
 
-  await page.route('**/api/football/h2h*', async (route) => {
-    return route.fulfill({ json: { provider: 'sportradar', h2h: H2H_MATCHES } });
-  });
+  await page.route('**/api/football/h2h*', (route) => route.fulfill({ json: { h2h: H2H_MATCHES } }));
 
-  await page.route('**/api/tennis/fixtures*', async (route) => {
-    return route.fulfill({ json: { provider: 'sportradar', fixtures: [] } });
-  });
+  // The one-shot historical backfill (storage.ts) fires once a key and a
+  // league are both configured — answer it too so it doesn't surface as an
+  // unmocked-request console error alongside the assertions above.
+  await page.route('**/api/football/results*', (route) => route.fulfill({ json: { results: [] } }));
+
+  // No market-odds mock — TheStatsAPI simply hasn't returned a price for
+  // this fixture yet, the real-world condition Price Watch exists to cover.
+  await page.route('**/api/football/market-odds/*', (route) => route.fulfill({ json: { odds: [] } }));
 }
 
-async function configureSportradarKey(page: Page) {
-  await page.addInitScript(() => {
-    sessionStorage.setItem('sports_selection_guest_mode', 'true');
-  });
-  await page.goto('/');
-  await page.click('#nav-settings');
-  await page.getByRole('button', { name: /sportradar.*sportmonks/i }).click();
-  await page.fill('#key-sportradar-football', 'e2e-test-fake-key');
-  await page.fill('#key-sportradar-tennis', 'e2e-test-fake-key');
-  await page.click('#btn-save-settings');
-  await expect(page.getByText('Configuration saved')).toBeVisible();
+// Engine Configuration's own UI is covered end-to-end by
+// engine-configuration.spec.ts (API key, Leagues shortlist, and each rule's
+// own league picker, all via real clicks). This suite is about the fixture
+// pipeline once configuration exists, so — same pattern already used by
+// csv-export.spec.ts to seed the Archive — configuration is seeded directly
+// into localStorage rather than re-driving that multi-step UI flow. The
+// first-login hydration path (storage.ts's hydrateUserDataFromCloud) treats
+// existing local settings as authoritative when no cloud document exists
+// yet for a brand-new emulator user, so this seed is exactly what the app
+// would have saved had a real user clicked through Engine Configuration.
+function seededSettings(overrides?: Record<string, unknown>) {
+  return {
+    theStatsApiKey: 'e2e-test-fake-key',
+    scheduleEnabled: false, // keep the background scan loop from firing mid-test
+    leagueCatalog: [{ id: 'comp-1', name: 'Mock Premier League', country: 'Testland', type: 'league' }],
+    leagueShortlistIds: ['comp-1'],
+    ruleThresholds: {
+      footballOver15: {
+        enabled: true,
+        minPrevSeasonAvgScored: 1.0,
+        minH2HOver15Rate: 0.8,
+        minRecentScoredCount: 4,
+        minExchangeOdds: 1.15,
+        enhancedOddsThreshold: 1.25,
+        selectedLeagueIds: ['comp-1'],
+      },
+      footballUnder35: {
+        // Left disabled and unconfigured — this suite only exercises Over
+        // 1.5; enabling it too would double every mocked call for no
+        // assertion benefit.
+        enabled: false,
+        maxPrevSeasonAvgScored: 1.5,
+        maxPrevSeasonAvgConceded: 1.5,
+        minH2HUnder35Rate: 0.8,
+        minRecentUnder35Count: 4,
+        minExchangeOdds: 1.2,
+        selectedLeagueIds: [],
+      },
+      tennisStraightSets: {
+        enabled: false,
+        minRankingDelta: 50,
+        minSurfaceWinRate: 70.0,
+        minRecentWinsCount: 8,
+        minExchangeOdds: 1.2,
+        enhancedOddsThreshold: 1.5,
+      },
+    },
+    ...overrides,
+  };
+}
+
+async function seedEngineConfig(page: Page, overrides?: Record<string, unknown>) {
+  await page.addInitScript((settings) => {
+    localStorage.setItem('sports_selection_settings_v2', JSON.stringify(settings));
+  }, seededSettings(overrides));
+}
+
+async function runScan(page: Page) {
+  await page.click('#btn-run-daily-scan');
+  await page.click('#btn-confirm-start-scan');
+  await expect(page.locator('#provider-status-banner')).toContainText('Connected', { timeout: 20_000 });
+  // Close the progress modal — it stays open until dismissed and otherwise
+  // intercepts clicks on the tabs behind it.
+  await page.click('#btn-view-scan-results');
 }
 
 test.describe('Real pipeline against a mocked backend', () => {
-  test('a fixture that clears every statistical filter lands in Price Watch (not Verified) because Betfair odds are not yet connected', async ({ page }) => {
+  test('a fixture that clears every statistical filter lands in Price Watch (not Verified) because TheStatsAPI has no price for it yet', async ({ page }) => {
     await mockBackend(page);
-    await configureSportradarKey(page);
-
-    // The banner must reflect the real (mocked) call outcome, not assume success.
-    await expect(page.locator('#provider-status-banner')).toContainText('Connected', {
-      timeout: 15000,
-    });
+    await seedEngineConfig(page);
+    await signIn(page);
+    await runScan(page);
 
     await page.click('#nav-pricewatch');
     await expect(page.locator('#price-watch-view')).toContainText('Mock City vs Mock Rovers');
-    await expect(page.locator('#price-watch-view')).toContainText(
-      'Not yet connected — exchange odds integration pending'
-    );
 
     // It must NOT also appear as a Verified Qualifier — that would mean the
     // odds gate was skipped rather than genuinely enforced.
@@ -139,34 +189,36 @@ test.describe('Real pipeline against a mocked backend', () => {
 
   test('opening the audit drawer shows the real provider that supplied the fixture', async ({ page }) => {
     await mockBackend(page);
-    await configureSportradarKey(page);
+    await seedEngineConfig(page);
+    await signIn(page);
+    await runScan(page);
 
     await page.click('#nav-pricewatch');
-    // The desktop table and mobile card list both render in the DOM at once
-    // (CSS breakpoints pick which is visible), so a text locator alone is
-    // ambiguous — target the row's stable id instead.
     await page.click('#price-watch-row-FT-OV15-mock-1');
 
     await expect(page.locator('#verification-drawer')).toBeVisible();
-    await expect(page.locator('#verification-drawer')).toContainText('Sportradar');
-    // Regression guard for the fabricated-sourcing bug: must never show the
-    // old, meaningless Premium/Fallback framing.
+    await expect(page.locator('#verification-drawer')).toContainText('TheStatsAPI');
+    // Regression guard for the retired fabricated-sourcing bug: must never
+    // show the old, meaningless Premium/Fallback framing.
     await expect(page.locator('#verification-drawer')).not.toContainText('Premium (direct)');
     await expect(page.locator('#verification-drawer')).not.toContainText('Fallback (B2B)');
   });
 
   test('a provider HTTP failure is surfaced honestly, not silently swallowed', async ({ page }) => {
+    await page.route('**/api/football/competitions*', (route) =>
+      route.fulfill({ json: { competitions: MOCK_COMPETITIONS } })
+    );
     await page.route('**/api/football/fixtures*', (route) =>
       route.fulfill({ status: 401, json: { error: 'Invalid API key' } })
     );
-    await page.route('**/api/tennis/fixtures*', (route) =>
-      route.fulfill({ status: 401, json: { error: 'Invalid API key' } })
-    );
-    await configureSportradarKey(page);
+    await page.route('**/api/football/results*', (route) => route.fulfill({ json: { results: [] } }));
+    await seedEngineConfig(page);
+    await signIn(page);
 
-    await expect(page.locator('#provider-status-banner')).toContainText('Provider error', {
-      timeout: 15000,
-    });
+    await page.click('#btn-run-daily-scan');
+    await page.click('#btn-confirm-start-scan');
+
+    await expect(page.locator('#provider-status-banner')).toContainText('Provider error', { timeout: 20_000 });
     await expect(page.locator('#provider-status-banner')).toContainText(/invalid api key/i);
   });
 });

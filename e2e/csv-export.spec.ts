@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { signIn } from './authHelpers';
 
 const SEEDED_BET = {
   id: 'TEST-001',
@@ -19,30 +20,28 @@ const SEEDED_BET = {
   auditId: 'AUDIT-TEST-1',
   notes: 'Seeded by e2e test — not a real result.',
   dataSourceName: 'Test fixture',
+  providerId: 'TEST-FX-1',
 };
 
 test.describe('Archive log CSV export', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript((bet) => {
-      sessionStorage.setItem('sports_selection_guest_mode', 'true');
       localStorage.setItem('sports_selection_historical_v2', JSON.stringify([bet]));
       // Prevent the one-shot historical backfill from firing during this test.
       localStorage.setItem('sports_selection_backfill_attempted_v1', 'true');
     }, SEEDED_BET);
-    await page.goto('/');
+    await signIn(page);
     await page.click('#nav-analytics');
   });
 
   test('export button is enabled once the archive has rows', async ({ page }) => {
-    const exportBtn = page.getByRole('button', { name: /export csv/i });
-    await expect(exportBtn).toBeEnabled();
+    await expect(page.locator('#btn-export-csv')).toBeEnabled();
   });
 
   test('downloads a CSV containing the real seeded row, not placeholder data', async ({ page }) => {
-    const exportBtn = page.getByRole('button', { name: /export csv/i });
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      exportBtn.click(),
+      page.click('#btn-export-csv'),
     ]);
 
     expect(download.suggestedFilename()).toMatch(/^archive-log-all-\d{4}-\d{2}-\d{2}\.csv$/);
@@ -62,7 +61,6 @@ test.describe('Archive log CSV export', () => {
     await page.getByRole('tab', { name: 'Pending', exact: true }).click();
     // Nothing pending is seeded, so the export button must reflect that
     // honestly (disabled), not offer to export an empty/mismatched file.
-    const exportBtn = page.getByRole('button', { name: /export csv/i });
-    await expect(exportBtn).toBeDisabled();
+    await expect(page.locator('#btn-export-csv')).toBeDisabled();
   });
 });

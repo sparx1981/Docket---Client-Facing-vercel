@@ -2,11 +2,13 @@ import { defineConfig, devices } from '@playwright/test';
 
 /**
  * E2E config. The dev server here is the frontend only (`dev:web`) — tests
- * that need the backend mock it via page.route() instead of hitting real
- * Sportradar/Sportmonks, since no real API keys exist in this environment.
- * A handful of tests do exercise the real local backend (server/index.ts)
- * for its own behavior (e.g. a missing key returning 400) — those start it
- * themselves in a beforeAll rather than relying on the global webServer.
+ * that need the backend mock it via page.route() instead of hitting the real
+ * TheStatsAPI, since no real API key exists in this environment. Sign-in is
+ * real (Firebase Auth), just not real Google OAuth — that can't be automated
+ * headlessly, so the frontend runs with VITE_USE_FIREBASE_EMULATOR=true and
+ * talks to the Firebase Auth/Firestore Emulator Suite (started below)
+ * instead, using the test-only sign-in path LoginScreen exposes under that
+ * same flag.
  */
 export default defineConfig({
   testDir: './e2e',
@@ -32,10 +34,22 @@ export default defineConfig({
       },
     },
   ],
-  webServer: {
-    command: 'npm run dev:web',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 30_000,
-  },
+  webServer: [
+    {
+      command:
+        'npx --yes firebase-tools emulators:start --only auth,firestore --project demo-docket-e2e',
+      url: 'http://127.0.0.1:9099',
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+    },
+    {
+      command: 'npm run dev:web',
+      url: 'http://localhost:3000',
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
+      env: {
+        VITE_USE_FIREBASE_EMULATOR: 'true',
+      },
+    },
+  ],
 });
