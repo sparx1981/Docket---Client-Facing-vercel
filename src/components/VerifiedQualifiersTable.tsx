@@ -121,6 +121,7 @@ export const VerifiedQualifiersTable: React.FC<VerifiedQualifiersTableProps> = (
             strokeWidth={2}
           />
           <input
+            id="verified-search-input"
             type="search"
             aria-label="Search selections"
             placeholder="Search match, league or market"

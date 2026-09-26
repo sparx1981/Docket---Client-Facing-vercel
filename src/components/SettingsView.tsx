@@ -1058,6 +1058,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* ---- Schedule & staking ---- */}
       <CollapsibleSection
         title="Schedule"
+        buttonId="btn-toggle-schedule"
         icon={<Clock className="h-4 w-4" strokeWidth={2.5} />}
         defaultOpen={false}
       >
@@ -1202,6 +1203,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* ---- TheStatsAPI — the live football data provider ---- */}
       <CollapsibleSection
         title="API Config"
+        buttonId="btn-toggle-api-config"
         icon={<ShieldCheck className="h-4 w-4" strokeWidth={2.5} />}
         defaultOpen={false}
         action={<Chip tone={hasProviderKey ? 'ok' : 'warn'}>{hasProviderKey ? 'Configured' : 'Not configured'}</Chip>}
@@ -1348,6 +1350,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* ---- Leagues ---- */}
       <CollapsibleSection
         title="Leagues"
+        buttonId="btn-toggle-leagues"
         icon={<Database className="h-4 w-4" strokeWidth={2.5} />}
         defaultOpen={false}
       >
@@ -1445,6 +1448,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* ---- Filter Thresholds ---- */}
       <CollapsibleSection
         title="Filter Thresholds"
+        buttonId="btn-toggle-filter-thresholds"
         icon={<SlidersHorizontal className="h-4 w-4" strokeWidth={2.5} />}
         defaultOpen={false}
         locked={filterThresholdsLocked}

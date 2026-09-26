@@ -645,6 +645,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 />
               </div>
               <Button
+                id="btn-export-csv"
                 type="button"
                 onClick={handleExportCsv}
                 disabled={filteredBets.length === 0}
