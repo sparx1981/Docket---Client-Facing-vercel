@@ -362,6 +362,22 @@ export interface BacktestSummary {
   scopeNote: string;
 }
 
+/**
+ * One saved backtest run, so a user trying several rule configurations can
+ * come back later and compare which setup actually performed best — rather
+ * than the result vanishing the moment they navigate away or refresh.
+ * ruleSnapshot freezes the exact thresholds in effect at run time, since
+ * Engine Configuration can change afterwards and would otherwise make an
+ * old run's result impossible to attribute to a specific setup.
+ */
+export interface BacktestRunRecord {
+  id: string;
+  runAt: string; // ISO timestamp
+  system: Extract<SystemType, 'football_over_1_5' | 'football_under_3_5'>;
+  ruleSnapshot: RuleThresholds['footballOver15'] | RuleThresholds['footballUnder35'];
+  summary: BacktestSummary;
+}
+
 export interface FeedSummaryRecord {
   sport: Sport;
   provider: DataProviderType;

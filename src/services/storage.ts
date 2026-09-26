@@ -8,6 +8,7 @@ import {
   VerificationAuditCard,
   SyncLogRecord,
   RuleThresholds,
+  BacktestRunRecord,
 } from '../types';
 import { backfillHistoricalResults } from './historyBackfill';
 import {
@@ -15,6 +16,7 @@ import {
   persistUserSettingsToCloud,
   persistUserHistoricalBetsToCloud,
   persistUserSyncDataToCloud,
+  persistUserBacktestRunsToCloud,
 } from './firebase';
 
 export interface ActiveUserContext {
@@ -39,6 +41,9 @@ const HISTORICAL_BETS_KEY = 'sports_selection_historical_v2';
 const ARCHIVED_QUALIFIERS_KEY = 'sports_selection_archived_qualifiers_v2';
 const LAST_SCAN_KEY = 'sports_selection_last_scan_v2';
 const SYNC_LOGS_KEY = 'sports_selection_sync_logs_v2';
+const BACKTEST_RUNS_KEY = 'sports_selection_backtest_runs_v1';
+/** Keeps the saved list from growing unbounded across many experimental configs. */
+const MAX_STORED_BACKTEST_RUNS = 100;
 const BACKFILL_ATTEMPTED_KEY = 'sports_selection_backfill_attempted_v1';
 const LEGACY_PURGE_KEY = 'sports_selection_legacy_purge_v1';
 
@@ -451,6 +456,44 @@ export function appendSyncLog(log: SyncLogRecord): SyncLogRecord[] {
   return updated;
 }
 
+export function getStoredBacktestRuns(): BacktestRunRecord[] {
+  try {
+    const raw = localStorage.getItem(BACKTEST_RUNS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveBacktestRuns(runs: BacktestRunRecord[]): void {
+  try {
+    localStorage.setItem(BACKTEST_RUNS_KEY, JSON.stringify(runs));
+    if (activeUserContext) {
+      persistUserBacktestRunsToCloud(activeUserContext.uid, runs).catch((err) =>
+        console.error('Failed to sync backtest runs to Firestore in background:', err)
+      );
+    }
+  } catch (err) {
+    console.error('Failed to save backtest runs to localStorage', err);
+  }
+}
+
+/** Saves a completed backtest run, newest first, capped at MAX_STORED_BACKTEST_RUNS. */
+export function logBacktestRun(run: BacktestRunRecord): BacktestRunRecord[] {
+  const current = getStoredBacktestRuns();
+  const updated = [run, ...current].slice(0, MAX_STORED_BACKTEST_RUNS);
+  saveBacktestRuns(updated);
+  return updated;
+}
+
+export function deleteBacktestRun(id: string): BacktestRunRecord[] {
+  const updated = getStoredBacktestRuns().filter((r) => r.id !== id);
+  saveBacktestRuns(updated);
+  return updated;
+}
+
 /**
  * Hydrates local state from user's remote Firestore document upon login.
  * If user has no existing Firestore data, uploads current local configuration
@@ -464,6 +507,7 @@ export async function hydrateUserDataFromCloud(
   historicalBets: HistoricalBetRecord[];
   syncLogs: SyncLogRecord[];
   lastScanTimestamp: string | null;
+  backtestRuns: BacktestRunRecord[];
 }> {
   try {
     const cloudData = await fetchUserCloudData(userId);
@@ -474,6 +518,7 @@ export async function hydrateUserDataFromCloud(
       const currentBets = getHistoricalBets();
       const currentLogs = getStoredSyncLogs();
       const currentLastScan = getStoredLastScanTimestamp();
+      const currentBacktestRuns = getStoredBacktestRuns();
 
       await persistUserSettingsToCloud(userId, currentSettings, userProfile);
       if (currentBets.length > 0) {
@@ -482,12 +527,16 @@ export async function hydrateUserDataFromCloud(
       if (currentLogs.length > 0 || currentLastScan) {
         await persistUserSyncDataToCloud(userId, currentLogs, currentLastScan);
       }
+      if (currentBacktestRuns.length > 0) {
+        await persistUserBacktestRunsToCloud(userId, currentBacktestRuns);
+      }
 
       return {
         settings: currentSettings,
         historicalBets: currentBets,
         syncLogs: currentLogs,
         lastScanTimestamp: currentLastScan,
+        backtestRuns: currentBacktestRuns,
       };
     }
 
@@ -519,6 +568,7 @@ export async function hydrateUserDataFromCloud(
     const cloudBets = Array.isArray(cloudData.historicalBets) ? cloudData.historicalBets : [];
     const cloudLogs = Array.isArray(cloudData.syncLogs) ? cloudData.syncLogs : [];
     const cloudLastScan = cloudData.lastScanTimestamp || null;
+    const cloudBacktestRuns = Array.isArray(cloudData.backtestRuns) ? cloudData.backtestRuns : [];
 
     // Cache locally for instantaneous rendering & resilience
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(cloudSettings));
@@ -527,12 +577,14 @@ export async function hydrateUserDataFromCloud(
     if (cloudLastScan) {
       localStorage.setItem(LAST_SCAN_KEY, cloudLastScan);
     }
+    localStorage.setItem(BACKTEST_RUNS_KEY, JSON.stringify(cloudBacktestRuns));
 
     return {
       settings: cloudSettings,
       historicalBets: cloudBets,
       syncLogs: cloudLogs,
       lastScanTimestamp: cloudLastScan,
+      backtestRuns: cloudBacktestRuns,
     };
   } catch (err) {
     console.error('Error hydrating user cloud data from Firestore:', err);
@@ -541,6 +593,7 @@ export async function hydrateUserDataFromCloud(
       historicalBets: getHistoricalBets(),
       syncLogs: getStoredSyncLogs(),
       lastScanTimestamp: getStoredLastScanTimestamp(),
+      backtestRuns: getStoredBacktestRuns(),
     };
   }
 }

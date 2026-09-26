@@ -19,6 +19,7 @@ import {
   AppSettings,
   HistoricalBetRecord,
   SyncLogRecord,
+  BacktestRunRecord,
 } from '../types';
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
@@ -51,6 +52,7 @@ export interface UserCloudData {
   historicalBets?: HistoricalBetRecord[];
   syncLogs?: SyncLogRecord[];
   lastScanTimestamp?: string | null;
+  backtestRuns?: BacktestRunRecord[];
   updatedAt?: string;
 }
 
@@ -140,6 +142,28 @@ export async function persistUserHistoricalBetsToCloud(
     );
   } catch (err) {
     console.error('Failed to persist historical bets to Firestore:', err);
+  }
+}
+
+/**
+ * Persist the user's saved backtest runs to Firestore.
+ */
+export async function persistUserBacktestRunsToCloud(
+  userId: string,
+  backtestRuns: BacktestRunRecord[]
+): Promise<void> {
+  try {
+    const userDocRef = doc(db, 'users', userId);
+    await setDoc(
+      userDocRef,
+      {
+        backtestRuns,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.error('Failed to persist backtest runs to Firestore:', err);
   }
 }
 

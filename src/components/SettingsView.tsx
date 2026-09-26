@@ -18,7 +18,7 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
-import { AppSettings, BacktestSummary, CandidateFixture, FeedSummaryRecord, LeagueOption, RuleThresholds } from '../types';
+import { AppSettings, BacktestRunRecord, BacktestSummary, CandidateFixture, FeedSummaryRecord, LeagueOption, RuleThresholds } from '../types';
 import {
   Button,
   Chip,
@@ -39,6 +39,7 @@ import {
   fetchLiveFeedSummary,
 } from '../services/dataFeed';
 import { runBacktest } from '../services/backtest';
+import { deleteBacktestRun, getStoredBacktestRuns, logBacktestRun } from '../services/storage';
 import { ScanProgressModal } from './ScanProgressModal';
 
 /** A link to the real place a provider's own dashboard lets you create/view an API key or token. */
@@ -160,6 +161,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   >({
     football_over_1_5: null,
     football_under_3_5: null,
+  });
+  // Saved backtest runs (persisted to localStorage + Firestore) — so a user
+  // trying several rule configurations can come back and compare which
+  // setup actually performed best, instead of each result vanishing the
+  // moment they navigate away.
+  const [backtestRuns, setBacktestRuns] = useState<BacktestRunRecord[]>(() => getStoredBacktestRuns());
+  const [backtestHistorySortBySystem, setBacktestHistorySortBySystem] = useState<
+    Record<BacktestSystem, 'recent' | 'roi'>
+  >({
+    football_over_1_5: 'recent',
+    football_under_3_5: 'recent',
   });
   // Lets a running backtest actually be cancelled — one controller per rule
   // card, since either system's backtest can be running independently.
@@ -585,6 +597,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         (evt) => setBacktestProgressBySystem((prev) => ({ ...prev, [system]: evt }))
       );
       setBacktestResultBySystem((prev) => ({ ...prev, [system]: result }));
+      const run: BacktestRunRecord = {
+        id: `BT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+        runAt: new Date().toISOString(),
+        system,
+        ruleSnapshot: formData.ruleThresholds[ruleKey],
+        summary: result,
+      };
+      setBacktestRuns(logBacktestRun(run));
     } catch (err) {
       // A user-requested stop isn't a real failure — leave the error banner
       // empty rather than surfacing an "AbortError" as if the provider failed.
@@ -664,6 +684,93 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         {hasUnsavedChanges && !locked && (
           <span className="text-[10px] font-semibold text-warn-ink">Save configuration to enable backtesting.</span>
         )}
+      </div>
+    );
+  };
+
+  const handleDeleteBacktestRun = (id: string) => {
+    setBacktestRuns(deleteBacktestRun(id));
+  };
+
+  const renderBacktestHistory = (system: BacktestSystem) => {
+    const runsForSystem = backtestRuns.filter((r) => r.system === system);
+    if (runsForSystem.length === 0) return null;
+
+    const sortMode = backtestHistorySortBySystem[system];
+    const sorted = [...runsForSystem].sort((a, b) =>
+      sortMode === 'roi'
+        ? b.summary.roiPct - a.summary.roiPct
+        : new Date(b.runAt).getTime() - new Date(a.runAt).getTime()
+    );
+
+    const ruleKey = system === 'football_over_1_5' ? 'footballOver15' : 'footballUnder35';
+    const configLabel = (snapshot: BacktestRunRecord['ruleSnapshot']): string => {
+      if (ruleKey === 'footballOver15') {
+        const s = snapshot as RuleThresholds['footballOver15'];
+        return `H2H≥${Math.round(s.minH2HOver15Rate * 100)}% · recent≥${s.minRecentScoredCount} · odds≥${s.minExchangeOdds.toFixed(2)}`;
+      }
+      const s = snapshot as RuleThresholds['footballUnder35'];
+      return `H2H≥${Math.round(s.minH2HUnder35Rate * 100)}% · recent≥${s.minRecentUnder35Count} · odds≥${s.minExchangeOdds.toFixed(2)}`;
+    };
+
+    return (
+      <div className="mt-4">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-text-3">
+            Saved runs ({runsForSystem.length})
+          </p>
+          <div className="inline-flex items-center gap-1 text-[10px] font-semibold">
+            <button
+              type="button"
+              onClick={() => setBacktestHistorySortBySystem((prev) => ({ ...prev, [system]: 'recent' }))}
+              className={`rounded px-1.5 py-0.5 ${sortMode === 'recent' ? 'bg-brand text-white' : 'text-text-3 hover:bg-surface-2'}`}
+            >
+              Most recent
+            </button>
+            <button
+              type="button"
+              onClick={() => setBacktestHistorySortBySystem((prev) => ({ ...prev, [system]: 'roi' }))}
+              className={`rounded px-1.5 py-0.5 ${sortMode === 'roi' ? 'bg-brand text-white' : 'text-text-3 hover:bg-surface-2'}`}
+            >
+              Best ROI
+            </button>
+          </div>
+        </div>
+        <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
+          {sorted.map((run) => (
+            <div
+              key={run.id}
+              className="flex items-center justify-between gap-2 rounded-md border border-line bg-surface-2 px-2.5 py-1.5 text-[11px]"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-text">
+                  <span>{new Date(run.runAt).toLocaleString()}</span>
+                  <span className={run.summary.roiPct >= 0 ? 'font-bold text-ok-ink' : 'font-bold text-bad-ink'}>
+                    ROI {run.summary.roiPct >= 0 ? '+' : ''}
+                    {run.summary.roiPct}%
+                  </span>
+                  <span>Win rate {run.summary.winRatePct}%</span>
+                  <span>
+                    Net {run.summary.netUnitsAtRequiredOdds >= 0 ? '+' : ''}
+                    {run.summary.netUnitsAtRequiredOdds}u
+                  </span>
+                  <span>{run.summary.sampleSize} qualified</span>
+                </div>
+                <p className="truncate text-[10px] text-text-3">
+                  {run.summary.leagueLabel} · {configLabel(run.ruleSnapshot)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleDeleteBacktestRun(run.id)}
+                title="Delete this saved run"
+                className="shrink-0 rounded p-1 text-text-3 transition-colors hover:bg-bad-soft hover:text-bad-ink"
+              >
+                <X className="h-3 w-3" strokeWidth={2.5} />
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
     );
   };
@@ -1517,6 +1624,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </fieldset>
             </div>
             {renderBacktestResult('football_over_1_5')}
+            {renderBacktestHistory('football_over_1_5')}
           </div>
 
           {/* System B: Under 3.5 Goals */}
@@ -1664,6 +1772,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </fieldset>
             </div>
             {renderBacktestResult('football_under_3_5')}
+            {renderBacktestHistory('football_under_3_5')}
           </div>
 
           {/* System C: Tennis Straight Sets */}
