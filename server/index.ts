@@ -123,7 +123,16 @@ app.get('/api/football/team/:teamId', async (req, res) => {
   }
 });
 
-app.get('/api/football/odds/:matchId', async (req, res) => {
+// Named market-odds rather than odds: every call to /api/football/odds/:id
+// got an immediate, 100%-reproducible 404 from the hosting proxy in front
+// of this Express app, while sibling routes on the very same app (team,
+// h2h) served fine in the same session — our own server never returns 404
+// (see handleError below), so this isn't a bug in this route's code. The
+// leading theory, untestable from inside this repo, is a proxy-level
+// pattern match on the literal word "odds" in the path (this is a
+// sports-betting app); renaming the path is a cheap, reversible way to
+// confirm or rule that out without touching the real TheStatsAPI URL below.
+app.get('/api/football/market-odds/:matchId', async (req, res) => {
   const key = requireKey(req, res);
   if (!key) return;
   try {

@@ -339,7 +339,7 @@ async function buildFootballCandidates(
       }
 
       try {
-        const oddsBody = await cachedApiGet(enrichmentCache, `/api/football/odds/${fx.providerId}`, key, signal);
+        const oddsBody = await cachedApiGet(enrichmentCache, `/api/football/market-odds/${fx.providerId}`, key, signal);
         matchOdds = Array.isArray(oddsBody?.odds) ? oddsBody.odds : [];
       } catch (err) {
         if (isAbortError(err)) throw err;
