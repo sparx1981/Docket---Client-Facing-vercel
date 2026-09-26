@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertCircle, ArrowRight } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import { SealMark } from './AppShell';
 
 interface LoginScreenProps {
@@ -11,7 +11,6 @@ interface LoginScreenProps {
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
   onSignInWithGoogle,
-  onContinueAsGuest,
   isLoading = false,
   error = null,
 }) => {
@@ -54,16 +53,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
         {/* Main Authentication Card */}
         <div className="rounded-2xl border border-line bg-surface p-6 sm:p-8 shadow-plate space-y-6">
-          <div className="space-y-1.5 text-center">
-            <h2 className="text-base font-extrabold text-text">
-              Sign In to Your Account
-            </h2>
-            <p className="text-xs text-text-2 leading-relaxed">
-              Connect your Google account to securely access your saved API keys and
-              synced betting archive across all your devices.
-            </p>
-          </div>
-
           {displayedError && (
             <div
               id="auth-error-message"
@@ -107,20 +96,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               )}
               <span>{isLoading ? 'Signing In…' : 'Sign in with Google'}</span>
             </button>
-
-            {onContinueAsGuest && (
-              <div className="pt-2 text-center">
-                <button
-                  id="btn-guest-login"
-                  type="button"
-                  onClick={onContinueAsGuest}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-text-3 hover:text-brand-ink transition-colors cursor-pointer"
-                >
-                  <span>Continue to Local Sandbox (Offline Preview)</span>
-                  <ArrowRight className="h-3 w-3" />
-                </button>
-              </div>
-            )}
           </div>
         </div>
       </div>
