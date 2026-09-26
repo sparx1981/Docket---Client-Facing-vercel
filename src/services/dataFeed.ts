@@ -12,7 +12,7 @@ import {
   TennisRecentMatch,
 } from '../types';
 import { evaluateFixture } from './rulesEngine';
-import { apiGet } from './backendClient';
+import { apiGet, sleep } from './backendClient';
 import { describeLeagueScope } from './filterBreakdown';
 
 /**
@@ -60,6 +60,16 @@ export type FeedProgressCallback = (event: FeedProgressEvent) => void;
 // We then enrich up to MAX_ENRICHED_FIXTURES_PER_SPORT fixtures to keep requests
 // responsive and avoid tripping trial tier rate limits.
 export const MAX_ENRICHED_FIXTURES_PER_SPORT = 40;
+
+// A small pause between each enriched fixture's own burst of calls (3-4 for
+// football, 2 for tennis) — with none, up to 40 fixtures fire their calls
+// back-to-back as fast as the event loop allows, which has been observed to
+// destabilize the backend/proxy partway through a scan (calls that succeeded
+// at the start start timing out or hitting "still starting" placeholders
+// later on) — very plausibly the trial-tier rate limit noted above being
+// tripped by the burst rate rather than the total count. This trades a few
+// extra seconds across a whole scan for not hammering it.
+const ENRICHMENT_PACING_MS = 250;
 
 // How many days ahead (including today) to pull a fixture card for.
 export const DAYS_AHEAD = 3;
@@ -265,6 +275,7 @@ async function buildFootballCandidates(
     let footballDetails: CandidateFixture['footballDetails'] | undefined;
     let matchOdds: MatchOddsData[] = [];
     if (i < MAX_ENRICHED_FIXTURES_PER_SPORT && fx.homeId && fx.awayId) {
+      if (i > 0) await sleep(ENRICHMENT_PACING_MS, signal);
       try {
         const [homeProfile, awayProfile, h2h] = await Promise.all([
           apiGet(`/api/football/team/${fx.homeId}`, key, signal),
@@ -459,6 +470,7 @@ async function buildTennisCandidates(
     }
 
     if (i < MAX_ENRICHED_FIXTURES_PER_SPORT && fx.homeId && fx.awayId) {
+      if (i > 0) await sleep(ENRICHMENT_PACING_MS, signal);
       try {
         const [p1, p2] = await Promise.all([
           apiGet(`/api/tennis/player/${fx.homeId}`, key, signal),
