@@ -235,6 +235,17 @@ export const FilterHoverPopup: React.FC<FilterHoverPopupProps> = ({
     ? breakdown.filterSteps.find((s) => s.filterId === activeFilterId)
     : undefined;
 
+  // A field-level badge (activeFilterId set) only has something real to show
+  // once filterSteps actually exists — with 0 feed records, no key
+  // configured, an error, or mid-load, filterSteps is always [], so
+  // activeStep can never resolve and this would just repeat the rule's own
+  // header badge ("Feed: 0 records" / "Not configured" / etc.) on every
+  // single field. Hiding it in that state removes the duplication instead
+  // of rendering something that can never say anything different.
+  if (activeFilterId && breakdown.filterSteps.length === 0) {
+    return null;
+  }
+
   // Header status indicator
   const isUnconfigured = !breakdown.isConfigured;
   const isError = !!breakdown.error;
