@@ -119,7 +119,8 @@ function mapMatchToResult(m: any, competitionNameById: Map<string, string>): Nor
 async function listMatches(
   apiKey: string,
   params: Record<string, string | undefined>,
-  maxPages = 5
+  maxPages = 5,
+  onNotice?: (message: string) => void
 ): Promise<any[]> {
   const out: any[] = [];
   let page = 1;
@@ -129,7 +130,7 @@ async function listMatches(
       PROVIDER,
       `${BASE_URL}/football/matches`,
       { ...params, page: String(page), per_page: String(perPage) },
-      { headers: authHeaders(apiKey) }
+      { headers: authHeaders(apiKey), onRetryNotice: onNotice }
     );
     const rows: any[] = data?.data || [];
     out.push(...rows);
@@ -280,7 +281,11 @@ interface SeasonListCacheEntry {
 const seasonListCache = new Map<string, SeasonListCacheEntry>();
 
 /** All seasons for a competition, newest first — as TheStatsAPI itself returns them. */
-async function getSeasonList(apiKey: string, competitionId: string): Promise<SeasonListEntry[]> {
+async function getSeasonList(
+  apiKey: string,
+  competitionId: string,
+  onNotice?: (message: string) => void
+): Promise<SeasonListEntry[]> {
   const cached = seasonListCache.get(competitionId);
   if (cached && cached.expiresAt > Date.now()) return cached.seasons;
 
@@ -288,7 +293,7 @@ async function getSeasonList(apiKey: string, competitionId: string): Promise<Sea
     PROVIDER,
     `${BASE_URL}/football/competitions/${competitionId}/seasons`,
     {},
-    { headers: authHeaders(apiKey) }
+    { headers: authHeaders(apiKey), onRetryNotice: onNotice }
   );
   const seasons: SeasonListEntry[] = (data?.data || [])
     .filter((s: any) => s?.id)
@@ -307,9 +312,10 @@ async function getSeasonList(apiKey: string, competitionId: string): Promise<Sea
 async function getPreviousSeasonInfo(
   apiKey: string,
   competitionId: string,
-  referenceSeasonId: string
+  referenceSeasonId: string,
+  onNotice?: (message: string) => void
 ): Promise<SeasonInfo | null> {
-  const seasons = await getSeasonList(apiKey, competitionId);
+  const seasons = await getSeasonList(apiKey, competitionId, onNotice);
   const index = seasons.findIndex((s) => s.id === referenceSeasonId);
   // Seasons are returned newest-first, so the previous (older) season sits
   // at the next index along.
@@ -336,7 +342,8 @@ async function fetchSeasonStats(
   teamId: string,
   teamName: string,
   leagueName: string,
-  season: SeasonInfo
+  season: SeasonInfo,
+  onNotice?: (message: string) => void
 ): Promise<FootballPrevSeasonStats | undefined> {
   const cacheKey = `${teamId}:${season.seasonId}`;
   const cached = seasonStatsCache.get(cacheKey);
@@ -346,7 +353,7 @@ async function fetchSeasonStats(
     PROVIDER,
     `${BASE_URL}/football/teams/${teamId}/stats`,
     { season_id: season.seasonId },
-    { headers: authHeaders(apiKey) }
+    { headers: authHeaders(apiKey), onRetryNotice: onNotice }
   );
   const s = statsData?.data;
   if (!s || typeof s.matches_played !== 'number' || typeof s.goals_for !== 'number' || typeof s.goals_against !== 'number') {
@@ -486,14 +493,16 @@ const teamMatchesBeforeDateCache = new Map<string, { value: any[]; expiresAt: nu
 export async function getHistoricalMatchContext(
   apiKey: string,
   params: { homeId: string; awayId: string; competitionId: string; seasonId: string; matchDate: string },
-  competitionNameById: Map<string, string>
+  competitionNameById: Map<string, string>,
+  /** Fired with a plain-English status line whenever a call in this context hits TheStatsAPI's rate limit and is waiting before an automatic retry — lets the caller surface real-time expectations instead of a silent multi-second wait. */
+  onNotice?: (message: string) => void
 ): Promise<HistoricalMatchContext> {
   const { homeId, awayId, competitionId, seasonId, matchDate } = params;
   const beforeDate = dayBefore(matchDate);
   const leagueName = competitionNameById.get(competitionId) || 'Unknown league';
   const context: HistoricalMatchContext = {};
 
-  const previousSeason = await getPreviousSeasonInfo(apiKey, competitionId, seasonId).catch((err) => {
+  const previousSeason = await getPreviousSeasonInfo(apiKey, competitionId, seasonId, onNotice).catch((err) => {
     if (err instanceof ProviderError) return null;
     throw err;
   });
@@ -502,7 +511,12 @@ export async function getHistoricalMatchContext(
     const cached = teamNameCache.get(teamId);
     if (cached) return cached;
     try {
-      const detail = await fetchJson(PROVIDER, `${BASE_URL}/football/teams/${teamId}`, {}, { headers: authHeaders(apiKey) });
+      const detail = await fetchJson(
+        PROVIDER,
+        `${BASE_URL}/football/teams/${teamId}`,
+        {},
+        { headers: authHeaders(apiKey), onRetryNotice: onNotice }
+      );
       const name = detail?.data?.name || 'Unknown team';
       teamNameCache.set(teamId, name);
       return name;
@@ -519,7 +533,7 @@ export async function getHistoricalMatchContext(
     // recent-form slice needs only page 1, but the head-to-head search
     // below needs page 2 as well — fetching the larger cap once here means
     // whichever caller runs first already has what the other one needs.
-    const rows = await listMatches(apiKey, { team_id: teamId, status: 'finished', date_to: beforeDate }, 2);
+    const rows = await listMatches(apiKey, { team_id: teamId, status: 'finished', date_to: beforeDate }, 2, onNotice);
     teamMatchesBeforeDateCache.set(cacheKey, { value: rows, expiresAt: Date.now() + SEASON_CACHE_TTL_MS });
     return rows;
   }
@@ -541,11 +555,11 @@ export async function getHistoricalMatchContext(
   if (previousSeason) {
     const [homeName, awayName] = await Promise.all([teamName(homeId), teamName(awayId)]);
     const [homePrevSeason, awayPrevSeason] = await Promise.all([
-      fetchSeasonStats(apiKey, homeId, homeName, leagueName, previousSeason).catch((err) => {
+      fetchSeasonStats(apiKey, homeId, homeName, leagueName, previousSeason, onNotice).catch((err) => {
         if (err instanceof ProviderError) return undefined;
         throw err;
       }),
-      fetchSeasonStats(apiKey, awayId, awayName, leagueName, previousSeason).catch((err) => {
+      fetchSeasonStats(apiKey, awayId, awayName, leagueName, previousSeason, onNotice).catch((err) => {
         if (err instanceof ProviderError) return undefined;
         throw err;
       }),

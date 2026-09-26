@@ -121,7 +121,11 @@ export async function fetchJson(
   provider: string,
   url: string,
   params: Record<string, string | undefined>,
-  options?: { headers?: Record<string, string> }
+  options?: {
+    headers?: Record<string, string>;
+    /** Fired once, right when a 429 retry-wait begins, with a plain-English status line a caller can surface to the user instead of leaving them staring at a silent delay. */
+    onRetryNotice?: (message: string) => void;
+  }
 ): Promise<any> {
   const fullUrl = new URL(url);
   for (const [key, value] of Object.entries(params)) {
@@ -162,6 +166,10 @@ export async function fetchJson(
     if (response.status === 429 && attempt < maxRetries) {
       const wait = retryAfterMs(response.headers.get('Retry-After')) ?? backoffMs(attempt);
       console.warn(`[api] ⧗ ${provider} 429 for ${loggedUrl} — retrying in ${Math.round(wait)}ms (attempt ${attempt + 1}/${maxRetries})`);
+      const waitLabel = wait >= 1000 ? `${Math.round(wait / 1000)}s` : `${Math.round(wait)}ms`;
+      options?.onRetryNotice?.(
+        `${provider}'s rate limit was reached — waiting ${waitLabel} before automatically retrying. Still running, not stuck.`
+      );
       lastRateLimitError = new ProviderError(
         provider,
         429,

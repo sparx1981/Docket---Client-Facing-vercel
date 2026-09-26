@@ -38,7 +38,7 @@ import {
   fetchLeagues,
   fetchLiveFeedSummary,
 } from '../services/dataFeed';
-import { runBacktest } from '../services/backtest';
+import { BacktestProgressEvent, runBacktest } from '../services/backtest';
 import { deleteBacktestRun, getStoredBacktestRuns, logBacktestRun } from '../services/storage';
 import { ScanProgressModal } from './ScanProgressModal';
 
@@ -157,7 +157,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     football_under_3_5: null,
   });
   const [backtestProgressBySystem, setBacktestProgressBySystem] = useState<
-    Record<BacktestSystem, { completed: number; total: number } | null>
+    Record<BacktestSystem, BacktestProgressEvent | null>
   >({
     football_over_1_5: null,
     football_under_3_5: null,
@@ -665,6 +665,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               />
             </div>
           )}
+          <p className="max-w-[22rem] text-[10px] leading-relaxed text-text-3">
+            {progress?.notice
+              ? `⏱ ${progress.notice}`
+              : 'A single match can occasionally take up to a minute if TheStatsAPI\'s own rate limit was recently hit — the run is still progressing normally, just waiting on the provider to allow the next request.'}
+          </p>
         </div>
       );
     }

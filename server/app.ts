@@ -192,14 +192,19 @@ app.get('/api/football/backtest-context', async (req, res) => {
     return res.status(400).json({ error: 'Missing required query params: homeId, awayId, competitionId, seasonId, date' });
   }
 
+  // Collected here rather than returned by getHistoricalMatchContext itself,
+  // since a rate-limit retry can fire from several of its internal calls —
+  // this is the one place that sees all of them for this request.
+  const notices: string[] = [];
   try {
     const competitionNameById = await thestatsapi.getCompetitionNameMap(key);
     const context = await thestatsapi.getHistoricalMatchContext(
       key,
       { homeId, awayId, competitionId, seasonId, matchDate },
-      competitionNameById
+      competitionNameById,
+      (message) => notices.push(message)
     );
-    res.json({ provider: 'thestatsapi', context });
+    res.json({ provider: 'thestatsapi', context, notices });
   } catch (err) {
     handleError(err, res);
   }

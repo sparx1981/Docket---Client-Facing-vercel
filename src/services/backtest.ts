@@ -46,6 +46,8 @@ interface BacktestCandidateMatch {
 export interface BacktestProgressEvent {
   completed: number;
   total: number;
+  /** Plain-English status for the match just processed, e.g. that TheStatsAPI's rate limit was hit and it waited before retrying automatically. Undefined when nothing noteworthy happened. */
+  notice?: string;
 }
 
 export async function runBacktest(
@@ -103,9 +105,17 @@ export async function runBacktest(
       awayRecentMatches?: any[];
       h2hMatches?: any[];
     } = {};
+    let notice: string | undefined;
     try {
       const ctxBody = await apiGet(`/api/football/backtest-context?${ctxQs.toString()}`, settings.theStatsApiKey, signal);
       context = ctxBody?.context || {};
+      const notices: string[] | undefined = ctxBody?.notices;
+      if (Array.isArray(notices) && notices.length > 0) {
+        notice =
+          notices.length === 1
+            ? notices[0]
+            : `${notices[0]} (${notices.length} rate-limit waits for this match — still running, not stuck.)`;
+      }
     } catch (err) {
       // A user-requested stop must actually stop the loop rather than being
       // swallowed as "missing data" for this one match and carrying on to
@@ -116,7 +126,7 @@ export async function runBacktest(
       // (never a fabricated pass), so it simply won't qualify.
     }
 
-    onProgress?.({ completed: index + 1, total: toEvaluate.length });
+    onProgress?.({ completed: index + 1, total: toEvaluate.length, notice });
 
     const footballDetails =
       context.homePrevSeason &&
