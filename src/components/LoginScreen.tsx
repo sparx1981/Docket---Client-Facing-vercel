@@ -1,13 +1,5 @@
 import React, { useState } from 'react';
-import {
-  ShieldCheck,
-  Cloud,
-  Lock,
-  ExternalLink,
-  AlertCircle,
-  Database,
-  ArrowRight,
-} from 'lucide-react';
+import { AlertCircle, ArrowRight } from 'lucide-react';
 import { SealMark } from './AppShell';
 
 interface LoginScreenProps {
@@ -67,8 +59,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               Sign In to Your Account
             </h2>
             <p className="text-xs text-text-2 leading-relaxed">
-              Connect your Google account to access your private Firebase database,
-              cloud-persisted API keys, and synced betting archive across all your devices.
+              Connect your Google account to securely access your saved API keys and
+              synced betting archive across all your devices.
             </p>
           </div>
 
@@ -130,42 +122,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               </div>
             )}
           </div>
-
-          {/* Value props / Cloud storage architecture details */}
-          <div className="border-t border-line pt-5 space-y-3">
-            <h3 className="text-[11px] font-extrabold uppercase tracking-wider text-text-3">
-              Cloud Persistence &amp; Security Architecture
-            </h3>
-            <ul className="space-y-2.5 text-xs text-text-2">
-              <li className="flex items-start gap-2.5">
-                <Database className="h-4 w-4 shrink-0 text-brand mt-0.5" />
-                <span>
-                  <strong className="text-text">Firebase Cloud Database:</strong> Your TheStatsAPI
-                  key is saved directly to your private Firebase Firestore document.
-                </span>
-              </li>
-              <li className="flex items-start gap-2.5">
-                <Cloud className="h-4 w-4 shrink-0 text-brand mt-0.5" />
-                <span>
-                  <strong className="text-text">Cross-Device Sync:</strong> All verified qualifiers, settled bets,
-                  and sync audit records follow your account on desktop, tablet, and mobile.
-                </span>
-              </li>
-              <li className="flex items-start gap-2.5">
-                <Lock className="h-4 w-4 shrink-0 text-brand mt-0.5" />
-                <span>
-                  <strong className="text-text">Role-Based Security:</strong> Strict Firestore security rules
-                  guarantee that only your authenticated Google account can read or write your data.
-                </span>
-              </li>
-            </ul>
-          </div>
         </div>
-
-        {/* Footer Notice */}
-        <p className="text-center text-[11px] text-text-3 leading-relaxed">
-          The Docket · Firebase Firestore backend with Google Identity Services.
-        </p>
       </div>
     </div>
   );

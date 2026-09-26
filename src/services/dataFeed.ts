@@ -110,8 +110,11 @@ export function describeScanPlan(settings: AppSettings): { lines: ScanPlanLine[]
     });
   }
 
-  if (!hasAnyWork && lines.length === 0) {
-    lines.push({ label: 'Nothing enabled', detail: 'No systems are enabled in Filter Thresholds — this scan would download nothing.' });
+  if (!hasAnyWork) {
+    lines.push({
+      label: 'Start scan disabled',
+      detail: 'No football rule is enabled in Filter Thresholds, and tennis has no data supplier configured yet — there is nothing this scan could download. Enable Over 1.5 Goals or Under 3.5 Goals to proceed.',
+    });
   }
 
   return { lines, hasAnyWork };
