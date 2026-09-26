@@ -47,6 +47,19 @@ function looksLikeHtml(text: string): boolean {
   return /^\s*<(!doctype html|html)/i.test(text);
 }
 
+// Every path this client ever requests is a real route registered in
+// server/index.ts (confirmed: this exact message appears nowhere in our own
+// server code). A 404 with this body means the dev/preview host's own proxy
+// answered while the backend process was mid-restart and hadn't finished
+// registering its routes yet — the same underlying instability the
+// "Starting Server..." placeholder page (above) already retries through,
+// just surfaced in a different shape. Without this, that transient restart
+// window permanently drops whatever was being fetched (e.g. one fixture's
+// odds) instead of recovering on its own like every other endpoint does.
+function looksLikeTransientProxy404(status: number, body: any): boolean {
+  return status === 404 && body?.error === 'API route not found';
+}
+
 async function performApiGet(path: string, providerKey: string, signal?: AbortSignal): Promise<any> {
   for (let attempt = 0; attempt <= MAX_STARTING_SERVER_RETRIES; attempt++) {
     console.log(`[api] → GET ${path}`);
@@ -77,8 +90,20 @@ async function performApiGet(path: string, providerKey: string, signal?: AbortSi
     }
 
     if (!response.ok) {
+      if (!parseFailed && looksLikeTransientProxy404(response.status, body) && attempt < MAX_STARTING_SERVER_RETRIES) {
+        const wait = startingServerRetryDelay(attempt);
+        console.warn(
+          `[api] ⧗ backend still starting (proxy 404) for ${path} — retrying in ${wait}ms (attempt ${attempt + 1}/${MAX_STARTING_SERVER_RETRIES})`
+        );
+        await sleep(wait, signal);
+        continue;
+      }
       console.error(`[api] ✗ ${response.status} for ${path}:`, parseFailed ? rawText.slice(0, 300) : body);
-      throw new Error(body?.error || `Request to ${path} failed with status ${response.status}`);
+      throw new Error(
+        looksLikeTransientProxy404(response.status, body)
+          ? `${path} — the backend API server is still starting and didn't come up after ${MAX_STARTING_SERVER_RETRIES} retries. Try running the scan again shortly.`
+          : body?.error || `Request to ${path} failed with status ${response.status}`
+      );
     }
 
     if (parseFailed) {
