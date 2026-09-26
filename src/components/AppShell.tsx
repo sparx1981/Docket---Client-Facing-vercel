@@ -10,6 +10,8 @@ import {
   LogOut,
   Cloud,
   Database,
+  HardDrive,
+  Timer,
   OctagonAlert,
   X,
 } from 'lucide-react';
@@ -63,6 +65,49 @@ interface NavItem {
   icon: React.ReactNode;
   count?: number;
 }
+
+type StorageTier = 'cloud' | 'browser' | 'local';
+
+const STORAGE_TIER_CONTENT: Record<
+  StorageTier,
+  { label: string; icon: React.ReactNode; className: string; tooltip: string }
+> = {
+  cloud: {
+    label: 'Cloud',
+    icon: <Cloud className="h-3 w-3" strokeWidth={2.5} />,
+    className: 'border-ok-line bg-ok-soft text-ok-ink',
+    tooltip:
+      "Stored in Firebase Firestore under your signed-in Google account. Clearing your browser cache or site data, using a private window, reinstalling the browser, or switching devices will NOT delete this — sign in with the same Google account anywhere to get it back.",
+  },
+  browser: {
+    label: 'Browser',
+    icon: <HardDrive className="h-3 w-3" strokeWidth={2.5} />,
+    className: 'border-warn-line bg-warn-soft text-warn-ink',
+    tooltip:
+      "You're in Guest Mode, so this is saved only to this browser's local storage — not synced to any account. Clearing your browser cache or site data, or switching devices, WILL erase it. Sign in with Google to back it up in the cloud instead.",
+  },
+  local: {
+    label: 'Local',
+    icon: <Timer className="h-3 w-3" strokeWidth={2.5} />,
+    className: 'border-line bg-surface-2 text-text-3',
+    tooltip:
+      "This is live scan data held only in memory for this browser tab. Refreshing the page, closing the tab, or opening the app on another device clears it immediately — run a new scan to rebuild it. This is deliberate: live odds can move within minutes, so caching this data risks showing you a stale price as if it were current.",
+  },
+};
+
+/** Small storage-location indicator shown in each page's heading — hover for what happens if you clear your browser data. */
+const StorageBadge: React.FC<{ tier: StorageTier }> = ({ tier }) => {
+  const content = STORAGE_TIER_CONTENT[tier];
+  return (
+    <span
+      title={content.tooltip}
+      className={`inline-flex shrink-0 cursor-help items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wide ${content.className}`}
+    >
+      {content.icon}
+      {content.label}
+    </span>
+  );
+};
 
 interface AppShellProps {
   activeTab: TabKey;
@@ -357,6 +402,15 @@ export const AppShell: React.FC<AppShellProps> = ({
                     <Info className="h-3.5 w-3.5" strokeWidth={2.5} />
                   </button>
                 )}
+                <StorageBadge
+                  tier={
+                    activeTab === 'verified' || activeTab === 'pricewatch'
+                      ? 'local'
+                      : isCloudConnected
+                        ? 'cloud'
+                        : 'browser'
+                  }
+                />
               </div>
               <p className="hidden truncate text-[12px] text-text-2 sm:block">
                 {page.strap}
