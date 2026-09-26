@@ -169,6 +169,21 @@ function useHighlightRect(targetSelector: string | undefined, expandSectionButto
     let cancelled = false;
     setRect(null);
 
+    // Polls rather than checking once — onNavigate's tab switch happens in
+    // the parent and may not have committed to the DOM yet on this same
+    // tick, so a single synchronous getElementById right after a tab change
+    // reliably misses the target the first time.
+    async function waitFor(find: () => HTMLElement | null, timeoutMs: number): Promise<HTMLElement | null> {
+      const deadline = Date.now() + timeoutMs;
+      while (!cancelled) {
+        const el = find();
+        if (el) return el;
+        if (Date.now() >= deadline) return null;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      return null;
+    }
+
     function locate() {
       if (!targetSelector || cancelled) return;
       const el = document.querySelector(targetSelector) as HTMLElement | null;
@@ -176,20 +191,25 @@ function useHighlightRect(targetSelector: string | undefined, expandSectionButto
         setRect(null);
         return;
       }
-      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      // Instant, not smooth — reading getBoundingClientRect() right after
+      // triggering a smooth scroll returns the pre-scroll (often off-screen)
+      // position, since the scroll animation hasn't run yet.
+      el.scrollIntoView({ block: 'center', behavior: 'auto' });
       setRect(el.getBoundingClientRect());
     }
 
     async function run() {
       if (expandSectionButtonId) {
-        const toggle = document.getElementById(expandSectionButtonId);
+        const toggle = await waitFor(() => document.getElementById(expandSectionButtonId), 2000);
         if (toggle && toggle.getAttribute('aria-expanded') === 'false') {
           toggle.click();
         }
+        // Let the section's open-state re-render commit before measuring.
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      } else if (targetSelector) {
+        // No section to expand, but a tab switch may still be in flight.
+        await waitFor(() => document.querySelector(targetSelector) as HTMLElement | null, 1500);
       }
-      // Let the tab switch render and any section-expand animation settle
-      // before measuring — otherwise we'd read a stale or zero-size rect.
-      await new Promise((resolve) => setTimeout(resolve, expandSectionButtonId ? 320 : 160));
       if (cancelled) return;
       locate();
     }
@@ -235,6 +255,17 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
   const isFirst = stepIndex === 0;
   const isLast = stepIndex === STEPS.length - 1;
 
+  // The panel normally docks bottom-right, which is exactly where several
+  // real targets (e.g. a screen's own "Save"/primary action button) also
+  // sit — docking there too would bury the highlighted element under the
+  // panel itself. Move the panel to the top-right instead whenever the
+  // current target lives in that same bottom-right region.
+  const panelAtTop =
+    !!rect &&
+    typeof window !== 'undefined' &&
+    rect.top > window.innerHeight * 0.55 &&
+    rect.left + rect.width > window.innerWidth * 0.5;
+
   const handleClose = () => {
     setStepIndex(0);
     onNavigate('help');
@@ -259,7 +290,9 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
         role="dialog"
         aria-modal="false"
         aria-labelledby="onboarding-title"
-        className="fixed inset-x-4 bottom-4 z-50 sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-full sm:max-w-sm"
+        className={`fixed inset-x-4 z-50 sm:inset-x-auto sm:right-6 sm:w-full sm:max-w-sm ${
+          panelAtTop ? 'top-4 sm:top-6' : 'bottom-4 sm:bottom-6'
+        }`}
       >
         <div className="flex w-full flex-col rounded-2xl border border-line bg-surface shadow-plate overflow-hidden">
           <div className="flex items-center justify-between border-b border-line bg-surface-2 px-5 py-3.5">
