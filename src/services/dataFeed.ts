@@ -243,7 +243,11 @@ async function buildFootballCandidates(
     for (const leagueId of leagueIdsToQuery) {
       try {
         const qs = leagueId ? `date=${date}&competitionId=${leagueId}` : `date=${date}`;
-        const body = await apiGet(`/api/football/fixtures?${qs}`, key, signal);
+        // Over 1.5 and Under 3.5 each call this per system — when their league
+        // selections overlap (a common setup), both would otherwise issue the
+        // exact same date+league fixture-list request twice in one scan. This
+        // is the same shared cache already used for team/H2H/odds enrichment.
+        const body = await cachedApiGet(enrichmentCache, `/api/football/fixtures?${qs}`, key, signal);
         const received = body?.fixtures || [];
         for (const f of received) {
           allRawFixtures.push(f);

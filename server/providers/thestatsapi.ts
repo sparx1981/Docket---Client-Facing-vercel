@@ -410,6 +410,30 @@ function dayBefore(dateIso: string): string {
 }
 
 /**
+ * A live scan's per-fixture enrichment calls getTeamProfile(homeId),
+ * getTeamProfile(awayId) and getHeadToHead(homeId, awayId) — but
+ * getTeamProfile's own recent-form lookup and getHeadToHead's meeting
+ * search both fetch the SAME team's finished-match list (team_id filter,
+ * status: finished, no date bound), differing only in page cap (1 vs 2).
+ * That was two real, separate network calls for identical data on every
+ * single enriched fixture. This single cached fetch (at the larger page
+ * cap) backs both call sites instead. A short TTL is enough — this is
+ * "current form as of now", not a historical reconstruction, so it should
+ * pick up a newly-finished match reasonably promptly, unlike the
+ * season-scoped caches above which cover data that never changes mid-run.
+ */
+const teamFinishedMatchesCache = new Map<string, { value: any[]; expiresAt: number }>();
+const TEAM_FINISHED_MATCHES_CACHE_TTL_MS = 5 * 60 * 1000;
+
+async function finishedMatchesForTeam(apiKey: string, teamId: string): Promise<any[]> {
+  const cached = teamFinishedMatchesCache.get(teamId);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const rows = await listMatches(apiKey, { team_id: teamId, status: 'finished' }, 2);
+  teamFinishedMatchesCache.set(teamId, { value: rows, expiresAt: Date.now() + TEAM_FINISHED_MATCHES_CACHE_TTL_MS });
+  return rows;
+}
+
+/**
  * Team profile: current-season aggregate stats plus recent form, as of
  * *now* — used for live fixture enrichment (the daily scan), where "current
  * form" genuinely means the present. Built from three real calls — team
@@ -448,7 +472,7 @@ export async function getTeamProfile(
 
   let recentMatches: TeamRecentMatch[] | undefined;
   try {
-    const rows = await listMatches(apiKey, { team_id: teamId, status: 'finished' }, 1);
+    const rows = await finishedMatchesForTeam(apiKey, teamId);
     const mapped = rows
       .map((m) => mapTeamRecentMatch(m, teamId, competitionNameById))
       .filter((m): m is TeamRecentMatch => m !== null)
@@ -675,7 +699,7 @@ export async function getHeadToHead(
   team2Id: string,
   competitionNameById: Map<string, string>
 ): Promise<H2HMatchRecord[]> {
-  const rows = await listMatches(apiKey, { team_id: team1Id, status: 'finished' }, 2);
+  const rows = await finishedMatchesForTeam(apiKey, team1Id);
   const meetings = rows.filter((m) => m?.home_team?.id === team2Id || m?.away_team?.id === team2Id);
 
   return meetings
