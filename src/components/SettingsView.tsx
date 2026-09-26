@@ -79,6 +79,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   tennisFeedInfo,
 }) => {
   const [formData, setFormData] = useState<AppSettings>(settings);
+  // What's actually live — the header's Run Daily Scan, the real scan/fetch
+  // logic, and this backtest all read from the `settings` prop, not from
+  // formData. Toggling a rule here edits only this local draft; comparing
+  // against the last-saved snapshot lets the UI say so before that gap
+  // confuses someone into thinking a toggle already took effect.
+  const [lastSavedData, setLastSavedData] = useState<AppSettings>(settings);
+  const hasUnsavedChanges = useMemo(
+    () => JSON.stringify(formData) !== JSON.stringify(lastSavedData),
+    [formData, lastSavedData]
+  );
   const [testResult, setTestResult] = useState<string | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [feedHealth, setFeedHealth] = useState<FeedHealthResult[] | null>(null);
@@ -287,6 +297,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     onSaveSettings(formData);
+    setLastSavedData(formData);
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 2500);
   };
@@ -559,6 +570,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       onSubmit={handleSave}
       className="mx-auto max-w-3xl space-y-5"
     >
+      {hasUnsavedChanges && (
+        <div
+          id="settings-unsaved-banner"
+          className="sticky top-0 z-10 flex items-center gap-2 rounded-xl border border-warn-line bg-warn-soft px-4 py-2.5 text-[12px] font-bold text-warn-ink"
+        >
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn animate-pulse" />
+          You have unsaved changes — toggles and thresholds below won't take effect (including on the
+          daily scan or a backtest) until you click Save configuration.
+        </div>
+      )}
+
       {/* ---- Cloud-Persisted Engine & Synced Betting Data (Firebase Firestore) ---- */}
       <CollapsibleSection
         id="section-cloud-storage"
@@ -1493,6 +1515,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <span className="inline-flex items-center gap-1.5 text-[12px] font-bold text-ok-ink">
             <Check className="h-4 w-4" strokeWidth={3} />
             Configuration saved &amp; synced to Firebase
+          </span>
+        )}
+        {!savedSuccess && !isSavingToCloud && hasUnsavedChanges && (
+          <span
+            id="settings-unsaved-indicator"
+            className="inline-flex items-center gap-1.5 text-[12px] font-bold text-warn-ink"
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-warn animate-pulse" />
+            Unsaved changes — nothing below takes effect until you save
           </span>
         )}
         <Button

@@ -132,9 +132,18 @@ export function apiGet(path: string, providerKey: string, signal?: AbortSignal):
   if (!existing) {
     const owned = performApiGet(path, providerKey, signal);
     inFlight.set(key, owned);
-    owned.finally(() => {
-      if (inFlight.get(key) === owned) inFlight.delete(key);
-    });
+    // .finally() returns its own derived promise — if left unassigned, that
+    // promise rejects right along with `owned` (e.g. on an abort) with
+    // nothing ever observing it, which the console flags as a second
+    // "Uncaught (in promise)" alongside the real one. Chaining a no-op
+    // .catch() onto it (not onto `owned` itself) silences that specific
+    // orphan without affecting the real rejection any caller receives from
+    // `owned`.
+    owned
+      .finally(() => {
+        if (inFlight.get(key) === owned) inFlight.delete(key);
+      })
+      .catch(() => {});
     // Callers commonly Promise.all() three of these together (team, team,
     // h2h) — if two reject, only one becomes the Promise.all rejection the
     // caller actually catches, and the other is otherwise left unobserved,

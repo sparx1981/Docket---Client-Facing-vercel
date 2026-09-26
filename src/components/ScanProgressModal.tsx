@@ -110,6 +110,27 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            <div className="mb-3 grid grid-cols-3 gap-2">
+              <div className="rounded-lg border border-line bg-surface-2 px-2 py-2 text-center">
+                <div className="text-[10px] font-extrabold uppercase tracking-wide text-text-3">1. Download</div>
+                <div className="mt-0.5 text-[11px] leading-snug text-text-2">
+                  Raw fixtures for the days and leagues below
+                </div>
+              </div>
+              <div className="rounded-lg border border-line bg-surface-2 px-2 py-2 text-center">
+                <div className="text-[10px] font-extrabold uppercase tracking-wide text-text-3">2. Enrich</div>
+                <div className="mt-0.5 text-[11px] leading-snug text-text-2">
+                  Team stats &amp; H2H for a capped subset
+                </div>
+              </div>
+              <div className="rounded-lg border border-line bg-surface-2 px-2 py-2 text-center">
+                <div className="text-[10px] font-extrabold uppercase tracking-wide text-text-3">3. Filter</div>
+                <div className="mt-0.5 text-[11px] leading-snug text-text-2">
+                  Each rule's own thresholds decide qualifiers
+                </div>
+              </div>
+            </div>
+
             <div className="mb-2 flex items-center gap-1.5 rule-head text-text-2">
               <Database className="h-3.5 w-3.5" strokeWidth={2.5} />
               What this scan will download

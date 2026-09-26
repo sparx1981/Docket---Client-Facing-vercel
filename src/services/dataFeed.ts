@@ -99,7 +99,7 @@ export function describeScanPlan(settings: AppSettings): { lines: ScanPlanLine[]
     const scope = describeLeagueScope(thresholds.selectedLeagueIds, settings.leagueCatalog);
     lines.push({
       label: rule.title,
-      detail: `Scheduled fixtures over the next ${DAYS_AHEAD} days from ${scope}. Up to ${MAX_ENRICHED_FIXTURES_PER_SPORT} of those matches also get each team's season stats, recent form, and head-to-head history pulled in.`,
+      detail: `Download: every scheduled fixture over the next ${DAYS_AHEAD} days from ${scope}. Enrich: up to ${MAX_ENRICHED_FIXTURES_PER_SPORT} of those matches also get each team's season stats, recent form, and head-to-head history pulled in. Filter: every one of those fixtures — enriched or not — is then screened against this rule's own odds, form, and H2H thresholds; only the ones that pass become a Verified Qualifier or Price Watch entry.`,
     });
   }
 
