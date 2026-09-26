@@ -1,4 +1,4 @@
-import { ProviderError } from './errors';
+import { ProviderError } from './errors.js';
 
 /**
  * Thin fetch wrapper shared by every provider client. Builds a URL with

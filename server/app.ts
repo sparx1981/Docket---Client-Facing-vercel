@@ -1,6 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
-import { ProviderError } from './errors';
-import * as thestatsapi from './providers/thestatsapi';
+import { ProviderError } from './errors.js';
+import * as thestatsapi from './providers/thestatsapi.js';
 
 /**
  * Minimal backend proxy. Its only job is to forward provider requests

@@ -1,5 +1,5 @@
-import { fetchJson } from '../httpClient';
-import { ProviderError } from '../errors';
+import { fetchJson } from '../httpClient.js';
+import { ProviderError } from '../errors.js';
 import type { NormalizedFixture, NormalizedResult, NormalizedTeamProfile, H2HMatchRecord } from '../normalized';
 import type { FootballPrevSeasonStats, TeamRecentMatch } from '../../src/types';
 

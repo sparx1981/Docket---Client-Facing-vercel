@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import app from './app';
+import app from './app.js';
 
 // A closed/backpressured stdout pipe (a host's log capture disconnecting,
 // or just falling behind) makes Node's next console.log throw an unhandled
