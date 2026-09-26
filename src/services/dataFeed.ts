@@ -680,11 +680,66 @@ export async function fetchCandidateFixtures(
 }
 
 /**
+ * Plain-language summary of what "Refresh live feed" is actually about to
+ * download — the confirmation prompt in front of that button, mirroring
+ * describeScanPlan above. Unlike a real scan, this preview always fetches
+ * both football rules regardless of whether their own Enabled toggle is on
+ * (so Filter Thresholds can show a rule's live impact before it's turned
+ * on), and it reflects the currently-edited draft, not the last-saved
+ * settings — both worth spelling out explicitly rather than leaving the
+ * user to assume it behaves like the daily scan.
+ */
+export function describeLiveFeedPreviewPlan(settings: AppSettings): { lines: ScanPlanLine[]; hasAnyWork: boolean } {
+  const lines: ScanPlanLine[] = [];
+
+  if (!settings.theStatsApiKey) {
+    return {
+      lines: [{ label: 'Nothing configured', detail: 'No TheStatsAPI key is set in Engine Configuration — this preview would download nothing.' }],
+      hasAnyWork: false,
+    };
+  }
+
+  const rules: { key: 'footballOver15' | 'footballUnder35'; title: string }[] = [
+    { key: 'footballOver15', title: 'Football — Over 1.5 Goals' },
+    { key: 'footballUnder35', title: 'Football — Under 3.5 Goals' },
+  ];
+
+  let hasAnyWork = false;
+  for (const rule of rules) {
+    const thresholds = settings.ruleThresholds[rule.key];
+    if (thresholds.selectedLeagueIds.length === 0) {
+      lines.push({
+        label: rule.title,
+        detail: 'No leagues currently selected for this rule — nothing will be fetched for it until at least one league is picked below.',
+      });
+      continue;
+    }
+    hasAnyWork = true;
+    const scope = describeLeagueScope(thresholds.selectedLeagueIds, settings.leagueCatalog);
+    lines.push({
+      label: rule.title,
+      detail: `Always previewed, whether or not this rule's Enabled toggle above is on. Download: every scheduled fixture over the next ${DAYS_AHEAD} days from ${scope}. Enrich: up to ${MAX_ENRICHED_FIXTURES_PER_SPORT} of those matches also get each team's season stats, recent form, and head-to-head history pulled in. Filter: every one of those fixtures is then screened against this rule's own current (unsaved) thresholds, so the Filter Thresholds panel below can show its live impact.`,
+    });
+  }
+
+  lines.push({
+    label: 'Tennis — Straight Sets',
+    detail: 'Tennis has no configured data supplier yet — nothing will actually be downloaded for it.',
+  });
+
+  return { lines, hasAnyWork };
+}
+
+/**
  * Fetches the live data feed directly for all systems (even if currently toggled off)
  * so that the Filter Thresholds hover popups can show accurate feed counts and filter impact
  * across all configured providers.
  */
-export async function fetchLiveFeedSummary(settings: AppSettings): Promise<{
+export async function fetchLiveFeedSummary(
+  settings: AppSettings,
+  onProgress?: FeedProgressCallback,
+  signal?: AbortSignal
+): Promise<{
   fixtures: CandidateFixture[];
   footballOver15FeedInfo?: FeedSummaryRecord;
   footballUnder35FeedInfo?: FeedSummaryRecord;
@@ -736,7 +791,9 @@ export async function fetchLiveFeedSummary(settings: AppSettings): Promise<{
           dates,
           system,
           forcedThresholds,
-          systemThresholds.selectedLeagueIds
+          systemThresholds.selectedLeagueIds,
+          onProgress,
+          signal
         );
         fixtures.push(...fbResult.candidates);
         const info: FeedSummaryRecord = {
@@ -750,6 +807,9 @@ export async function fetchLiveFeedSummary(settings: AppSettings): Promise<{
         if (system === 'football_over_1_5') footballOver15FeedInfo = info;
         else footballUnder35FeedInfo = info;
       } catch (err) {
+        // A user-requested stop must actually stop this preview, not be
+        // recorded as if the provider itself had failed for this system.
+        if (isAbortError(err)) throw err;
         const msg = err instanceof Error ? err.message : String(err);
         errors.push(`Football feed error: ${msg}`);
         const info: FeedSummaryRecord = {
@@ -768,7 +828,7 @@ export async function fetchLiveFeedSummary(settings: AppSettings): Promise<{
 
   if (tennis) {
     try {
-      const tnResult = await buildTennisCandidates(tennis.key, dates, forcedThresholds);
+      const tnResult = await buildTennisCandidates(tennis.key, dates, forcedThresholds, onProgress, signal);
       fixtures.push(...tnResult.candidates);
       tennisFeedInfo = {
         sport: 'tennis',
@@ -779,6 +839,7 @@ export async function fetchLiveFeedSummary(settings: AppSettings): Promise<{
         error: tnResult.partialError,
       };
     } catch (err) {
+      if (isAbortError(err)) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`Tennis feed error: ${msg}`);
       tennisFeedInfo = {

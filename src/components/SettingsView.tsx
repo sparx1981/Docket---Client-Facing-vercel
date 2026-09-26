@@ -30,8 +30,16 @@ import {
 import { formatTimeUntilNextRun } from '../services/scheduler';
 import { FilterHoverPopup } from './FilterHoverPopup';
 import { calculateSystemBreakdown } from '../services/filterBreakdown';
-import { checkFeedHealth, FeedHealthResult, fetchLeagues, fetchLiveFeedSummary } from '../services/dataFeed';
+import {
+  checkFeedHealth,
+  describeLiveFeedPreviewPlan,
+  FeedHealthResult,
+  FeedProgressEvent,
+  fetchLeagues,
+  fetchLiveFeedSummary,
+} from '../services/dataFeed';
 import { runBacktest } from '../services/backtest';
+import { ScanProgressModal } from './ScanProgressModal';
 
 /** A link to the real place a provider's own dashboard lets you create/view an API key or token. */
 const ProviderKeyLink: React.FC<{ href: string; children: React.ReactNode }> = ({
@@ -145,6 +153,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [isRefreshingFeed, setIsRefreshingFeed] = useState(false);
   const [feedError, setFeedError] = useState<string | undefined>(fixturesError);
 
+  // "Refresh live feed" makes the same kind of real, rate-limited provider
+  // calls as the daily scan — it deserves the same confirm-first,
+  // cancellable, real-progress treatment rather than firing immediately
+  // with no way to see what it's doing or stop it.
+  const [isFeedPreviewModalOpen, setIsFeedPreviewModalOpen] = useState(false);
+  const [isAwaitingFeedPreviewConfirmation, setIsAwaitingFeedPreviewConfirmation] = useState(false);
+  const [isFeedPreviewFinished, setIsFeedPreviewFinished] = useState(false);
+  const [isFeedPreviewCancelled, setIsFeedPreviewCancelled] = useState(false);
+  const [feedPreviewEvents, setFeedPreviewEvents] = useState<FeedProgressEvent[]>([]);
+  const [feedPreviewFootballRecords, setFeedPreviewFootballRecords] = useState(0);
+  const [feedPreviewTennisRecords, setFeedPreviewTennisRecords] = useState(0);
+  const feedPreviewAbortControllerRef = useRef<AbortController | null>(null);
+  const feedPreviewPlan = useMemo(() => describeLiveFeedPreviewPlan(formData), [formData]);
+
   useEffect(() => {
     if (fixtures && fixtures.length > 0) {
       setLiveFixtures(fixtures);
@@ -184,11 +206,46 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // breakdown card below still renders its real "not configured" state.
   const tennisConfigured = false;
 
-  const handleRefreshLiveFeed = async () => {
+  // Opens the same confirm-first modal the daily scan uses — Refresh live
+  // feed makes real, rate-limited provider calls for both football rules
+  // (plus tennis if it ever gets a supplier), so it deserves the same
+  // "what will this download" step and the same ability to cancel, rather
+  // than firing immediately with no visible progress and no way to stop it.
+  const handleOpenFeedPreviewConfirm = () => {
+    if (isRefreshingFeed) {
+      setIsFeedPreviewModalOpen(true);
+      setIsAwaitingFeedPreviewConfirmation(false);
+      return;
+    }
+    setIsFeedPreviewModalOpen(true);
+    setIsAwaitingFeedPreviewConfirmation(true);
+  };
+
+  const handleCancelFeedPreviewConfirmation = () => {
+    setIsFeedPreviewModalOpen(false);
+    setIsAwaitingFeedPreviewConfirmation(false);
+  };
+
+  const handleConfirmStartFeedPreview = async () => {
+    setIsAwaitingFeedPreviewConfirmation(false);
+    setFeedPreviewEvents([]);
+    setFeedPreviewFootballRecords(0);
+    setFeedPreviewTennisRecords(0);
+    setIsFeedPreviewFinished(false);
+    setIsFeedPreviewCancelled(false);
     setIsRefreshingFeed(true);
     setFeedError(undefined);
+
+    const controller = new AbortController();
+    feedPreviewAbortControllerRef.current = controller;
+    const onProgress = (evt: FeedProgressEvent) => {
+      setFeedPreviewEvents((prev) => [...prev, evt]);
+      if (evt.sport === 'football') setFeedPreviewFootballRecords(evt.recordsSoFar);
+      else setFeedPreviewTennisRecords(evt.recordsSoFar);
+    };
+
     try {
-      const res = await fetchLiveFeedSummary(formData);
+      const res = await fetchLiveFeedSummary(formData, onProgress, controller.signal);
       if (res.fixtures && res.fixtures.length > 0) {
         setLiveFixtures(res.fixtures);
       }
@@ -203,12 +260,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       if (onRefreshFixtures) {
         onRefreshFixtures();
       }
+      setIsFeedPreviewFinished(true);
     } catch (err) {
-      setFeedError(err instanceof Error ? err.message : String(err));
+      // A user-requested stop isn't a real failure — leave feedError empty
+      // rather than surfacing "AbortError" as if the provider had failed.
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setIsFeedPreviewCancelled(true);
+      } else {
+        setFeedError(err instanceof Error ? err.message : String(err));
+        setIsFeedPreviewFinished(true);
+      }
     } finally {
+      feedPreviewAbortControllerRef.current = null;
       setIsRefreshingFeed(false);
     }
   };
+
+  const handleStopFeedPreview = () => {
+    feedPreviewAbortControllerRef.current?.abort();
+  };
+
+  // Abort an in-flight preview if this view unmounts, same as the backtest
+  // controllers above.
+  useEffect(() => {
+    return () => {
+      feedPreviewAbortControllerRef.current?.abort();
+    };
+  }, []);
 
   // Deliberately no auto-fetch on mount: a live provider call must only
   // happen at the configured schedule time or via an explicit manual
@@ -1058,8 +1136,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
             <button
               type="button"
-              onClick={handleRefreshLiveFeed}
-              disabled={isRefreshingFeed}
+              onClick={handleOpenFeedPreviewConfirm}
+              disabled={isFeedPreviewModalOpen}
+              title={isRefreshingFeed && !isFeedPreviewModalOpen ? 'A refresh is already running — click to view progress' : undefined}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border border-line bg-surface text-text hover:border-brand transition-colors shrink-0 disabled:opacity-60"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingFeed ? 'animate-spin text-brand' : ''}`} />
@@ -1083,7 +1162,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </h3>
                 <FilterHoverPopup
                   breakdown={over15Breakdown}
-                  onRefreshFeed={handleRefreshLiveFeed}
+                  onRefreshFeed={handleOpenFeedPreviewConfirm}
                   isRefreshing={isRefreshingFeed}
                 />
               </div>
@@ -1232,7 +1311,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </h3>
                 <FilterHoverPopup
                   breakdown={under35Breakdown}
-                  onRefreshFeed={handleRefreshLiveFeed}
+                  onRefreshFeed={handleOpenFeedPreviewConfirm}
                   isRefreshing={isRefreshingFeed}
                 />
               </div>
@@ -1379,7 +1458,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </h3>
                 <FilterHoverPopup
                   breakdown={tennisBreakdown}
-                  onRefreshFeed={handleRefreshLiveFeed}
+                  onRefreshFeed={handleOpenFeedPreviewConfirm}
                   isRefreshing={isRefreshingFeed}
                 />
               </div>
@@ -1536,6 +1615,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           Save configuration
         </Button>
       </div>
+
+      <ScanProgressModal
+        variant="feedPreview"
+        isOpen={isFeedPreviewModalOpen}
+        awaitingConfirmation={isAwaitingFeedPreviewConfirmation}
+        planLines={feedPreviewPlan.lines}
+        hasAnyWork={feedPreviewPlan.hasAnyWork}
+        isRunning={isRefreshingFeed}
+        isFinished={isFeedPreviewFinished}
+        isCancelled={isFeedPreviewCancelled}
+        events={feedPreviewEvents}
+        footballRecords={feedPreviewFootballRecords}
+        tennisRecords={feedPreviewTennisRecords}
+        onClose={isAwaitingFeedPreviewConfirmation ? handleCancelFeedPreviewConfirmation : () => setIsFeedPreviewModalOpen(false)}
+        onStop={handleStopFeedPreview}
+        onConfirmStart={handleConfirmStartFeedPreview}
+      />
     </form>
   );
 };

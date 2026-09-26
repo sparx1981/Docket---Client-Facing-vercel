@@ -32,7 +32,66 @@ interface ScanProgressModalProps {
   onStop: () => void;
   /** Only called once the user confirms the plan shown above — this is what actually starts the scan. */
   onConfirmStart: () => void;
+  /**
+   * Which flow this instance represents — the full daily scan (default) or
+   * the Settings "Refresh live feed" preview. Both make the same kind of
+   * real, cancellable provider calls, so they share this component rather
+   * than duplicating it; only the copy differs.
+   */
+  variant?: 'dailyScan' | 'feedPreview';
 }
+
+const COPY = {
+  dailyScan: {
+    idPrefix: 'scan',
+    ariaConfirm: 'Confirm daily scan',
+    title: 'Run a manual daily scan?',
+    subtitle: 'This makes real calls to the configured provider(s) — nothing has been requested yet.',
+    planHeading: 'What this scan will download',
+    startLabel: 'Start scan',
+    ariaProgress: 'Daily scan progress',
+    runningTitle: 'Running daily scan',
+    runningSubtitle: 'Requesting live fixtures from the configured provider(s) — this can take a while under rate limits.',
+    finishedTitle: 'Scan complete',
+    finishedSubtitle: 'Every candidate audited against the locked filters.',
+    cancelledTitle: 'Scan stopped',
+    cancelledSubtitle: 'Cancelled before finishing — no results from this run were saved.',
+    streamLabel: 'Live audit stream',
+    stopConfirmText:
+      'Stop this scan? The in-progress API calls will be cancelled and no results from this run will be saved.',
+    stopButtonLabel: 'Stop scan',
+    footerFinishedText: 'All candidates audited and stamped.',
+    footerCancelledText: 'Stopped before completion.',
+    viewResultsLabel: 'View qualifiers',
+    cancelledStreamNote: 'Scan stopped by user — remaining API calls were cancelled.',
+    finishedStreamNote: 'Scan finished — results are ready.',
+  },
+  feedPreview: {
+    idPrefix: 'feed-preview',
+    ariaConfirm: 'Confirm live feed preview',
+    title: 'Preview the live feed?',
+    subtitle:
+      "This makes real calls to the configured provider(s), using your current unsaved Filter Thresholds draft — nothing has been requested yet.",
+    planHeading: 'What this preview will download',
+    startLabel: 'Start preview',
+    ariaProgress: 'Live feed preview progress',
+    runningTitle: 'Refreshing live feed',
+    runningSubtitle: 'Requesting live fixtures from the configured provider(s) to preview your current draft filters.',
+    finishedTitle: 'Feed refreshed',
+    finishedSubtitle: 'Filter Thresholds below now reflect this data.',
+    cancelledTitle: 'Preview stopped',
+    cancelledSubtitle: 'Cancelled before finishing — Filter Thresholds still show data from the last completed refresh.',
+    streamLabel: 'Live feed stream',
+    stopConfirmText:
+      'Stop this preview? The in-progress API calls will be cancelled and Filter Thresholds will keep showing data from the last completed refresh.',
+    stopButtonLabel: 'Stop preview',
+    footerFinishedText: 'Filter Thresholds updated with this data.',
+    footerCancelledText: 'Stopped before completion.',
+    viewResultsLabel: 'Done',
+    cancelledStreamNote: 'Preview stopped by user — remaining API calls were cancelled.',
+    finishedStreamNote: 'Preview finished — Filter Thresholds updated.',
+  },
+} as const;
 
 /**
  * Shows the actual state of a running scan — real messages and real record
@@ -56,7 +115,9 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
   onClose,
   onStop,
   onConfirmStart,
+  variant = 'dailyScan',
 }) => {
+  const c = COPY[variant];
   const logRef = useRef<HTMLDivElement>(null);
   const [confirmingStop, setConfirmingStop] = useState(false);
 
@@ -79,10 +140,10 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
         className="animate-veil fixed inset-0 z-50 flex items-end justify-center bg-black/65 p-0 sm:items-center sm:p-4"
         role="dialog"
         aria-modal="true"
-        aria-label="Confirm daily scan"
+        aria-label={c.ariaConfirm}
       >
         <div
-          id="scan-confirm-modal"
+          id={`${c.idPrefix}-confirm-modal`}
           className="animate-lift flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl border border-line bg-surface shadow-drawer sm:rounded-2xl"
         >
           <div className="guilloche shrink-0 border-b border-line bg-surface-2 px-5 py-4">
@@ -92,14 +153,13 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
                   <SealMark className="h-6 w-6" />
                 </span>
                 <div>
-                  <h3 className="text-[15px] font-extrabold tracking-tight text-text">Run a manual daily scan?</h3>
-                  <p className="text-[12px] text-text-2">
-                    This makes real calls to the configured provider(s) — nothing has been requested yet.
-                  </p>
+                  <h3 className="text-[15px] font-extrabold tracking-tight text-text">{c.title}</h3>
+                  <p className="text-[12px] text-text-2">{c.subtitle}</p>
                 </div>
               </div>
               <button
-                id="btn-close-scan-confirm"
+                id={`btn-close-${c.idPrefix}-confirm`}
+                type="button"
                 onClick={onClose}
                 aria-label="Close"
                 className="flex h-9 w-9 items-center justify-center rounded-lg text-text-3 transition-colors duration-200 hover:bg-surface-3 hover:text-text"
@@ -133,7 +193,7 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
 
             <div className="mb-2 flex items-center gap-1.5 rule-head text-text-2">
               <Database className="h-3.5 w-3.5" strokeWidth={2.5} />
-              What this scan will download
+              {c.planHeading}
             </div>
             <div className="space-y-2.5">
               {planLines.map((line, i) => (
@@ -147,15 +207,21 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
 
           <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-surface-2 px-5 py-3.5">
             <button
-              id="btn-cancel-scan-confirm"
+              id={`btn-cancel-${c.idPrefix}-confirm`}
               type="button"
               onClick={onClose}
               className="px-3 py-2 rounded-lg text-[12px] font-semibold text-text-2 hover:bg-surface-3 transition-colors"
             >
               Cancel
             </button>
-            <Button id="btn-confirm-start-scan" variant="primary" disabled={!hasAnyWork} onClick={onConfirmStart}>
-              Start scan
+            <Button
+              id={`btn-confirm-start-${c.idPrefix}`}
+              type="button"
+              variant="primary"
+              disabled={!hasAnyWork}
+              onClick={onConfirmStart}
+            >
+              {c.startLabel}
             </Button>
           </div>
         </div>
@@ -168,10 +234,10 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
       className="animate-veil fixed inset-0 z-50 flex items-end justify-center bg-black/65 p-0 sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
-      aria-label="Daily scan progress"
+      aria-label={c.ariaProgress}
     >
       <div
-        id="scan-progress-modal"
+        id={`${c.idPrefix}-progress-modal`}
         className="animate-lift flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl border border-line bg-surface shadow-drawer sm:rounded-2xl"
       >
         {/* Head */}
@@ -191,21 +257,18 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
               </span>
               <div>
                 <h3 className="text-[15px] font-extrabold tracking-tight text-text">
-                  {isCancelled ? 'Scan stopped' : isFinished ? 'Scan complete' : 'Running daily scan'}
+                  {isCancelled ? c.cancelledTitle : isFinished ? c.finishedTitle : c.runningTitle}
                 </h3>
                 <p className="text-[12px] text-text-2">
-                  {isCancelled
-                    ? 'Cancelled before finishing — no results from this run were saved.'
-                    : isFinished
-                    ? 'Every candidate audited against the locked filters.'
-                    : 'Requesting live fixtures from the configured provider(s) — this can take a while under rate limits.'}
+                  {isCancelled ? c.cancelledSubtitle : isFinished ? c.finishedSubtitle : c.runningSubtitle}
                 </p>
               </div>
             </div>
 
             {canClose && (
               <button
-                id="btn-close-scan-modal"
+                id={`btn-close-${c.idPrefix}-modal`}
+                type="button"
                 onClick={onClose}
                 aria-label="Close"
                 className="flex h-9 w-9 items-center justify-center rounded-lg text-text-3 transition-colors duration-200 hover:bg-surface-3 hover:text-text"
@@ -251,7 +314,7 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
             <div className="mb-2 flex items-center justify-between">
               <span className="rule-head flex items-center gap-1.5 text-text-2">
                 <Terminal className="h-3.5 w-3.5" strokeWidth={2.5} />
-                Live audit stream
+                {c.streamLabel}
               </span>
               <span className="font-mono text-[10px] text-text-3">
                 {isCancelled ? 'stopped' : isFinished ? 'ended' : isRunning ? 'streaming…' : 'starting…'}
@@ -259,7 +322,7 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
             </div>
 
             <div
-              id="scan-terminal-log"
+              id={`${c.idPrefix}-terminal-log`}
               ref={logRef}
               className="h-64 space-y-1 overflow-y-auto rounded-lg border border-line bg-surface-2 px-3 py-2.5 font-mono text-[11px] leading-relaxed"
             >
@@ -271,10 +334,8 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
                   <span className="text-text-3">[{evt.sport}]</span> {evt.message}
                 </div>
               ))}
-              {isCancelled && (
-                <div className="font-bold text-warn-ink">Scan stopped by user — remaining API calls were cancelled.</div>
-              )}
-              {isFinished && <div className="font-bold text-ok-ink">Scan finished — results are ready.</div>}
+              {isCancelled && <div className="font-bold text-warn-ink">{c.cancelledStreamNote}</div>}
+              {isFinished && <div className="font-bold text-ok-ink">{c.finishedStreamNote}</div>}
               {!isFinished && !isCancelled && (
                 <div className="h-3 w-24 overflow-hidden rounded bg-surface-3">
                   <div className="animate-sweep h-full w-1/3 bg-brand-soft" />
@@ -290,13 +351,10 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
             <div className="flex items-start gap-2.5">
               <OctagonAlert className="h-4 w-4 text-warn-ink shrink-0 mt-0.5" />
               <div className="min-w-0 flex-1 space-y-2.5">
-                <p className="text-[12px] font-semibold text-warn-ink">
-                  Stop this scan? The in-progress API calls will be cancelled and no results from this run will be
-                  saved.
-                </p>
+                <p className="text-[12px] font-semibold text-warn-ink">{c.stopConfirmText}</p>
                 <div className="flex items-center justify-end gap-2">
                   <button
-                    id="btn-cancel-stop-scan"
+                    id={`btn-cancel-stop-${c.idPrefix}`}
                     type="button"
                     onClick={() => setConfirmingStop(false)}
                     className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-text-2 hover:bg-surface-3 transition-colors"
@@ -304,7 +362,7 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
                     Keep going
                   </button>
                   <button
-                    id="btn-confirm-stop-scan"
+                    id={`btn-confirm-stop-${c.idPrefix}`}
                     type="button"
                     onClick={() => {
                       setConfirmingStop(false);
@@ -312,7 +370,7 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
                     }}
                     className="px-3 py-1.5 rounded-lg text-[12px] font-bold bg-bad text-on-bad hover:bg-bad-hover transition-colors"
                   >
-                    Yes, stop scan
+                    {`Yes, ${c.stopButtonLabel.toLowerCase()}`}
                   </button>
                 </div>
               </div>
@@ -324,30 +382,27 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
         {!confirmingStop && (
           <div className="flex shrink-0 items-center justify-between gap-3 border-t border-line bg-surface-2 px-5 py-3.5">
             <span className="text-[12px] text-text-2">
-              {isCancelled
-                ? 'Stopped before completion.'
-                : isFinished
-                ? 'All candidates audited and stamped.'
-                : `${totalRecords} record(s) retrieved so far…`}
+              {isCancelled ? c.footerCancelledText : isFinished ? c.footerFinishedText : `${totalRecords} record(s) retrieved so far…`}
             </span>
             <div className="flex items-center gap-2">
               {isRunning && !isFinished && !isCancelled && (
                 <button
-                  id="btn-stop-scan"
+                  id={`btn-stop-${c.idPrefix}`}
                   type="button"
                   onClick={() => setConfirmingStop(true)}
                   className="px-3 py-2 rounded-lg text-[12px] font-semibold text-bad-ink border border-line hover:bg-surface-3 transition-colors"
                 >
-                  Stop scan
+                  {c.stopButtonLabel}
                 </button>
               )}
               <Button
-                id="btn-view-scan-results"
+                id={`btn-view-${c.idPrefix}-results`}
+                type="button"
                 variant="primary"
                 disabled={!canClose}
                 onClick={onClose}
               >
-                {isCancelled ? 'Close' : isFinished ? 'View qualifiers' : 'Auditing…'}
+                {isCancelled ? 'Close' : isFinished ? c.viewResultsLabel : 'Working…'}
               </Button>
             </div>
           </div>
