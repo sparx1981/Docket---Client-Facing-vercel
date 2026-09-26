@@ -48,14 +48,20 @@ function looksLikeHtml(text: string): boolean {
 }
 
 // Every path this client ever requests is a real route registered in
-// server/index.ts (confirmed: this exact message appears nowhere in our own
-// server code). A 404 with this body means the dev/preview host's own proxy
-// answered while the backend process was mid-restart and hadn't finished
-// registering its routes yet — the same underlying instability the
-// "Starting Server..." placeholder page (above) already retries through,
-// just surfaced in a different shape. Without this, that transient restart
-// window permanently drops whatever was being fetched (e.g. one fixture's
-// odds) instead of recovering on its own like every other endpoint does.
+// server/index.ts, and our own handleError (see server/index.ts) only ever
+// answers with 502 or 500 — never 404 — so this exact 404 body can only come
+// from something in front of our Express app (the dev/preview host's own
+// proxy). It was first assumed to be the same transient "still starting"
+// race the HTML placeholder page (below) recovers from, and retried with
+// that same ~48s budget — but observed evidence for the odds endpoint
+// specifically showed all 10 retries failing identically for the same
+// match id, never once recovering. That means it isn't a startup race for
+// this route, and burning the full budget on it was pure wasted time during
+// enrichment. One quick, cheap retry (in case it's ever a genuine one-off
+// blip) is all this gets before failing fast.
+const MAX_PROXY_404_RETRIES = 1;
+const PROXY_404_RETRY_DELAY_MS = 400;
+
 function looksLikeTransientProxy404(status: number, body: any): boolean {
   return status === 404 && body?.error === 'API route not found';
 }
@@ -90,18 +96,17 @@ async function performApiGet(path: string, providerKey: string, signal?: AbortSi
     }
 
     if (!response.ok) {
-      if (!parseFailed && looksLikeTransientProxy404(response.status, body) && attempt < MAX_STARTING_SERVER_RETRIES) {
-        const wait = startingServerRetryDelay(attempt);
+      if (!parseFailed && looksLikeTransientProxy404(response.status, body) && attempt < MAX_PROXY_404_RETRIES) {
         console.warn(
-          `[api] ⧗ backend still starting (proxy 404) for ${path} — retrying in ${wait}ms (attempt ${attempt + 1}/${MAX_STARTING_SERVER_RETRIES})`
+          `[api] ⧗ proxy 404 for ${path} — retrying once in ${PROXY_404_RETRY_DELAY_MS}ms before giving up (this route doesn't recover from repeated retries)`
         );
-        await sleep(wait, signal);
+        await sleep(PROXY_404_RETRY_DELAY_MS, signal);
         continue;
       }
       console.error(`[api] ✗ ${response.status} for ${path}:`, parseFailed ? rawText.slice(0, 300) : body);
       throw new Error(
         looksLikeTransientProxy404(response.status, body)
-          ? `${path} — the backend API server is still starting and didn't come up after ${MAX_STARTING_SERVER_RETRIES} retries. Try running the scan again shortly.`
+          ? `${path} — the hosting proxy doesn't route this endpoint right now (not a backend startup issue — retrying further wouldn't help).`
           : body?.error || `Request to ${path} failed with status ${response.status}`
       );
     }
