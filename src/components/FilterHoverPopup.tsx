@@ -14,6 +14,8 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { SystemFeedBreakdown } from '../types';
+import { evaluateH2HOver15 } from '../services/rulesEngine';
+import { MAX_ENRICHED_FIXTURES_PER_SPORT } from '../services/dataFeed';
 
 const csvEscape = (val: unknown): string => {
   if (val === null || val === undefined) return '""';
@@ -26,10 +28,10 @@ export function exportDataFeedCsv(breakdown: SystemFeedBreakdown) {
   if (matches.length === 0) return;
 
   const isFootball = breakdown.sport === 'football';
+  const isUnder35 = breakdown.system === 'football_under_3_5';
 
   const headers = isFootball
     ? [
-        'ID',
         'System',
         'Sport',
         'Competition',
@@ -47,11 +49,10 @@ export function exportDataFeedCsv(breakdown: SystemFeedBreakdown) {
         'Enriched Stats Status',
         'Home Prev Season Scored',
         'Away Prev Season Scored',
-        'H2H Over 1.5 Rate',
+        isUnder35 ? 'H2H Under 3.5 Rate (last 10 competitive)' : 'H2H Over 1.5 Rate (last 5 competitive)',
         'Venue',
       ]
     : [
-        'ID',
         'System',
         'Sport',
         'Competition',
@@ -77,16 +78,20 @@ export function exportDataFeedCsv(breakdown: SystemFeedBreakdown) {
   const rows = matches.map((m) => {
     if (isFootball) {
       const fb = m.footballDetails;
-      const h2hOver15 =
-        fb?.h2hMatches && fb.h2hMatches.length > 0
-          ? `${(
-              (fb.h2hMatches.filter((x) => x.totalGoals > 1).length /
-                fb.h2hMatches.length) *
-              100
-            ).toFixed(0)}%`
-          : 'N/A';
+      // Same last-5-competitive-meetings calculation the filter itself uses
+      // (including its 5-meeting minimum), so the CSV can never show a rate
+      // that disagrees with why a fixture passed or failed.
+      const h2hRate = !fb?.h2hMatches?.length
+        ? 'N/A'
+        : isUnder35
+        ? (() => {
+            const window = fb.h2hMatches.filter((x) => x.isCompetitive).slice(0, 10);
+            const under = window.filter((x) => x.totalGoals < 4).length;
+            const pct = window.length ? Math.round((under / window.length) * 100) : 0;
+            return `${under}/${window.length} (${pct}%)${window.length >= 8 ? '' : ` — only ${window.length} of 8 required meetings on record`}`;
+          })()
+        : evaluateH2HOver15(fb.h2hMatches, breakdown.h2hOver15MinRate ?? 0).summary;
       return [
-        csvEscape(m.id),
         csvEscape(breakdown.ruleTitle),
         csvEscape(m.sport),
         csvEscape(m.competition),
@@ -104,7 +109,7 @@ export function exportDataFeedCsv(breakdown: SystemFeedBreakdown) {
         csvEscape(fb ? 'Enriched' : 'Pending / Partial'),
         csvEscape(fb?.homePrevSeason?.avgGoalsScored?.toFixed(2) ?? 'N/A'),
         csvEscape(fb?.awayPrevSeason?.avgGoalsScored?.toFixed(2) ?? 'N/A'),
-        csvEscape(h2hOver15),
+        csvEscape(h2hRate),
         csvEscape(m.venue || 'N/A'),
       ].join(',');
     } else {
@@ -114,7 +119,6 @@ export function exportDataFeedCsv(breakdown: SystemFeedBreakdown) {
           ? `${tn.opponentPlayer.ranking - tn.selectedPlayer.ranking}`
           : 'N/A';
       return [
-        csvEscape(m.id),
         csvEscape(breakdown.ruleTitle),
         csvEscape(m.sport),
         csvEscape(m.competition),
@@ -485,7 +489,7 @@ export const FilterHoverPopup: React.FC<FilterHoverPopupProps> = ({
                   <span>
                     <strong>Feed Ingestion Pipeline:</strong> Ingests scheduled matches across an upcoming 3-day query
                     window from {breakdown.provider}, scoped to <strong>{breakdown.leagueScopeLabel}</strong> (this
-                    rule's own League selector) with no other pre-filtering. The first 40 matches are enriched with
+                    rule's own League selector) with no other pre-filtering. The first {MAX_ENRICHED_FIXTURES_PER_SPORT} matches are enriched with
                     deep head-to-head, prior season, or ranking profiles.
                   </span>
                 </div>

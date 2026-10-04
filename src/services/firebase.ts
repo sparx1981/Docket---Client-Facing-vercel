@@ -20,6 +20,7 @@ import {
 import firebaseConfig from '../../firebase-applet-config.json';
 import {
   AppSettings,
+  CandidateFixture,
   HistoricalBetRecord,
   SyncLogRecord,
   BacktestRunRecord,
@@ -211,5 +212,25 @@ export async function persistUserSyncDataToCloud(
     );
   } catch (err) {
     console.error('Failed to persist sync data to Firestore:', err);
+  }
+}
+
+/**
+ * The classified fixtures written by the server-side daily scan cron
+ * (users/{uid}/scanCache/latest), or null when no cron scan has run.
+ */
+export async function fetchLatestScanCache(
+  userId: string
+): Promise<{ scannedAt: string; fixtures: CandidateFixture[] } | null> {
+  try {
+    const snap = await getDoc(doc(db, 'users', userId, 'scanCache', 'latest'));
+    if (!snap.exists()) return null;
+    const data = snap.data() as { scannedAt?: string; fixturesJson?: string };
+    if (!data.scannedAt || !data.fixturesJson) return null;
+    const fixtures = JSON.parse(data.fixturesJson);
+    return Array.isArray(fixtures) ? { scannedAt: data.scannedAt, fixtures } : null;
+  } catch (err) {
+    console.error('Failed to fetch cached scan results from Firestore:', err);
+    return null;
   }
 }

@@ -1,5 +1,14 @@
 {
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api" }
-  ]
+  ],
+  "crons": [
+    { "path": "/api/cron/daily-scan", "schedule": "0 6 * * *" }
+  ],
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 300,
+      "includeFiles": "firebase-applet-config.json"
+    }
+  }
 }

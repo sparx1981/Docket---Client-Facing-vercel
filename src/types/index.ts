@@ -429,5 +429,7 @@ export interface SystemFeedBreakdown {
   priceWatchCount: number;
   fetchedAt?: string;
   rawMatches?: CandidateFixture[];
+  /** Over 1.5 rule's configured minimum H2H rate (0-1) — lets the CSV export evaluate H2H exactly as the filter does. */
+  h2hOver15MinRate?: number;
 }
 

@@ -6,6 +6,16 @@
  * directly from the browser.
  */
 
+/**
+ * Origin prepended to every request path. Empty in the browser (same-origin
+ * relative URLs); the server-side daily-scan cron sets it to its own
+ * in-process API listener so the exact same scan code can run there.
+ */
+let apiBaseUrl = '';
+export function setApiBaseUrl(url: string): void {
+  apiBaseUrl = url;
+}
+
 /** Rejects with an AbortError immediately if the signal fires during the wait, so a user-requested stop is never stuck behind a retry backoff. */
 export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -72,7 +82,7 @@ async function performApiGet(path: string, providerKey: string, signal?: AbortSi
 
     let response: Response;
     try {
-      response = await fetch(path, { headers: { 'x-provider-key': providerKey }, signal });
+      response = await fetch(apiBaseUrl + path, { headers: { 'x-provider-key': providerKey }, signal });
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         console.log(`[api] ⏹ cancelled ${path}`);

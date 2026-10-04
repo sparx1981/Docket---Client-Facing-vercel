@@ -1,9 +1,9 @@
-import {
+import type {
   CandidateFixture,
   VerificationAuditCard,
   RuleThresholds,
 } from '../types';
-import { evaluateFixture } from './rulesEngine';
+import { evaluateFixture, evaluateH2HOver15 } from './rulesEngine.js';
 
 /**
  * The Verification Engine (Mandatory Audit)
@@ -67,7 +67,6 @@ export function runVerificationAudit(
 
     if (fixture.system === 'football_over_1_5') {
       const t = thresholds.footballOver15;
-      const minH2HCount = Math.ceil(t.minH2HOver15Rate * 5);
 
       recalculatedMetrics.push({
         ruleLabel: 'Raw Home Prev Season Avg Scored',
@@ -84,12 +83,12 @@ export function runVerificationAudit(
 
       // 2. Raw itemized recalculation of last 5 H2H
       const h2hRaw = details.h2hMatches.filter((m) => m.isCompetitive).slice(0, 5);
-      const rawOver15Count = h2hRaw.filter((m) => m.homeScore + m.awayScore > 1).length;
+      const h2hOver15 = evaluateH2HOver15(details.h2hMatches, t.minH2HOver15Rate);
       recalculatedMetrics.push({
         ruleLabel: 'Raw H2H Over 1.5 Recalculation',
-        computedMetric: `${rawOver15Count} of ${h2hRaw.length} matches finished Over 1.5 (${((rawOver15Count / 5) * 100).toFixed(0)}%)`,
-        thresholdRequired: `>= ${minH2HCount} of 5 (${(t.minH2HOver15Rate * 100).toFixed(0)}%)`,
-        verifiedMatch: h2hRaw.length >= 5 && rawOver15Count >= minH2HCount,
+        computedMetric: `${h2hOver15.over15} of ${h2hOver15.considered} matches finished Over 1.5 (${h2hOver15.ratePercent}%)`,
+        thresholdRequired: `>= ${h2hOver15.required} of 5 (${(t.minH2HOver15Rate * 100).toFixed(0)}%), 5 meetings required`,
+        verifiedMatch: h2hOver15.passed,
       });
 
       // 3. Raw itemized recalculation of last 5 competitive form games

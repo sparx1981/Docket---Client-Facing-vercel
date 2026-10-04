@@ -61,6 +61,17 @@ All under `/api`, all requiring an `x-provider-key` header (400 without one):
 A provider failure comes back as a 502 with the upstream status/message —
 never a 200 with placeholder data.
 
+## Server-side daily scan (Vercel Cron)
+
+`vercel.json` schedules `GET /api/cron/daily-scan` daily at 06:00 UTC, so the scan runs even when nobody has the app open (the in-browser scheduler only fires while a tab is open and remains as a catch-up fallback). For each user with the scheduled scan enabled and a TheStatsAPI key saved, it runs the same scan + verification code as the app, appends a sync log, auto-archives qualifiers, and caches the classified fixtures so they appear on next login.
+
+Required Vercel environment variables:
+
+- `CRON_SECRET` — any long random string; Vercel sends it as a Bearer token and the endpoint refuses to run without it.
+- `FIREBASE_SERVICE_ACCOUNT_JSON` — the full JSON of a Firebase service-account key for the project (Firestore rules only allow signed-in users to read their own data, so the server needs admin credentials).
+
+A user is skipped if their last scan was under 20 hours ago. The cron time is set in `vercel.json` (Hobby plans allow one run per day).
+
 ## Views
 
 - **Today's Docket** — selections that cleared every locked filter and the price threshold

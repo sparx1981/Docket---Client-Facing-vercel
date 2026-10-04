@@ -1,4 +1,4 @@
-import {
+import type {
   AppSettings,
   CandidateFixture,
   FeedSummaryRecord,
@@ -11,9 +11,9 @@ import {
   TennisPlayerStats,
   TennisRecentMatch,
 } from '../types';
-import { evaluateFixture } from './rulesEngine';
-import { apiGet, sleep } from './backendClient';
-import { describeLeagueScope } from './filterBreakdown';
+import { evaluateFixture } from './rulesEngine.js';
+import { apiGet, sleep } from './backendClient.js';
+import { describeLeagueScope } from './filterBreakdown.js';
 
 /**
  * Real fixture ingestion. Every football candidate fixture on screen now
@@ -59,10 +59,10 @@ export type FeedProgressCallback = (event: FeedProgressEvent) => void;
 // we capture the full count of raw fixtures returned by the daily schedule API.
 // We then enrich up to MAX_ENRICHED_FIXTURES_PER_SPORT fixtures to keep requests
 // responsive and avoid tripping trial tier rate limits.
-export const MAX_ENRICHED_FIXTURES_PER_SPORT = 40;
+export const MAX_ENRICHED_FIXTURES_PER_SPORT = 200;
 
 // A small pause between each enriched fixture's own burst of calls (3-4 for
-// football, 2 for tennis) — with none, up to 40 fixtures fire their calls
+// football, 2 for tennis) — with none, up to 200 fixtures fire their calls
 // back-to-back as fast as the event loop allows, which has been observed to
 // destabilize the backend/proxy partway through a scan (calls that succeeded
 // at the start start timing out or hitting "still starting" placeholders

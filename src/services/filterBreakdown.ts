@@ -1,4 +1,4 @@
-import {
+import type {
   CandidateFixture,
   DataProviderType,
   FeedSummaryRecord,
@@ -9,6 +9,7 @@ import {
   SystemFeedBreakdown,
   SystemType,
 } from '../types';
+import { evaluateH2HOver15 } from './rulesEngine.js';
 
 /** Human-readable summary of a rule's league scope, e.g. "All leagues" or "Premier League, La Liga". */
 export function describeLeagueScope(selectedLeagueIds: string[], leagueCatalog: LeagueOption[]): string {
@@ -148,13 +149,10 @@ function buildFootballOver15Breakdown(params: {
       id: 'F2_H2H_OVER15',
       name: 'Min. H2H Over 1.5 rate',
       targetRule: `Last 5 competitive H2H meetings >= ${(thresholds.minH2HOver15Rate * 100).toFixed(0)}% Over 1.5 Goals`,
-      targetValue: `>= ${(thresholds.minH2HOver15Rate * 100).toFixed(0)}% (last 5 H2H)`,
+      targetValue: `>= ${(thresholds.minH2HOver15Rate * 100).toFixed(0)}% (last 5 H2H, 5 meetings required)`,
       test: (f) => {
         if (!f.footballDetails) return false;
-        const competitiveH2H = f.footballDetails.h2hMatches.filter((m) => m.isCompetitive).slice(0, 5);
-        const over15Count = competitiveH2H.filter((m) => m.totalGoals > 1).length;
-        const minReq = Math.ceil(thresholds.minH2HOver15Rate * 5);
-        return competitiveH2H.length >= 5 && over15Count >= minReq;
+        return evaluateH2HOver15(f.footballDetails.h2hMatches, thresholds.minH2HOver15Rate).passed;
       },
     },
     {
@@ -215,6 +213,7 @@ function buildFootballOver15Breakdown(params: {
     priceWatchCount: priceWatch.length,
     fetchedAt: feedInfo?.fetchedAt,
     rawMatches: uniqueFootballMatches,
+    h2hOver15MinRate: thresholds.minH2HOver15Rate,
   };
 }
 

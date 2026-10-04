@@ -11,8 +11,10 @@ import {
   BacktestRunRecord,
 } from '../types';
 import { backfillHistoricalResults } from './historyBackfill';
+import { buildHistoricalBetFromQualifier } from './archiveRecord';
 import {
   fetchUserCloudData,
+  fetchLatestScanCache,
   persistUserSettingsToCloud,
   persistUserHistoricalBetsToCloud,
   persistUserSyncDataToCloud,
@@ -293,38 +295,7 @@ export function logVerifiedQualifierToHistory(
   const existing = currentBets.find((b) => b.fixtureId === fixture.id);
   if (existing) return existing;
 
-  const newBet: HistoricalBetRecord = {
-    id: `HIST-${Date.now().toString(36).toUpperCase()}`,
-    date: new Date().toISOString().split('T')[0],
-    fixtureId: fixture.id,
-    sport: fixture.sport,
-    system: fixture.system,
-    match: fixture.matchTitle,
-    competition: fixture.competition,
-    selection: fixture.betType,
-    // Fall back to the system's disclosed minimum qualifying price rather
-    // than a fabricated figure when no real market price has been attached
-    // yet (TheStatsAPI has no odds on file for this fixture).
-    oddsTaken: fixture.marketOdds?.decimalOdds ?? fixture.requiredOdds,
-    stake,
-    outcome: 'PENDING',
-    pnl: 0,
-    roiContribution: 0,
-    auditId: auditCard.auditId,
-    notes: `Logged automatically from Daily Scan. Audit integrity: ${auditCard.dataIntegrityScore}%.`,
-    googleVerificationUrl:
-      fixture.googleVerificationUrl ||
-      `https://www.google.com/search?q=${encodeURIComponent(
-        `${fixture.matchTitle} ${fixture.competition} ${fixture.betType} result score`
-      )}`,
-    flashscoreUrl: `https://www.flashscore.com/search/?q=${encodeURIComponent(
-      fixture.matchTitle
-    )}`,
-    dataSourceName:
-      fixture.sport === 'tennis'
-        ? 'Tennis Abstract Engine'
-        : 'Flashscore Telemetry',
-  };
+  const newBet = buildHistoricalBetFromQualifier(fixture, auditCard, stake);
 
   const updated = [newBet, ...currentBets];
   saveHistoricalBets(updated);
@@ -548,8 +519,11 @@ export async function hydrateUserDataFromCloud(
   syncLogs: SyncLogRecord[];
   lastScanTimestamp: string | null;
   backtestRuns: BacktestRunRecord[];
+  /** Fixtures from a newer server-side (cron) scan than this device has seen, if any. */
+  cronFixtures?: CandidateFixture[];
 }> {
   try {
+    const previousLocalScan = getStoredLastScanTimestamp();
     const cloudData = await fetchUserCloudData(userId);
 
     if (!cloudData || !cloudData.settings) {
@@ -619,12 +593,25 @@ export async function hydrateUserDataFromCloud(
     }
     localStorage.setItem(BACKTEST_RUNS_KEY, JSON.stringify(cloudBacktestRuns));
 
+    // A server-side daily scan stores its classified fixtures alongside the
+    // sync log. If it ran after this device's own last scan, show its results
+    // instead of an empty Qualifiers page.
+    let cronFixtures: CandidateFixture[] | undefined;
+    if (cloudLastScan && (!previousLocalScan || cloudLastScan > previousLocalScan)) {
+      const cache = await fetchLatestScanCache(userId);
+      if (cache && cache.scannedAt === cloudLastScan) {
+        cronFixtures = cache.fixtures.filter((f) => !hasKickedOff(f));
+        saveStoredFixtures(cronFixtures);
+      }
+    }
+
     return {
       settings: cloudSettings,
       historicalBets: cloudBets,
       syncLogs: cloudLogs,
       lastScanTimestamp: cloudLastScan,
       backtestRuns: cloudBacktestRuns,
+      cronFixtures,
     };
   } catch (err) {
     console.error('Error hydrating user cloud data from Firestore:', err);

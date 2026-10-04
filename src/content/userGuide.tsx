@@ -83,19 +83,19 @@ export const USER_GUIDE_SECTIONS: GuideSection[] = [
     paragraphs: [
       "Every 30 seconds, the app quietly checks whether it's time to run the scan you scheduled in Engine Configuration — either because 24 hours have passed since the last scan, or because today's scheduled time has arrived and the last scan happened before it. When it's due, the scan starts automatically, with no confirmation prompt (you already set the schedule deliberately).",
       "What it downloads: the scan only ever looks at the leagues you've selected and saved against each rule (Over 1.5, Under 3.5). If a rule is switched on but has no leagues selected, that rule is skipped entirely with an error rather than falling back to \"all leagues.\" For each selected league, the app calls TheStatsAPI's fixtures endpoint filtered by that competition and a 3-day-ahead date window — never an unfiltered, all-competitions request. When Over 1.5 and Under 3.5 share a league, the identical fixture-list request is only ever made once and reused, not fetched twice.",
-      "What it checks: from the fixtures returned, up to 40 per rule are enriched with real supporting data — each team's profile and season stats, recent form, and head-to-head history. This cap exists to keep the scan fast and the provider calls proportionate; if more than 40 candidate fixtures come back, the extra ones are left unscreened for that run. Every enriched fixture is then run through your rule thresholds (previous-season scoring/conceding averages, head-to-head rate, recent-form scoring, and exchange price).",
+      "What it checks: from the fixtures returned, up to 200 per rule are enriched with real supporting data — each team's profile and season stats, recent form, and head-to-head history. This cap exists to keep the scan fast and the provider calls proportionate; if more than 200 candidate fixtures come back, the extra ones are left unscreened for that run. Every enriched fixture is then run through your rule thresholds (previous-season scoring/conceding averages, head-to-head rate, recent-form scoring, and exchange price).",
       "What gets stored: the results — today's Verified Qualifiers and Price Watch lists — are saved in your browser so they survive a refresh, and are pruned automatically once a fixture's kickoff time passes. They are not written to the cloud database as a dated snapshot; a fresh scan replaces them. Anything that is later settled against a real final score (see Archive & Performance below) is what actually gets saved long-term.",
       "Occasionally you may see a message that TheStatsAPI's own rate limit was reached and the app is waiting before automatically retrying. This is expected behaviour under a constrained plan, not a failure — the scan is still running, just paced to the provider's real limit.",
     ],
     endpointsCalled:
-      "GET /football/matches (params: competition_id, date_from, date_to, status) for fixtures · GET /football/teams/{id} and GET /football/teams/{id}/stats (param: season_id) plus a head-to-head lookup for each enriched fixture · GET /football/matches/{match_id}/odds for pricing — all scoped to your selected leagues, capped at 40 enriched fixtures per rule.",
+      "GET /football/matches (params: competition_id, date_from, date_to, status) for fixtures · GET /football/teams/{id} and GET /football/teams/{id}/stats (param: season_id) plus a head-to-head lookup for each enriched fixture · GET /football/matches/{match_id}/odds for pricing — all scoped to your selected leagues, capped at 200 enriched fixtures per rule.",
   },
   {
     id: 'manual-scan',
     heading: 'When You Run a Manual Scan',
     paragraphs: [
       'Clicking "Run Daily Scan" does not immediately start downloading anything. It first opens a confirmation modal that spells out, in plain language, exactly what\'s about to happen — which leagues are in scope, roughly how many fixtures that covers, and that it\'s the same 3-day-ahead window and rule thresholds as a scheduled scan. This exists so you can\'t accidentally trigger a large, expensive scan without seeing what it will pull first.',
-      'Only once you click "Start scan" in that modal does the app actually begin. From that point on, a manual scan behaves identically to a scheduled one — same league-scoped fixture calls, same 40-fixture enrichment cap per rule, same rule evaluation, same storage behaviour. The only difference is who triggered it and when.',
+      'Only once you click "Start scan" in that modal does the app actually begin. From that point on, a manual scan behaves identically to a scheduled one — same league-scoped fixture calls, same 200-fixture enrichment cap per rule, same rule evaluation, same storage behaviour. The only difference is who triggered it and when.',
       'The header also shows "Next Scan: HH:MM UTC" (your configured daily schedule time) and "Last Scanned HH:MM" (when the most recent scan — scheduled or manual — actually finished), so you always know where things stand without opening Sync History.',
     ],
     endpointsCalled: 'Identical to a scheduled scan (see above) — no additional endpoints are called just because it was triggered manually.',
@@ -104,7 +104,7 @@ export const USER_GUIDE_SECTIONS: GuideSection[] = [
     id: 'refresh-odds',
     heading: 'Refreshing Just the Odds',
     paragraphs: [
-      'A full scan re-checks everything — team stats, head-to-head, recent form, and price — for up to 40 fixtures per rule. But between scans, the only thing that actually moves is the market price; the underlying stats are slow-moving historical facts that don\'t change within hours.',
+      'A full scan re-checks everything — team stats, head-to-head, recent form, and price — for up to 200 fixtures per rule. But between scans, the only thing that actually moves is the market price; the underlying stats are slow-moving historical facts that don\'t change within hours.',
       'The "Refresh Odds" button in the header (next to "Run Daily Scan") re-checks only the market price for the fixtures currently on screen, leaving everything else untouched — one provider call per match instead of the roughly four a full scan costs. The button shows "Odds as of HH:MM," the oldest (least-recently-checked) odds timestamp among your held fixtures, so you always know how stale the least-fresh price actually is before deciding whether to refresh.',
       'A fixture whose price moves into range after a Refresh Odds is promoted from Price Watch to Verified Qualifiers immediately, the same way it would be after a full scan.',
     ],
@@ -114,7 +114,7 @@ export const USER_GUIDE_SECTIONS: GuideSection[] = [
     id: 'feed-impact-popups',
     heading: 'Hovering the Feed / Impact Popups',
     paragraphs: [
-      "Within Filter Thresholds, hovering the small badge next to a rule opens a popup explaining that rule's data pipeline: which league(s) are currently selected for it, roughly how many fixtures were pulled in the last scan, how many were enriched with team/H2H data (subject to the 40-fixture cap), and how many ultimately passed or failed each individual filter.",
+      "Within Filter Thresholds, hovering the small badge next to a rule opens a popup explaining that rule's data pipeline: which league(s) are currently selected for it, roughly how many fixtures were pulled in the last scan, how many were enriched with team/H2H data (subject to the 200-fixture cap), and how many ultimately passed or failed each individual filter.",
       "This popup makes no network calls of its own — it is a read-only display built entirely from the results of the most recent scan already sitting in the browser. Hovering it as many times as you like costs nothing against your provider allowance. If you haven't run a scan yet in this session, or the feed came back with 0 records, the individual per-field badges are hidden rather than repeating the same not-yet-available message on every single field.",
     ],
     endpointsCalled: 'None — this is a purely read-only view of data already sitting in the browser from the last scan.',
@@ -179,7 +179,7 @@ export const USER_GUIDE_SECTIONS: GuideSection[] = [
       "Verified Qualifier — a qualifier that has also passed the price filter, checked against a live price from TheStatsAPI's own odds endpoint.",
       "Price Watch — a qualifier that passed the stats but not (yet, or currently ever) the price filter.",
       'Refresh Odds — a lightweight, on-demand re-check of just the market price for fixtures already on screen, without re-running the rest of the scan.',
-      'Enrichment — the step where a raw fixture is topped up with real team profile, season-stats and head-to-head data so the rule engine has enough to evaluate it. Capped at 40 fixtures per rule per scan.',
+      'Enrichment — the step where a raw fixture is topped up with real team profile, season-stats and head-to-head data so the rule engine has enough to evaluate it. Capped at 200 fixtures per rule per scan.',
       'Backtest — an on-demand simulation that replays real historical matches through the same rule engine to show how a rule would have performed.',
       'Saved backtest run — a backtest\'s result, saved with the exact rule thresholds used, so it can be reviewed and compared later.',
       'Archive & Performance — the permanent, real record of bets this app has actually logged and settled.',

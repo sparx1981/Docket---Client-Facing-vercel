@@ -1,6 +1,7 @@
-import {
+import type {
   CandidateFixture,
   FilterAuditCheck,
+  H2HMatchRecord,
   VerificationAuditCard,
   DataProviderType,
   RuleThresholds,
@@ -33,6 +34,49 @@ const DISABLED_RESULT: ScreeningResult = {
   enhancedVerificationNeeded: false,
   failureReason: 'System disabled in Engine Configuration',
 };
+
+/** Number of most-recent competitive meetings the Over 1.5 H2H filter looks at (and requires to exist). */
+export const H2H_OVER15_WINDOW = 5;
+
+export interface H2HOver15Evaluation {
+  /** Competitive meetings actually considered (most recent first, capped at H2H_OVER15_WINDOW). */
+  considered: number;
+  over15: number;
+  /** Meetings that must finish Over 1.5 for the configured rate. */
+  required: number;
+  /** 0-100, over the meetings considered (0 when there are none). */
+  ratePercent: number;
+  /** The filter needs a full window of meetings — a shorter history cannot pass even at 100%. */
+  hasFullWindow: boolean;
+  passed: boolean;
+  /** Human-readable "3/3 (100%) — only 3 of 5 required meetings on record", for audit text and CSV. */
+  summary: string;
+}
+
+/**
+ * The single definition of the H2H Over 1.5 filter, shared by the rules
+ * engine, the filter funnel, the audit recalculation and the CSV export so
+ * they can never disagree: the last 5 competitive meetings must exist, and
+ * at least ceil(rate * 5) of them must finish with 2+ goals. The ceil is
+ * taken with a small epsilon so a rate like 0.6 (0.6 * 5 = 3.0000000000000004)
+ * is not pushed up to 4 by floating-point noise.
+ */
+export function evaluateH2HOver15(h2hMatches: H2HMatchRecord[], minRate: number): H2HOver15Evaluation {
+  const window = h2hMatches.filter((m) => m.isCompetitive).slice(0, H2H_OVER15_WINDOW);
+  const considered = window.length;
+  const over15 = window.filter((m) => m.totalGoals > 1).length;
+  const required = Math.ceil(minRate * H2H_OVER15_WINDOW - 1e-9);
+  const hasFullWindow = considered >= H2H_OVER15_WINDOW;
+  const ratePercent = considered > 0 ? Math.round((over15 / considered) * 100) : 0;
+  const passed = hasFullWindow && over15 >= required;
+  const summary =
+    considered === 0
+      ? 'No competitive H2H meetings on record'
+      : hasFullWindow
+      ? `${over15}/${considered} (${ratePercent}%)`
+      : `${over15}/${considered} (${ratePercent}%) — only ${considered} of ${H2H_OVER15_WINDOW} required meetings on record`;
+  return { considered, over15, required, ratePercent, hasFullWindow, passed, summary };
+}
 
 /**
  * System A: Football Over 1.5 Goals
@@ -80,17 +124,15 @@ export function evaluateFootballOver15(
   });
 
   // Filter 2: Head-to-Head - Last 5 competitive meetings, at least the configured rate Over 1.5 Goals
-  const competitiveH2H = details.h2hMatches.filter((m) => m.isCompetitive).slice(0, 5);
-  const over15H2HCount = competitiveH2H.filter((m) => m.totalGoals > 1).length;
-  const h2hCount = competitiveH2H.length;
-  const minH2HCount = Math.ceil(thresholds.minH2HOver15Rate * 5);
-  const f2Passed = h2hCount >= 5 && over15H2HCount >= minH2HCount;
+  const h2h = evaluateH2HOver15(details.h2hMatches, thresholds.minH2HOver15Rate);
+  const competitiveH2H = details.h2hMatches.filter((m) => m.isCompetitive).slice(0, H2H_OVER15_WINDOW);
+  const f2Passed = h2h.passed;
 
   filterChecks.push({
     filterId: 'F2_H2H_OVER15',
     filterName: 'Head-to-Head Over 1.5 Rate',
-    targetRule: `Last 5 competitive H2H meetings >= ${minH2HCount} (${(thresholds.minH2HOver15Rate * 100).toFixed(0)}%) Over 1.5 Goals`,
-    observedValue: `${over15H2HCount}/${h2hCount} matches (${((over15H2HCount / (h2hCount || 1)) * 100).toFixed(0)}%)`,
+    targetRule: `Last ${H2H_OVER15_WINDOW} competitive H2H meetings >= ${h2h.required} (${(thresholds.minH2HOver15Rate * 100).toFixed(0)}%) Over 1.5 Goals`,
+    observedValue: `${h2h.over15}/${h2h.considered} matches (${h2h.ratePercent}%)${h2h.hasFullWindow ? '' : ` — needs ${H2H_OVER15_WINDOW} meetings`}`,
     passed: f2Passed,
     auditDetails: `Recent competitive scores: ${competitiveH2H.map((m) => `${m.homeScore}-${m.awayScore} (${m.date})`).join(', ')}`,
   });

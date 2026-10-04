@@ -170,6 +170,7 @@ export default function App() {
           setHistoricalBets(hydrated.historicalBets);
           setSyncLogs(hydrated.syncLogs);
           setLastScanTimestamp(hydrated.lastScanTimestamp);
+          if (hydrated.cronFixtures) setFixtures(hydrated.cronFixtures);
           // Deliberately no loadFixtures() here — a fresh network pull must
           // only happen at the configured schedule time or via an explicit
           // "Run Daily Scan"/manual trigger, never as a side effect of

@@ -210,6 +210,29 @@ app.get('/api/football/backtest-context', async (req, res) => {
   }
 });
 
+/**
+ * Server-side daily scan, triggered by the Vercel Cron job in vercel.json.
+ * Vercel sends `Authorization: Bearer $CRON_SECRET` when the CRON_SECRET env
+ * var is set; without it this endpoint refuses to run so it can't be
+ * triggered by anyone who finds the URL.
+ */
+app.get('/api/cron/daily-scan', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) {
+    return res.status(503).json({ error: 'CRON_SECRET is not configured — set it in the Vercel project environment variables.' });
+  }
+  if (req.header('authorization') !== `Bearer ${secret}`) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const { runDailyScansForAllUsers } = await import('./cron/dailyScan.js');
+    const outcomes = await runDailyScansForAllUsers(app);
+    res.json({ ok: true, outcomes });
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
