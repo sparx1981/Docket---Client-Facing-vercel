@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { ProviderError } from './errors.js';
 import * as thestatsapi from './providers/thestatsapi.js';
+import { sendNotificationEmail, htmlTable } from './email.js';
 
 /**
  * Minimal backend proxy. Its only job is to forward provider requests
@@ -22,7 +23,7 @@ const app = express();
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, x-provider-key');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, x-provider-key, Authorization');
   if (req.method === 'OPTIONS') {
     res.sendStatus(204);
     return;
@@ -202,6 +203,57 @@ app.get('/api/football/backtest-context', async (req, res) => {
     );
     res.json({ provider: 'thestatsapi', context, notices });
   } catch (err) {
+    handleError(err, res);
+  }
+});
+
+/**
+ * "Send test email" button in Engine Configuration. Only a signed-in user
+ * (verified Firebase ID token) may trigger it, and each user is throttled,
+ * since every call sends a real email.
+ */
+const lastTestEmailAt = new Map<string, number>();
+const TEST_EMAIL_COOLDOWN_MS = 15_000;
+
+app.post('/api/notifications/test', async (req, res) => {
+  const authHeader = req.header('authorization') || '';
+  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  if (!idToken) return res.status(401).json({ error: 'Sign in to send a test email.' });
+
+  let uid: string;
+  let email: string | undefined;
+  try {
+    const { verifyIdToken } = await import('./firebaseAdmin.js');
+    ({ uid, email } = await verifyIdToken(idToken));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // Missing server credentials is a configuration problem (503), anything else is a bad/expired token (401).
+    return res.status(/not configured/i.test(message) ? 503 : 401).json({
+      error: /not configured/i.test(message) ? message : 'Your sign-in could not be verified — sign out and back in, then try again.',
+    });
+  }
+
+  const now = Date.now();
+  const last = lastTestEmailAt.get(uid) ?? 0;
+  if (now - last < TEST_EMAIL_COOLDOWN_MS) {
+    return res.status(429).json({ error: 'A test email was just sent — wait a few seconds before sending another.' });
+  }
+  lastTestEmailAt.set(uid, now);
+
+  try {
+    await sendNotificationEmail(
+      'Docket: test email',
+      `<p>This is a test email from Docket. If you can read this, notification emails are working.</p>${htmlTable(
+        ['Detail', 'Value'],
+        [
+          ['Sent at (UTC)', new Date(now).toISOString().slice(0, 16).replace('T', ' ')],
+          ['Requested by', email ?? uid],
+        ]
+      )}`
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    lastTestEmailAt.delete(uid); // a failed send shouldn't lock the user out of retrying
     handleError(err, res);
   }
 });

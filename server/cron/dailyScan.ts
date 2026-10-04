@@ -1,15 +1,15 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import fs from 'node:fs';
-import path from 'node:path';
-import { cert, getApps, initializeApp, applicationDefault } from 'firebase-admin/app';
-import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import type { Firestore } from 'firebase-admin/firestore';
 import type { Express } from 'express';
 import type { AppSettings, CandidateFixture, HistoricalBetRecord, SyncLogRecord } from '../../src/types';
 import { fetchCandidateFixtures } from '../../src/services/dataFeed.js';
 import { runVerificationAudit } from '../../src/services/verificationEngine.js';
 import { buildHistoricalBetFromQualifier } from '../../src/services/archiveRecord.js';
 import { setApiBaseUrl } from '../../src/services/backendClient.js';
+import { getDb } from '../firebaseAdmin.js';
+import { sendNotificationEmail } from '../email.js';
+import { buildScanEmail } from './scanEmail.js';
 
 /**
  * Server-side daily scan, run by the Vercel Cron job in vercel.json (via
@@ -33,34 +33,6 @@ const MAX_STORED_SYNC_LOGS = 200;
 /** Firestore documents are capped at 1 MiB — keep the cached fixture payload comfortably under it. */
 const MAX_CACHE_JSON_CHARS = 900_000;
 
-function loadFirebaseConfig(): { projectId?: string; firestoreDatabaseId?: string } {
-  try {
-    const raw = fs.readFileSync(path.join(process.cwd(), 'firebase-applet-config.json'), 'utf8');
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-
-function getDb(): Firestore {
-  const config = loadFirebaseConfig();
-  const projectId = process.env.FIREBASE_PROJECT_ID || config.projectId;
-  const databaseId = process.env.FIREBASE_DATABASE_ID || config.firestoreDatabaseId;
-  if (getApps().length === 0) {
-    const json = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-    if (!json && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-      throw new Error(
-        'FIREBASE_SERVICE_ACCOUNT_JSON is not configured — add a Firebase service-account key to the Vercel project environment variables so the daily scan can read users\' settings.'
-      );
-    }
-    initializeApp({
-      projectId,
-      credential: json ? cert(JSON.parse(json)) : applicationDefault(),
-    });
-  }
-  return databaseId ? getFirestore(getApps()[0], databaseId) : getFirestore(getApps()[0]);
-}
-
 function isDue(lastScanIso: string | null | undefined, now = Date.now()): boolean {
   if (!lastScanIso) return true;
   const last = new Date(lastScanIso).getTime();
@@ -74,6 +46,9 @@ export interface UserScanOutcome {
   reason?: string;
   qualifiers?: number;
   archived?: number;
+  /** Set when email notifications are on: whether the scan summary email went out. */
+  emailed?: boolean;
+  emailError?: string;
 }
 
 async function scanOneUser(db: Firestore, uid: string, data: FirebaseFirestore.DocumentData): Promise<UserScanOutcome> {
@@ -174,7 +149,22 @@ async function scanOneUser(db: Firestore, uid: string, data: FirebaseFirestore.D
     );
   await db.collection('users').doc(uid).collection('scanCache').doc('latest').set({ scannedAt: scanTimestamp, fixturesJson });
 
-  return { uid, status: 'scanned', qualifiers: qualifiersCount, archived: newBets.length };
+  const outcome: UserScanOutcome = { uid, status: 'scanned', qualifiers: qualifiersCount, archived: newBets.length };
+
+  // The scan's results are already saved above, so a failed email must never
+  // fail (or re-run) the scan — it is only reported in the outcome.
+  if (settings.emailNotificationsEnabled !== false) {
+    try {
+      const email = buildScanEmail(log, refreshed.filter(isQualifier), refreshed.filter((f) => !isQualifier(f) && isPriceWatch(f)));
+      await sendNotificationEmail(email.subject, email.html);
+      outcome.emailed = true;
+    } catch (err) {
+      outcome.emailed = false;
+      outcome.emailError = err instanceof Error ? err.message : String(err);
+      console.error(`[cron] notification email failed for user ${uid}:`, err);
+    }
+  }
+  return outcome;
 }
 
 /**

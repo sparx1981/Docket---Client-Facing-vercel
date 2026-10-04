@@ -29,6 +29,27 @@ test.describe('Engine Configuration — collapsible sections', () => {
     await expect(page.getByText('Browser storage vs Firestore cloud database:')).toBeHidden();
   });
 
+  test('Send test email reports success, and surfaces the backend error when it fails', async ({ page }) => {
+    await page.click('#btn-toggle-schedule');
+
+    let calls = 0;
+    await page.route('**/api/notifications/test', (route) => {
+      calls++;
+      const header = route.request().headers()['authorization'] ?? '';
+      if (!header.startsWith('Bearer ')) return route.fulfill({ status: 401, json: { error: 'no token' } });
+      return calls === 1
+        ? route.fulfill({ json: { ok: true } })
+        : route.fulfill({ status: 502, json: { error: 'The email endpoint answered 500: template error' } });
+    });
+
+    await page.click('#btn-send-test-email');
+    await expect(page.locator('#test-email-result')).toContainText('Test email sent');
+
+    await page.click('#btn-send-test-email');
+    await expect(page.locator('#test-email-result')).toContainText('template error');
+    expect(calls).toBe(2);
+  });
+
   test('Schedule, API Config and Leagues all start collapsed', async ({ page }) => {
     await expect(page.locator('#scan-time')).toBeHidden();
     await expect(page.locator('#key-thestatsapi')).toBeHidden();

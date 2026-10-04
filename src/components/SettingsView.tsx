@@ -17,6 +17,7 @@ import {
   Cloud,
   RefreshCw,
   Download,
+  Mail,
   X,
 } from 'lucide-react';
 import { AppSettings, BacktestRunRecord, BacktestSummary, CandidateFixture, FeedSummaryRecord, LeagueOption, RuleThresholds } from '../types';
@@ -42,6 +43,7 @@ import {
 import { BacktestProgressEvent, buildBacktestCsv, downloadCsv, runBacktest } from '../services/backtest';
 import { deleteBacktestRun, getStoredBacktestRuns, logBacktestRun } from '../services/storage';
 import { ScanProgressModal } from './ScanProgressModal';
+import { sendTestEmail, TestEmailResult } from '../services/notifications';
 
 /** A link to the real place a provider's own dashboard lets you create/view an API key or token. */
 const ProviderKeyLink: React.FC<{ href: string; children: React.ReactNode }> = ({
@@ -186,6 +188,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     football_over_1_5: null,
     football_under_3_5: null,
   });
+
+  const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
+  const [testEmailResult, setTestEmailResult] = useState<TestEmailResult | null>(null);
+
+  const handleSendTestEmail = async () => {
+    setIsSendingTestEmail(true);
+    setTestEmailResult(null);
+    setTestEmailResult(await sendTestEmail());
+    setIsSendingTestEmail(false);
+  };
 
   // Live feed state for Filter Thresholds breakdown
   const [liveFixtures, setLiveFixtures] = useState<CandidateFixture[]>(fixtures || []);
@@ -1157,30 +1169,42 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
 
           <div className="space-y-4 border-t border-line pt-4">
-            <Field
-              label="Notification email"
-              htmlFor="notify-email"
-              hint="Not yet implemented — no email is ever sent by this app. Kept here for when it ships."
-              action={<Chip tone="neutral">Not implemented</Chip>}
-            >
-              <input
-                id="notify-email"
-                type="email"
-                disabled
-                value={formData.notificationEmail}
-                onChange={(e) => set('notificationEmail', e.target.value)}
-                className={`${inputClass} opacity-60 cursor-not-allowed`}
-              />
-            </Field>
-
             <Switch
               id="notify-enabled"
               checked={formData.emailNotificationsEnabled}
               onChange={(v) => set('emailNotificationsEnabled', v)}
-              disabled
-              label="Alert on new verified qualifiers"
-              hint="Not yet implemented — nothing currently sends an email, regardless of this setting."
+              label="Email me after each daily scan"
+              hint="After every scan that runs on the server (the daily cron job), a summary email lists the verified qualifiers and Price Watch matches. Saved with the rest of this configuration."
             />
+
+            <div className="space-y-2 rounded-lg border border-line bg-surface-2 p-3">
+              <p className="text-[12px] font-semibold text-text">Test the email service</p>
+              <p className="text-[11px] leading-relaxed text-text-2">
+                Sends a short test message through the notification email service. The recipient is set by that
+                service&rsquo;s own email template, not in this app, so check that inbox (and spam) after sending.
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  id="btn-send-test-email"
+                  type="button"
+                  onClick={handleSendTestEmail}
+                  disabled={isSendingTestEmail || !user}
+                  icon={<Mail className="h-4 w-4" strokeWidth={2} />}
+                >
+                  {isSendingTestEmail ? 'Sending…' : 'Send test email'}
+                </Button>
+                {!user && <span className="text-[11px] text-text-3">Sign in to send a test email.</span>}
+                {testEmailResult && (
+                  <span
+                    role="status"
+                    id="test-email-result"
+                    className={`text-[12px] font-medium ${testEmailResult.ok ? 'text-ok-ink' : 'text-bad-ink'}`}
+                  >
+                    {testEmailResult.message}
+                  </span>
+                )}
+              </div>
+            </div>
 
             <Switch
               id="schedule-enabled"

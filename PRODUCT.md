@@ -48,7 +48,7 @@ independent Google fixture confirmation link. The product's claim is auditabilit
 - Historical archive: log, settle (Won/Lost/Void), P&L, cumulative profit curve,
   per-system performance breakdown
 - Settings: premium and fallback data provider keys, Betfair Exchange credentials,
-  scan schedule, email notification routing, default stake, currency
+  scan schedule, email notification on/off (summary after each server-side daily scan; the recipient is set by the email service's template), default stake, currency
 
 ## Constraints and Terminology
 

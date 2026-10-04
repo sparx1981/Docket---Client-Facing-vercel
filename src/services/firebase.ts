@@ -234,3 +234,8 @@ export async function fetchLatestScanCache(
     return null;
   }
 }
+
+/** The signed-in user's Firebase ID token, for authenticating calls to our own backend. Null when signed out. */
+export async function getCurrentIdToken(): Promise<string | null> {
+  return auth.currentUser ? auth.currentUser.getIdToken() : null;
+}
