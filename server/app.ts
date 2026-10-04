@@ -259,27 +259,41 @@ app.post('/api/notifications/test', async (req, res) => {
 });
 
 /**
- * Server-side daily scan, triggered by the Vercel Cron job in vercel.json.
- * Vercel sends `Authorization: Bearer $CRON_SECRET` when the CRON_SECRET env
- * var is set; without it this endpoint refuses to run so it can't be
- * triggered by anyone who finds the URL.
+ * Server-side scans, protected by CRON_SECRET (sent as `Authorization:
+ * Bearer $CRON_SECRET` — Vercel Cron does this automatically when the
+ * variable is set). Without the secret configured these endpoints refuse to
+ * run, so nobody who finds the URL can trigger scans.
+ *
+ *  - /api/cron/daily-scan: called by the daily Vercel Cron job (vercel.json).
+ *  - /api/cron/scan-watchdog: called every 30 minutes by the GitHub Actions
+ *    workflow (.github/workflows/scan-watchdog.yml). It only acts when a
+ *    scheduled scan is overdue, running it as a backup (see
+ *    server/cron/schedule.ts for the rules).
  */
-app.get('/api/cron/daily-scan', async (req, res) => {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) {
-    return res.status(503).json({ error: 'CRON_SECRET is not configured — set it in the Vercel project environment variables.' });
-  }
-  if (req.header('authorization') !== `Bearer ${secret}`) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  try {
-    const { runDailyScansForAllUsers } = await import('./cron/dailyScan.js');
-    const outcomes = await runDailyScansForAllUsers(app);
-    res.json({ ok: true, outcomes });
-  } catch (err) {
-    handleError(err, res);
-  }
-});
+function cronHandler(source: 'cron' | 'watchdog') {
+  return async (req: Request, res: Response) => {
+    const secret = process.env.CRON_SECRET;
+    if (!secret) {
+      return res.status(503).json({ error: 'CRON_SECRET is not configured — set it in the Vercel project environment variables.' });
+    }
+    if (req.header('authorization') !== `Bearer ${secret}`) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    try {
+      const { runDueScans } = await import('./cron/dailyScan.js');
+      const outcomes = await runDueScans(app, source);
+      // A scan that threw is reported as a non-2xx so the caller (and any
+      // monitoring on it) sees the failure instead of an "ok".
+      const anyFailed = outcomes.some((o) => o.status === 'failed');
+      res.status(anyFailed ? 500 : 200).json({ ok: !anyFailed, source, checkedAt: new Date().toISOString(), outcomes });
+    } catch (err) {
+      handleError(err, res);
+    }
+  };
+}
+
+app.get('/api/cron/daily-scan', cronHandler('cron'));
+app.get('/api/cron/scan-watchdog', cronHandler('watchdog'));
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });

@@ -71,7 +71,19 @@ Required Vercel environment variables:
 
 When "Email me after each daily scan" is on, the scan then sends a summary email (verified qualifiers and Price Watch) through the notification email endpoint. That endpoint (`https://www.reps.co.uk/docket/`, override with the optional `EMAIL_ENDPOINT_URL` variable) takes two POST variables, `subject` and `data` (HTML), and sends to whichever address its own template is set up for — the app cannot choose the recipient. Engine Configuration has a **Send test email** button (`POST /api/notifications/test`, signed-in users only, which also needs `FIREBASE_SERVICE_ACCOUNT_JSON` to verify the sign-in).
 
-A user is skipped if their last scan was under 20 hours ago. The cron time is set in `vercel.json` (Hobby plans allow one run per day).
+A scan is owed to each user from their configured daily time (Engine Configuration → Schedule, UTC) until one completes after it, whether it ran on the server or in the browser. The cron time is set in `vercel.json` (Hobby plans allow one cron run per day, and it may start up to an hour late).
+
+### Scan watchdog (backup check every 30 minutes)
+
+So a scan that fails to start doesn't fail silently, `.github/workflows/scan-watchdog.yml` calls `GET /api/cron/scan-watchdog` every 30 minutes (GitHub Actions, because Hobby crons can't run that often). It does nothing unless a scan is more than 30 minutes overdue; then it runs it as a backup. Rules (`server/cron/schedule.ts`):
+
+- A scan marked running is left alone for 12 minutes (the cron and the watchdog can never start the same scan: the claim is a Firestore transaction on `users/{uid}/scanState/current`); after that it is treated as dead and retaken.
+- A failed or dead attempt is retried at most 3 times per scheduled time, at least 20 minutes apart.
+- After the 3rd failure it stops and sends an alert email ("daily scan FAILED — action needed") once.
+- A scan started by the watchdog says so in its summary email and sync log.
+- The workflow itself fails (GitHub emails the owner) if the app is unreachable or reports a scan failure.
+
+Setup: add repository secrets `DOCKET_SITE_URL` (production URL) and `CRON_SECRET` (same value as in Vercel) under GitHub → Settings → Secrets and variables → Actions. Scheduled workflows can run a few minutes late, and GitHub disables them after 60 days without repository activity.
 
 ## Views
 

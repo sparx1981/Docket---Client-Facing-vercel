@@ -7,7 +7,8 @@ const MAX_ROWS = 50;
 export function buildScanEmail(
   log: SyncLogRecord,
   qualifiers: CandidateFixture[],
-  priceWatch: CandidateFixture[]
+  priceWatch: CandidateFixture[],
+  backupNote?: string
 ): { subject: string; html: string } {
   const day = log.timestamp.slice(0, 10);
   const subject =
@@ -38,7 +39,9 @@ export function buildScanEmail(
   const headers = ['Match', 'Competition', 'Kick-off (UTC)', 'Market', 'Odds'];
   const more = (n: number) => (n > MAX_ROWS ? `<p>…and ${n - MAX_ROWS} more in the app.</p>` : '');
 
-  const parts = [summary];
+  const parts: string[] = [];
+  if (backupNote) parts.push(`<p><strong>Backup run:</strong> ${escapeHtml(backupNote)}</p>`);
+  parts.push(summary);
   parts.push(
     qualifiers.length > 0
       ? `<h3>Verified qualifiers</h3>${htmlTable(headers, rows(qualifiers))}${more(qualifiers.length)}`

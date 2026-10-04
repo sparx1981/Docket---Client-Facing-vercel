@@ -1211,7 +1211,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               checked={formData.scheduleEnabled}
               onChange={(v) => set('scheduleEnabled', v)}
               label="Run the daily scan automatically"
-              hint="Executes the full audit in the background at the specified UTC time every day."
+              hint="Runs the full audit at the specified UTC time every day on the server, so the app does not need to be open. A backup check every 30 minutes re-runs it if it did not start or failed."
             />
 
             <Switch

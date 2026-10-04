@@ -8,37 +8,42 @@ import { runVerificationAudit } from '../../src/services/verificationEngine.js';
 import { buildHistoricalBetFromQualifier } from '../../src/services/archiveRecord.js';
 import { setApiBaseUrl } from '../../src/services/backendClient.js';
 import { getDb } from '../firebaseAdmin.js';
-import { sendNotificationEmail } from '../email.js';
+import { escapeHtml, htmlTable, sendNotificationEmail } from '../email.js';
 import { buildScanEmail } from './scanEmail.js';
+import {
+  MAX_ATTEMPTS_PER_SLOT,
+  decideScan,
+  latestSuccessfulScan,
+  type ScanSource,
+  type ScanState,
+} from './schedule.js';
 
 /**
- * Server-side daily scan, run by the Vercel Cron job in vercel.json (via
- * GET /api/cron/daily-scan). The in-browser scheduler only ever fires while
- * the app is open in a tab, so on its own a "daily" scan silently doesn't
- * happen on days nobody opens the app. This runs the same scan code
- * (fetchCandidateFixtures + runVerificationAudit) for every user whose
- * scheduled scan is enabled and stores the results in Firestore:
+ * Server-side daily scan. Two things call it (see server/app.ts):
+ *  - the daily Vercel Cron job (GET /api/cron/daily-scan), and
+ *  - a 30-minute watchdog (GET /api/cron/scan-watchdog, called by the
+ *    GitHub Actions workflow), which exists to catch a scan that did not
+ *    start (or died) and run it as a backup instead of failing silently.
+ * Both use the same rules (server/cron/schedule.ts): a user is owed a scan
+ * for their configured daily time until one completes after that time.
+ *
+ * The in-browser scheduler only fires while the app is open in a tab, so on
+ * its own a "daily" scan silently doesn't happen on days nobody opens the
+ * app. This runs the same scan code (fetchCandidateFixtures +
+ * runVerificationAudit) and stores the results in Firestore:
  *   users/{uid}.syncLogs / lastScanTimestamp / historicalBets  (as the client does)
  *   users/{uid}/scanCache/latest                               (classified fixtures,
  *                                                               picked up on next login)
+ *   users/{uid}/scanState/current                              (running/attempt bookkeeping)
  *
  * Needs FIREBASE_SERVICE_ACCOUNT_JSON (a Firebase service-account key's JSON)
  * in the environment — Firestore security rules only let a signed-in user
  * touch their own document, so the server must use admin credentials.
  */
 
-/** A scan newer than this is treated as "today's scan already happened" (the browser fallback may have run it). */
-const MIN_HOURS_BETWEEN_SCANS = 20;
 const MAX_STORED_SYNC_LOGS = 200;
 /** Firestore documents are capped at 1 MiB — keep the cached fixture payload comfortably under it. */
 const MAX_CACHE_JSON_CHARS = 900_000;
-
-function isDue(lastScanIso: string | null | undefined, now = Date.now()): boolean {
-  if (!lastScanIso) return true;
-  const last = new Date(lastScanIso).getTime();
-  if (isNaN(last)) return true;
-  return (now - last) / 3_600_000 >= MIN_HOURS_BETWEEN_SCANS;
-}
 
 export interface UserScanOutcome {
   uid: string;
@@ -51,13 +56,34 @@ export interface UserScanOutcome {
   emailError?: string;
 }
 
-async function scanOneUser(db: Firestore, uid: string, data: FirebaseFirestore.DocumentData): Promise<UserScanOutcome> {
-  const settings = data.settings as AppSettings | undefined;
-  if (!settings) return { uid, status: 'skipped', reason: 'no settings saved' };
-  if (settings.scheduleEnabled === false) return { uid, status: 'skipped', reason: 'scheduled scan disabled' };
-  if (!settings.theStatsApiKey) return { uid, status: 'skipped', reason: 'no TheStatsAPI key' };
-  if (!isDue(data.lastScanTimestamp)) return { uid, status: 'skipped', reason: 'already scanned recently' };
+interface ScanContext {
+  source: ScanSource;
+  attempt: number;
+  /** Minutes past the user's scheduled time when this run started. */
+  overdueMinutes: number;
+  scheduleUtc: string;
+}
 
+/** What the notification email should say about why/how this scan ran, or undefined for an on-time run. */
+function describeBackupRun(ctx: ScanContext): string | undefined {
+  if (ctx.source !== 'watchdog' && ctx.attempt === 1) return undefined;
+  const parts: string[] = [];
+  if (ctx.source === 'watchdog') {
+    parts.push(
+      `The scheduled ${ctx.scheduleUtc} UTC scan had not completed ${ctx.overdueMinutes} minutes after its scheduled time, so the 30-minute backup check started this one.`
+    );
+  }
+  if (ctx.attempt > 1) parts.push(`This was attempt ${ctx.attempt} of ${MAX_ATTEMPTS_PER_SLOT} for today's scan.`);
+  return parts.join(' ');
+}
+
+async function runScanForUser(
+  db: Firestore,
+  uid: string,
+  data: FirebaseFirestore.DocumentData,
+  settings: AppSettings,
+  ctx: ScanContext
+): Promise<{ outcome: UserScanOutcome; succeeded: boolean }> {
   const startedAt = Date.now();
   const scanTimestamp = new Date().toISOString();
   const { fixtures, error: fetchError } = await fetchCandidateFixtures(settings);
@@ -99,7 +125,7 @@ async function scanOneUser(db: Firestore, uid: string, data: FirebaseFirestore.D
     divergenceRate: 0,
     notes: fetchError
       ? `Server-side scheduled scan completed with issues: ${fetchError}`
-      : `Server-side scheduled scan (daily cron, app did not need to be open): pulled ${total} candidate checks and ran the verification audit. ${newBets.length} qualifier(s) recorded to the Archive.`,
+      : `Server-side scheduled scan${ctx.source === 'watchdog' ? ' (started by the 30-minute backup check)' : ''} — the app did not need to be open: pulled ${total} candidate checks and ran the verification audit. ${newBets.length} qualifier(s) recorded to the Archive.`,
     dataSources: [
       {
         name: 'TheStatsAPI Football API',
@@ -155,7 +181,12 @@ async function scanOneUser(db: Firestore, uid: string, data: FirebaseFirestore.D
   // fail (or re-run) the scan — it is only reported in the outcome.
   if (settings.emailNotificationsEnabled !== false) {
     try {
-      const email = buildScanEmail(log, refreshed.filter(isQualifier), refreshed.filter((f) => !isQualifier(f) && isPriceWatch(f)));
+      const email = buildScanEmail(
+        log,
+        refreshed.filter(isQualifier),
+        refreshed.filter((f) => !isQualifier(f) && isPriceWatch(f)),
+        describeBackupRun(ctx)
+      );
       await sendNotificationEmail(email.subject, email.html);
       outcome.emailed = true;
     } catch (err) {
@@ -164,16 +195,121 @@ async function scanOneUser(db: Firestore, uid: string, data: FirebaseFirestore.D
       console.error(`[cron] notification email failed for user ${uid}:`, err);
     }
   }
-  return outcome;
+  return { outcome, succeeded: log.status !== 'FAILED' };
+}
+
+const stateRef = (db: Firestore, uid: string) => db.collection('users').doc(uid).collection('scanState').doc('current');
+
+async function sendGiveUpAlert(settings: AppSettings, state: ScanState, scheduleUtc: string): Promise<void> {
+  const html =
+    `<p><strong>The scheduled daily scan did not complete.</strong> Docket tried ${MAX_ATTEMPTS_PER_SLOT} times for the ${escapeHtml(scheduleUtc)} UTC scan and has stopped retrying for today.</p>` +
+    htmlTable(
+      ['Detail', 'Value'],
+      [
+        ['Last attempt (UTC)', (state.lastAttemptAt ?? '').slice(0, 16).replace('T', ' ')],
+        ['Last error', state.lastError ?? 'The run did not report an error (it may have timed out).'],
+      ]
+    ) +
+    '<p>Open Docket and use <em>Run Daily Scan</em> to run it manually, and check the Vercel function logs for details.</p>';
+  await sendNotificationEmail('Docket: daily scan FAILED — action needed', html);
 }
 
 /**
- * Runs the scan for every eligible user. The shared scan code calls the
+ * Decides (inside a transaction, so the daily cron and the watchdog can
+ * never both start the same scan) whether this user needs a scan right now,
+ * and if so marks it running and counts the attempt.
+ */
+export async function processUser(
+  db: Firestore,
+  uid: string,
+  data: FirebaseFirestore.DocumentData,
+  source: ScanSource
+): Promise<UserScanOutcome> {
+  const settings = data.settings as AppSettings | undefined;
+  if (!settings) return { uid, status: 'skipped', reason: 'no settings saved' };
+  if (settings.scheduleEnabled === false) return { uid, status: 'skipped', reason: 'scheduled scan disabled' };
+  if (!settings.theStatsApiKey) return { uid, status: 'skipped', reason: 'no TheStatsAPI key' };
+
+  const scheduleUtc = settings.dailyScanScheduleUtc || '06:00';
+  const ref = stateRef(db, uid);
+  const now = new Date();
+
+  const claim = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const state = (snap.exists ? snap.data() : {}) as ScanState;
+    const decision = decideScan({
+      now,
+      scheduleUtc,
+      lastSuccessAt: latestSuccessfulScan(data.syncLogs, state),
+      state,
+      source,
+    });
+    if (decision.action === 'scan') {
+      tx.set(
+        ref,
+        {
+          ...state,
+          status: 'running',
+          startedAt: now.toISOString(),
+          lastAttemptAt: now.toISOString(),
+          slot: decision.slot,
+          attempts: decision.attempt,
+          lastError: null,
+        },
+        { merge: true }
+      );
+    } else if (decision.needsGiveUpAlert && decision.slot) {
+      tx.set(ref, { alertedSlot: decision.slot }, { merge: true });
+    }
+    return { decision, state };
+  });
+
+  const { decision, state } = claim;
+  if (decision.action === 'skip') {
+    if (decision.needsGiveUpAlert && settings.emailNotificationsEnabled !== false) {
+      try {
+        await sendGiveUpAlert(settings, state, scheduleUtc);
+      } catch (err) {
+        console.error(`[cron] give-up alert email failed for user ${uid}:`, err);
+      }
+    }
+    return { uid, status: 'skipped', reason: decision.reason };
+  }
+
+  try {
+    const { outcome, succeeded } = await runScanForUser(db, uid, data, settings, {
+      source,
+      attempt: decision.attempt,
+      overdueMinutes: decision.overdueMinutes,
+      scheduleUtc,
+    });
+    await ref.set(
+      {
+        status: 'idle',
+        lastFinishedAt: new Date().toISOString(),
+        ...(succeeded ? { lastSuccessAt: new Date().toISOString(), lastError: null } : { lastError: 'The scan finished but reported a failure (see the sync log).' }),
+      },
+      { merge: true }
+    );
+    return outcome;
+  } catch (err) {
+    await ref
+      .set(
+        { status: 'idle', lastFinishedAt: new Date().toISOString(), lastError: err instanceof Error ? err.message : String(err) },
+        { merge: true }
+      )
+      .catch(() => {});
+    throw err;
+  }
+}
+
+/**
+ * Runs whatever scans are owed right now. The shared scan code calls the
  * provider proxy over HTTP using relative `/api/...` paths, so an in-process
  * listener on an ephemeral port serves the Express app for the duration —
  * no dependence on the deployment's public URL or its deployment protection.
  */
-export async function runDailyScansForAllUsers(app: Express): Promise<UserScanOutcome[]> {
+export async function runDueScans(app: Express, source: ScanSource): Promise<UserScanOutcome[]> {
   const db = getDb();
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -185,7 +321,7 @@ export async function runDailyScansForAllUsers(app: Express): Promise<UserScanOu
     // Sequential on purpose: every user's scan already paces its own provider calls.
     for (const doc of users.docs) {
       try {
-        outcomes.push(await scanOneUser(db, doc.id, doc.data()));
+        outcomes.push(await processUser(db, doc.id, doc.data(), source));
       } catch (err) {
         console.error(`[cron] scan failed for user ${doc.id}:`, err);
         outcomes.push({ uid: doc.id, status: 'failed', reason: err instanceof Error ? err.message : String(err) });
