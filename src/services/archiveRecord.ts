@@ -35,6 +35,6 @@ export function buildHistoricalBetFromQualifier(
         `${fixture.matchTitle} ${fixture.competition} ${fixture.betType} result score`
       )}`,
     flashscoreUrl: `https://www.flashscore.com/search/?q=${encodeURIComponent(fixture.matchTitle)}`,
-    dataSourceName: fixture.sport === 'tennis' ? 'Tennis Abstract Engine' : 'Flashscore Telemetry',
+    dataSourceName: 'Flashscore Telemetry',
   };
 }

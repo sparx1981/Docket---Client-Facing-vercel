@@ -10,12 +10,8 @@ import * as thestatsapi from './providers/thestatsapi.js';
  * header, exactly as the caller (the frontend, using the key it persisted
  * in localStorage via Settings) sent it.
  *
- * Football now runs entirely on TheStatsAPI.com — the Sportradar/Sportmonks
- * clients (and the tennis routes, which only ever had a Sportradar Tennis
- * backend) were removed when the account migrated off both providers over
- * cost. Tennis has no data supplier configured at all right now; it is
- * planned to move to its own new provider in a later phase, not restored to
- * Sportradar.
+ * Football runs entirely on TheStatsAPI.com. Tennis is no longer part of
+ * the product, so there are no tennis routes here.
  *
  * This module only builds and exports the Express app — it never listens.
  * server/index.ts calls app.listen() for local/non-Vercel dev; api/index.ts

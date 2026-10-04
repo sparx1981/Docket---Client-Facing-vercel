@@ -113,7 +113,6 @@ export default function App() {
   const [isScanCancelled, setIsScanCancelled] = useState(false);
   const [scanEvents, setScanEvents] = useState<FeedProgressEvent[]>([]);
   const [scanFootballRecords, setScanFootballRecords] = useState(0);
-  const [scanTennisRecords, setScanTennisRecords] = useState(0);
   const scanAbortControllerRef = useRef<AbortController | null>(null);
   const [isSyncHistoryOpen, setIsSyncHistoryOpen] = useState(false);
   const [infoModalSection, setInfoModalSection] = useState<TabKey | null>(null);
@@ -241,7 +240,6 @@ export default function App() {
     if (openModal) setIsScanModalOpen(true);
     setScanEvents([]);
     setScanFootballRecords(0);
-    setScanTennisRecords(0);
     setIsScanFinished(false);
     setIsScanCancelled(false);
     setIsScanRunning(true);
@@ -251,8 +249,7 @@ export default function App() {
 
     const onProgress = (evt: FeedProgressEvent) => {
       setScanEvents((prev) => [...prev, evt]);
-      if (evt.sport === 'football') setScanFootballRecords(evt.recordsSoFar);
-      else setScanTennisRecords(evt.recordsSoFar);
+      setScanFootballRecords(evt.recordsSoFar);
     };
 
     return { signal: controller.signal, onProgress };
@@ -665,7 +662,7 @@ export default function App() {
         settings={settings}
         isScanning={isScanModalOpen || fixturesLoading || isScanRunning}
         scanModalOpen={isScanModalOpen}
-        scanRecordsSoFar={isScanRunning ? scanFootballRecords + scanTennisRecords : undefined}
+        scanRecordsSoFar={isScanRunning ? scanFootballRecords : undefined}
         onRunScan={handleRunScan}
         onStopScan={handleStopScan}
         hasUnsavedSettingsChanges={hasUnsavedSettingsChanges}
@@ -765,7 +762,6 @@ export default function App() {
         isCancelled={isScanCancelled}
         events={scanEvents}
         footballRecords={scanFootballRecords}
-        tennisRecords={scanTennisRecords}
         onClose={isAwaitingScanConfirmation ? handleCancelScanConfirmation : () => setIsScanModalOpen(false)}
         onStop={handleStopScan}
         onConfirmStart={handleConfirmStartScan}

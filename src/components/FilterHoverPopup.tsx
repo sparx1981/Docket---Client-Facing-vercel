@@ -14,148 +14,10 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { SystemFeedBreakdown } from '../types';
-import { evaluateH2HOver15 } from '../services/rulesEngine';
+import { downloadFeedCsv } from '../services/feedCsv';
 import { MAX_ENRICHED_FIXTURES_PER_SPORT } from '../services/dataFeed';
 
-const csvEscape = (val: unknown): string => {
-  if (val === null || val === undefined) return '""';
-  const str = String(val).replace(/"/g, '""');
-  return `"${str}"`;
-};
-
-export function exportDataFeedCsv(breakdown: SystemFeedBreakdown) {
-  const matches = breakdown.rawMatches || [];
-  if (matches.length === 0) return;
-
-  const isFootball = breakdown.sport === 'football';
-  const isUnder35 = breakdown.system === 'football_under_3_5';
-
-  const headers = isFootball
-    ? [
-        'System',
-        'Sport',
-        'Competition',
-        'Match Time',
-        'Match Title',
-        'Home Team',
-        'Away Team',
-        'Selection',
-        'Bet Type',
-        'Status',
-        'Filter Evaluation / Failure Reason',
-        'Provider',
-        'Exchange Odds',
-        'Required Odds',
-        'Enriched Stats Status',
-        'Home Prev Season Scored',
-        'Away Prev Season Scored',
-        isUnder35 ? 'H2H Under 3.5 Rate (last 10 competitive)' : 'H2H Over 1.5 Rate (last 5 competitive)',
-        'Venue',
-      ]
-    : [
-        'System',
-        'Sport',
-        'Competition',
-        'Match Time',
-        'Match Title',
-        'Player 1',
-        'Player 2',
-        'Selection',
-        'Bet Type',
-        'Status',
-        'Filter Evaluation / Failure Reason',
-        'Provider',
-        'Exchange Odds',
-        'Required Odds',
-        'Enriched Stats Status',
-        'Selected Player Ranking',
-        'Opponent Ranking',
-        'Ranking Delta',
-        'Surface',
-        'Venue',
-      ];
-
-  const rows = matches.map((m) => {
-    if (isFootball) {
-      const fb = m.footballDetails;
-      // Same last-5-competitive-meetings calculation the filter itself uses
-      // (including its 5-meeting minimum), so the CSV can never show a rate
-      // that disagrees with why a fixture passed or failed.
-      const h2hRate = !fb?.h2hMatches?.length
-        ? 'N/A'
-        : isUnder35
-        ? (() => {
-            const window = fb.h2hMatches.filter((x) => x.isCompetitive).slice(0, 10);
-            const under = window.filter((x) => x.totalGoals < 4).length;
-            const pct = window.length ? Math.round((under / window.length) * 100) : 0;
-            return `${under}/${window.length} (${pct}%)${window.length >= 8 ? '' : ` — only ${window.length} of 8 required meetings on record`}`;
-          })()
-        : evaluateH2HOver15(fb.h2hMatches, breakdown.h2hOver15MinRate ?? 0).summary;
-      return [
-        csvEscape(breakdown.ruleTitle),
-        csvEscape(m.sport),
-        csvEscape(m.competition),
-        csvEscape(m.matchTime),
-        csvEscape(m.matchTitle),
-        csvEscape(m.homeOrPlayer1),
-        csvEscape(m.awayOrPlayer2),
-        csvEscape(m.selectedEntity),
-        csvEscape(m.betType),
-        csvEscape(m.status),
-        csvEscape(m.failureReason || 'Passed all active thresholds'),
-        csvEscape(m.sourceProvider),
-        csvEscape(m.currentOdds || 'N/A'),
-        csvEscape(m.requiredOdds || 'N/A'),
-        csvEscape(fb ? 'Enriched' : 'Pending / Partial'),
-        csvEscape(fb?.homePrevSeason?.avgGoalsScored?.toFixed(2) ?? 'N/A'),
-        csvEscape(fb?.awayPrevSeason?.avgGoalsScored?.toFixed(2) ?? 'N/A'),
-        csvEscape(h2hRate),
-        csvEscape(m.venue || 'N/A'),
-      ].join(',');
-    } else {
-      const tn = m.tennisDetails;
-      const delta =
-        tn && tn.opponentPlayer && tn.selectedPlayer
-          ? `${tn.opponentPlayer.ranking - tn.selectedPlayer.ranking}`
-          : 'N/A';
-      return [
-        csvEscape(breakdown.ruleTitle),
-        csvEscape(m.sport),
-        csvEscape(m.competition),
-        csvEscape(m.matchTime),
-        csvEscape(m.matchTitle),
-        csvEscape(m.homeOrPlayer1),
-        csvEscape(m.awayOrPlayer2),
-        csvEscape(m.selectedEntity),
-        csvEscape(m.betType),
-        csvEscape(m.status),
-        csvEscape(m.failureReason || 'Passed all active thresholds'),
-        csvEscape(m.sourceProvider),
-        csvEscape(m.currentOdds || 'N/A'),
-        csvEscape(m.requiredOdds || 'N/A'),
-        csvEscape(tn ? 'Enriched' : 'Pending / Partial'),
-        csvEscape(tn?.selectedPlayer?.ranking ?? 'N/A'),
-        csvEscape(tn?.opponentPlayer?.ranking ?? 'N/A'),
-        csvEscape(delta),
-        csvEscape(m.surface || tn?.selectedPlayer?.surface || 'N/A'),
-        csvEscape(m.venue || 'N/A'),
-      ].join(',');
-    }
-  });
-
-  const csvContent = [headers.map(csvEscape).join(','), ...rows].join('\n');
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  const slug = breakdown.system.toLowerCase().replace(/_/g, '-');
-  const dateStr = new Date().toISOString().slice(0, 10);
-  link.href = url;
-  link.download = `data-feed-${slug}-${dateStr}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-}
+export const exportDataFeedCsv = downloadFeedCsv;
 
 interface FilterHoverPopupProps {
   breakdown: SystemFeedBreakdown;
@@ -382,7 +244,7 @@ export const FilterHoverPopup: React.FC<FilterHoverPopupProps> = ({
                     </p>
                     <p className="text-xs text-amber-800/90 dark:text-amber-300/90 leading-relaxed">
                       To display the number of records received in the live data feed and the breakdown of filter reductions, configure a valid{' '}
-                      {breakdown.sport === 'tennis' ? 'tennis data supplier (not yet available)' : 'TheStatsAPI'} key in
+                      TheStatsAPI key in
                       Engine Configuration.
                     </p>
                   </div>

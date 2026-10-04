@@ -1,8 +1,8 @@
 # Automated Sports Selection Engine
 
-Rules-based daily selection engine for three locked systems — Football Over 1.5
-Goals, Football Under 3.5 Goals, and Tennis Straight-Sets — with a mandatory
-raw-evidence verification audit on every candidate.
+Rules-based daily selection engine for two locked systems — Football Over 1.5
+Goals and Football Under 3.5 Goals — with a mandatory raw-evidence verification
+audit on every candidate.
 
 ## Run it
 
@@ -55,7 +55,6 @@ All under `/api`, all requiring an `x-provider-key` header (400 without one):
 - `GET /football/team/:teamId?provider=`
 - `GET /football/h2h?team1=&team2=&provider=`
 - `GET /football/results?from=&to=&provider=` — completed matches, for settlement + backfill
-- `GET /tennis/fixtures?date=` / `/tennis/player/:playerId` / `/tennis/h2h?player1=&player2=` / `/tennis/results?from=&to=` (Sportradar only — Sportmonks has no tennis coverage)
 - `GET /health` — no key required
 
 A provider failure comes back as a 502 with the upstream status/message —

@@ -132,18 +132,15 @@ async function scanOneUser(db: Firestore, uid: string, data: FirebaseFirestore.D
         status: fetchError ? 'DEGRADED' : 'ONLINE',
         recordsSupplied: total,
       },
-      { name: 'Tennis provider', url: '', status: 'OFFLINE', recordsSupplied: 0 },
     ],
-    systemBreakdown: (['football_over_1_5', 'football_under_3_5', 'tennis_straight_sets'] as const).map((system) => {
+    systemBreakdown: (['football_over_1_5', 'football_under_3_5'] as const).map((system) => {
       const inSystem = refreshed.filter((f) => f.system === system);
       return {
         system,
         label:
           system === 'football_over_1_5'
             ? 'Over 1.5 Goals'
-            : system === 'football_under_3_5'
-            ? 'Under 3.5 Goals'
-            : 'Straight Sets (2-0 / 3-0)',
+            : 'Under 3.5 Goals',
         scanned: inSystem.length,
         qualified: inSystem.filter(isQualifier).length,
         priceWatch: inSystem.filter(isPriceWatch).length,

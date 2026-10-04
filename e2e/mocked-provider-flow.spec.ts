@@ -143,14 +143,6 @@ function seededSettings(overrides?: Record<string, unknown>) {
         minExchangeOdds: 1.2,
         selectedLeagueIds: [],
       },
-      tennisStraightSets: {
-        enabled: false,
-        minRankingDelta: 50,
-        minSurfaceWinRate: 70.0,
-        minRecentWinsCount: 8,
-        minExchangeOdds: 1.2,
-        enhancedOddsThreshold: 1.5,
-      },
     },
     ...overrides,
   };

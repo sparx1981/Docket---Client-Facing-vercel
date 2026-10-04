@@ -49,17 +49,12 @@ const SECTION_CONTENT: Record<Extract<TabKey, 'verified' | 'pricewatch' | 'analy
     strap: 'High-probability fixtures that cleared every locked filter and the market odds threshold',
     icon: <ShieldCheck className="h-6 w-6 text-brand-ink" strokeWidth={2.5} />,
     summary:
-      'This section presents selections that have passed every single locked mathematical rule (domestic form, head-to-head consistency, and goal/set distributions) AND whose live market odds price is currently high enough to offer genuine statistical value.',
+      'This section presents selections that have passed every single locked mathematical rule (domestic form, head-to-head consistency, and goal distributions) AND whose live market odds price is currently high enough to offer genuine statistical value.',
     datasources: [
       {
         name: 'Flashscore B2B Telemetry',
         purpose: 'Official kickoff times, verified lineups, domestic tables, and exact scores from the last 10 competitive matches.',
         url: 'https://www.flashscore.com/',
-      },
-      {
-        name: 'Tennis Abstract Engine',
-        purpose: 'Historical career surface win rates, head-to-head records, ATP/WTA rankings, and straight-sets conversions.',
-        url: 'http://www.tennisabstract.com/',
       },
       {
         name: 'TheStatsAPI Odds Endpoint',
@@ -95,7 +90,7 @@ const SECTION_CONTENT: Record<Extract<TabKey, 'verified' | 'pricewatch' | 'analy
       'This section acts as an automated holding room. These fixtures have cleared 100% of our domestic, head-to-head, and form criteria, but their current market odds are either too low or not yet on file to provide sufficient value over the long term.',
     datasources: [
       {
-        name: 'Flashscore & Tennis Abstract',
+        name: 'Flashscore',
         purpose: 'Provide the verified historical form, league tables, and surface records that these fixtures have already 100% passed.',
         url: 'https://www.flashscore.com/',
       },
@@ -106,7 +101,7 @@ const SECTION_CONTENT: Record<Extract<TabKey, 'verified' | 'pricewatch' | 'analy
       },
     ],
     filtersExplanation:
-      'Why odds matter: Even when a team or tennis player has a very high chance of winning, backing them at odds of @1.10 or @1.14 is mathematically negative over hundreds of bets. We require a disciplined minimum price hurdle. As match time nears, market prices fluctuate and frequently drift into qualifying range.',
+      'Why odds matter: Even when a team has a very high chance of winning, backing them at odds of @1.10 or @1.14 is mathematically negative over hundreds of bets. We require a disciplined minimum price hurdle. As match time nears, market prices fluctuate and frequently drift into qualifying range.',
     criteriaList: [
       {
         rule: 'Statistical Integrity Cleared',
@@ -158,7 +153,7 @@ const SECTION_CONTENT: Record<Extract<TabKey, 'verified' | 'pricewatch' | 'analy
               You can also manually audit any individual match from the drawer and click File to archive ledger.
             </li>
             <li>
-              Historical fixtures are backed by verified match scores with direct links to official data feeds (Flashscore, Tennis Abstract, and TheStatsAPI).
+              Historical fixtures are backed by verified match scores with direct links to official data feeds (Flashscore and TheStatsAPI).
             </li>
           </ul>
         </div>
@@ -237,12 +232,6 @@ function buildVerifiedCriteria(t: RuleThresholds): SectionDetails['criteriaList'
       rule: 'Football: Under 3.5 Goals',
       description: t.footballUnder35.enabled
         ? `Both teams must average below ${t.footballUnder35.maxPrevSeasonAvgScored.toFixed(2)} scored AND below ${t.footballUnder35.maxPrevSeasonAvgConceded.toFixed(2)} conceded per match last season, ≥${pct(t.footballUnder35.minH2HUnder35Rate)} of their last 10 head-to-head meetings must have finished Under 3.5 goals, each team must independently have ≥${t.footballUnder35.minRecentUnder35Count} of their last 5 matches finish Under 3.5, and the market odds price must be at least ${t.footballUnder35.minExchangeOdds.toFixed(2)}.`
-        : 'Currently disabled in Engine Configuration — no fixtures are screened against this system.',
-    },
-    {
-      rule: 'Tennis: Straight Sets (2-0 / 3-0)',
-      description: t.tennisStraightSets.enabled
-        ? `The backed player must be ranked at least ${t.tennisStraightSets.minRankingDelta} places higher than the opponent, hold a career surface win rate ≥${t.tennisStraightSets.minSurfaceWinRate.toFixed(1)}%, have won ≥${t.tennisStraightSets.minRecentWinsCount} of their last 10 completed competitive singles matches, and the market odds price must be at least ${t.tennisStraightSets.minExchangeOdds.toFixed(2)} (enhanced verification triggers at or above ${t.tennisStraightSets.enhancedOddsThreshold.toFixed(2)}).`
         : 'Currently disabled in Engine Configuration — no fixtures are screened against this system.',
     },
   ];

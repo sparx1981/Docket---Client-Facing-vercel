@@ -18,9 +18,7 @@ import { evaluateFixture, evaluateH2HOver15 } from './rulesEngine.js';
  *
  * `providerUsed` is read directly off the fixture's own `sourceProvider`
  * (set in dataFeed.ts to whichever provider genuinely supplied it) rather
- * than a caller-supplied guess — a scan can pull football from one provider
- * and tennis from another, so there is no single "the provider" for a whole
- * batch to assume.
+ * than a caller-supplied guess.
  */
 export function runVerificationAudit(
   fixture: CandidateFixture,
@@ -165,53 +163,6 @@ export function runVerificationAudit(
         `Recent 5 form: ${details.homePrevSeason.team} (${homeU35Tally}/5 Under 3.5), ${details.awayPrevSeason.team} (${awayU35Tally}/5 Under 3.5).`
       );
     }
-  } else if (fixture.sport === 'tennis' && fixture.tennisDetails) {
-    const details = fixture.tennisDetails;
-    const selected = details.selectedPlayer;
-    const opponent = details.opponentPlayer;
-
-    const t = thresholds.tennisStraightSets;
-
-    // 1. Ranking diff recalculation
-    const recalcRankDelta = opponent.ranking - selected.ranking;
-    recalculatedMetrics.push({
-      ruleLabel: 'Raw Ranking Delta Recalculation',
-      computedMetric: `Opponent (#${opponent.ranking}) - Selection (#${selected.ranking}) = +${recalcRankDelta} places`,
-      thresholdRequired: `>= +${t.minRankingDelta} places`,
-      verifiedMatch: recalcRankDelta >= t.minRankingDelta,
-    });
-
-    // 2. Surface win rate recalculation from raw match record totals
-    const totalSurfaceMatches = selected.careerSurfaceWins + selected.careerSurfaceLosses;
-    const recalcSurfaceWinRate = totalSurfaceMatches > 0
-      ? Number(((selected.careerSurfaceWins / totalSurfaceMatches) * 100).toFixed(1))
-      : 0;
-
-    recalculatedMetrics.push({
-      ruleLabel: `Raw Surface Win Rate (${selected.surface})`,
-      computedMetric: `${selected.careerSurfaceWins}W / ${totalSurfaceMatches} total matches = ${recalcSurfaceWinRate}%`,
-      thresholdRequired: `>= ${t.minSurfaceWinRate.toFixed(1)}%`,
-      verifiedMatch: recalcSurfaceWinRate >= t.minSurfaceWinRate,
-    });
-
-    // 3. Recent 10 completed singles form recalculation
-    const validMatches = details.playerRecentSingles
-      .filter((m) => m.isCompetitiveSingles && m.isCompleted)
-      .slice(0, 10);
-    const rawWins = validMatches.filter((m) => m.won).length;
-
-    recalculatedMetrics.push({
-      ruleLabel: 'Raw Recent 10 Singles Form',
-      computedMetric: `${rawWins} wins in ${validMatches.length} completed competitive matches (${((rawWins / 10) * 100).toFixed(0)}%)`,
-      thresholdRequired: `>= ${t.minRecentWinsCount} of 10 wins (${t.minRecentWinsCount * 10}%)`,
-      verifiedMatch: validMatches.length >= 10 && rawWins >= t.minRecentWinsCount,
-    });
-
-    rawEvidenceSummary.push(
-      `ATP/WTA Official Ranking: ${selected.name} (#${selected.ranking}) vs ${opponent.name} (#${opponent.ranking}). Delta verified at +${recalcRankDelta}.`,
-      `Surface breakdown: ${selected.surface} career record is ${selected.careerSurfaceWins}-${selected.careerSurfaceLosses} (${recalcSurfaceWinRate}%).`,
-      `Last 10 competitive singles: ${validMatches.map((m) => `${m.won ? 'W' : 'L'} (${m.score}) vs ${m.opponent} [Rank #${m.opponentRank}]`).join(' | ')}. Exhibitions/walkovers excluded.`
-    );
   } else {
     dataIntegrityScore = 0;
     auditStatus = 'MISSING_DATA';

@@ -151,12 +151,6 @@ async function trySettleBet(bet: HistoricalBetRecord, settings: AppSettings): Pr
       const won = bet.system === 'football_over_1_5' ? totalGoals > 1 : totalGoals < 4;
       return settleWithOutcome(bet, won ? 'WON' : 'LOST', result.finalScore);
     }
-
-    if (bet.sport === 'tennis') {
-      // Tennis has no configured data supplier — nothing to settle against
-      // yet, so leave PENDING rather than guessing.
-      return bet;
-    }
   } catch {
     // Provider call failed — leave PENDING rather than guessing.
     return bet;
@@ -257,8 +251,7 @@ export async function executeBackgroundScan(
   const rejectedCount = Math.max(0, totalRecordsScanned - qualifiersCount - priceWatchCount);
 
   const footballProvider = footballProviderFor(settings);
-  const tennisAvailable = false; // No configured tennis data supplier since the Sportradar/Sportmonks migration.
-  const anyProviderConfigured = Boolean(footballProvider || tennisAvailable);
+  const anyProviderConfigured = Boolean(footballProvider);
 
   const newLog: SyncLogRecord = {
     id: `SYNC-${scanTimestamp.replace(/[-:T]/g, '').slice(0, 14)}UTC`,
@@ -285,18 +278,15 @@ export async function executeBackgroundScan(
             recordsSupplied: totalRecordsScanned,
           }
         : { name: 'Football provider', url: '', status: 'OFFLINE', recordsSupplied: 0 },
-      { name: 'Tennis provider', url: '', status: 'OFFLINE', recordsSupplied: 0 },
     ],
-    systemBreakdown: (['football_over_1_5', 'football_under_3_5', 'tennis_straight_sets'] as const).map((system) => {
+    systemBreakdown: (['football_over_1_5', 'football_under_3_5'] as const).map((system) => {
       const inSystem = refreshedFixtures.filter((f) => f.system === system);
       return {
         system,
         label:
           system === 'football_over_1_5'
             ? 'Over 1.5 Goals'
-            : system === 'football_under_3_5'
-            ? 'Under 3.5 Goals'
-            : 'Straight Sets (2-0 / 3-0)',
+            : 'Under 3.5 Goals',
         scanned: inSystem.length,
         qualified: inSystem.filter((f) => f.status === 'VERIFIED_QUALIFIER' && f.verificationCard?.status === 'VERIFIED')
           .length,

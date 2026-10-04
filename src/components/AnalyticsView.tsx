@@ -44,7 +44,6 @@ interface AnalyticsViewProps {
 const SYSTEM_NAME: Record<SystemType, string> = {
   football_over_1_5: 'Football · Over 1.5',
   football_under_3_5: 'Football · Under 3.5',
-  tennis_straight_sets: 'Tennis · Straight sets',
 };
 
 const signed = (n: number, prefix = '') =>
@@ -349,8 +348,6 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         return { sport: 'football', system: 'football_over_1_5' };
       case 'football_under_3_5':
         return { sport: 'football', system: 'football_under_3_5' };
-      case 'tennis_straight_sets':
-        return { sport: 'tennis', system: 'tennis_straight_sets' };
       default:
         return {};
     }
@@ -368,10 +365,6 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       {
         key: 'football_under_3_5',
         stats: calculateSystemAnalytics(historicalBets, 'football', 'football_under_3_5'),
-      },
-      {
-        key: 'tennis_straight_sets',
-        stats: calculateSystemAnalytics(historicalBets, 'tennis', 'tennis_straight_sets'),
       },
     ],
     [historicalBets]
@@ -501,7 +494,6 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               { value: 'all', label: 'All systems' },
               { value: 'football_over_1_5', label: 'Over 1.5' },
               { value: 'football_under_3_5', label: 'Under 3.5' },
-              { value: 'tennis_straight_sets', label: 'Straight sets' },
             ]}
           />
         </div>
@@ -717,9 +709,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                         <p className="text-text-3">
                           Each system enforces its own configured price floor (Over 1.5{' '}
                           {t.footballOver15.enabled ? `≥${t.footballOver15.minExchangeOdds.toFixed(2)}` : 'disabled'}, Under 3.5{' '}
-                          {t.footballUnder35.enabled ? `≥${t.footballUnder35.minExchangeOdds.toFixed(2)}` : 'disabled'}, Straight Sets{' '}
-                          {t.tennisStraightSets.enabled ? `≥${t.tennisStraightSets.minExchangeOdds.toFixed(2)}` : 'disabled'}
-                          , editable in Engine Configuration &rarr; Filter Thresholds, to avoid
+                          {t.footballUnder35.enabled ? `≥${t.footballUnder35.minExchangeOdds.toFixed(2)}` : 'disabled'}, editable in Engine Configuration &rarr; Filter Thresholds, to avoid
                           excessive risk and ensure positive mathematical expectancy against
                           TheStatsAPI's real market odds.
                         </p>
@@ -733,8 +723,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                       >
                         <p>
                           The final score pulled from the configured real provider
-                          (<strong>TheStatsAPI</strong> for football; tennis has no configured
-                          data supplier yet).
+                          (<strong>TheStatsAPI</strong>).
                         </p>
                         <p className="text-text-3">
                           Scores can be audited independently at any time by clicking the &ldquo;Check Google&rdquo; link next to each match.
@@ -753,7 +742,6 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                         <ul className="list-disc pl-4 space-y-1 text-text-3">
                           <li><strong className="text-text">Over 1.5 Goals:</strong> Won if regular-time match goals &ge; 2.</li>
                           <li><strong className="text-text">Under 3.5 Goals:</strong> Won if regular-time match goals &le; 3.</li>
-                          <li><strong className="text-text">Tennis Straight Sets:</strong> Won if the selected player won 2-0 (or 3-0 in Grand Slams) without conceding a set.</li>
                           <li><strong className="text-text">Pending:</strong> Match is upcoming or currently underway.</li>
                         </ul>
                       </ArchiveColumnTooltip>
@@ -852,7 +840,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                               className="inline-flex items-center gap-1 rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] font-bold text-text-2 hover:border-brand hover:text-brand-ink"
                               title={`Confirm on ${bet.dataSourceName || 'Flashscore'}`}
                             >
-                              {bet.sport === 'tennis' ? 'Tennis Abstract' : 'Flashscore'}
+                              Flashscore
                               <ExternalLink className="h-2.5 w-2.5" strokeWidth={2.5} />
                             </a>
                           )}
@@ -953,7 +941,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                             className="inline-flex items-center gap-1 rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] font-bold text-text-2 hover:border-brand hover:text-brand-ink"
                             title={`Confirm on ${bet.dataSourceName || 'Flashscore'}`}
                           >
-                            {bet.sport === 'tennis' ? 'Tennis Abstract' : 'Flashscore'}
+                            Flashscore
                             <ExternalLink className="h-2.5 w-2.5" strokeWidth={2.5} />
                           </a>
                         )}

@@ -9,7 +9,7 @@ import type {
   SystemFeedBreakdown,
   SystemType,
 } from '../types';
-import { evaluateH2HOver15 } from './rulesEngine.js';
+import { FILTER_LABELS, evaluateFootballOver15, evaluateFootballUnder35 } from './rulesEngine.js';
 
 /** Human-readable summary of a rule's league scope, e.g. "All leagues" or "Premier League, La Liga". */
 export function describeLeagueScope(selectedLeagueIds: string[], leagueCatalog: LeagueOption[]): string {
@@ -37,7 +37,7 @@ interface FilterDefinition {
  * - All reductions and pass counts are computed directly from the actual candidate fixture objects in memory.
  */
 export function calculateSystemBreakdown(params: {
-  systemKey: 'footballOver15' | 'footballUnder35' | 'tennisStraightSets';
+  systemKey: 'footballOver15' | 'footballUnder35';
   thresholds: RuleThresholds;
   fixtures: CandidateFixture[];
   feedInfo?: FeedSummaryRecord;
@@ -60,25 +60,14 @@ export function calculateSystemBreakdown(params: {
     });
   }
 
-  if (systemKey === 'footballUnder35') {
-    return buildFootballUnder35Breakdown({
-      thresholds: thresholds.footballUnder35,
-      fixtures,
-      feedInfo,
-      isConfigured,
-      isLoading,
-      error,
-      leagueScopeLabel: describeLeagueScope(thresholds.footballUnder35.selectedLeagueIds, leagueCatalog),
-    });
-  }
-
-  return buildTennisStraightSetsBreakdown({
-    thresholds: thresholds.tennisStraightSets,
+  return buildFootballUnder35Breakdown({
+    thresholds: thresholds.footballUnder35,
     fixtures,
     feedInfo,
     isConfigured,
     isLoading,
     error,
+    leagueScopeLabel: describeLeagueScope(thresholds.footballUnder35.selectedLeagueIds, leagueCatalog),
   });
 }
 
@@ -128,61 +117,44 @@ function buildFootballOver15Breakdown(params: {
       priceWatchCount: 0,
       fetchedAt: feedInfo?.fetchedAt,
       rawMatches: uniqueFootballMatches,
+      ruleThresholds: thresholds,
     };
   }
+
+  // Every filter's pass/fail is read straight from the rules engine's own
+  // check for that filter (never re-implemented here), so this funnel, the
+  // scan's classification and the CSV export can never disagree.
+  const passes = (f: CandidateFixture, id: string) =>
+    evaluateFootballOver15(f, { ...thresholds, enabled: true }).filterChecks.find((c) => c.filterId === id)?.passed ?? false;
 
   const filterDefs: FilterDefinition[] = [
     {
       id: 'F1_PREV_SEASON_SCORED',
-      name: 'Min. prev-season avg scored',
+      name: FILTER_LABELS.F1_PREV_SEASON_SCORED,
       targetRule: `Both teams avg >= ${thresholds.minPrevSeasonAvgScored.toFixed(2)} goals scored/match`,
       targetValue: `>= ${thresholds.minPrevSeasonAvgScored.toFixed(2)} goals`,
-      test: (f) => {
-        if (!f.footballDetails) return false;
-        return (
-          f.footballDetails.homePrevSeason.avgGoalsScored >= thresholds.minPrevSeasonAvgScored &&
-          f.footballDetails.awayPrevSeason.avgGoalsScored >= thresholds.minPrevSeasonAvgScored
-        );
-      },
+      test: (f) => passes(f, 'F1_PREV_SEASON_SCORED'),
     },
     {
       id: 'F2_H2H_OVER15',
-      name: 'Min. H2H Over 1.5 rate',
+      name: FILTER_LABELS.F2_H2H_OVER15,
       targetRule: `Last 5 competitive H2H meetings >= ${(thresholds.minH2HOver15Rate * 100).toFixed(0)}% Over 1.5 Goals`,
       targetValue: `>= ${(thresholds.minH2HOver15Rate * 100).toFixed(0)}% (last 5 H2H, 5 meetings required)`,
-      test: (f) => {
-        if (!f.footballDetails) return false;
-        return evaluateH2HOver15(f.footballDetails.h2hMatches, thresholds.minH2HOver15Rate).passed;
-      },
+      test: (f) => passes(f, 'F2_H2H_OVER15'),
     },
     {
       id: 'F3_RECENT_FORM_SCORED',
-      name: 'Min. recent scoring count',
+      name: FILTER_LABELS.F3_RECENT_FORM_SCORED,
       targetRule: `Each team scored in >= ${thresholds.minRecentScoredCount} of last 5 competitive matches`,
       targetValue: `>= ${thresholds.minRecentScoredCount} of last 5 matches`,
-      test: (f) => {
-        if (!f.footballDetails) return false;
-        const homeComp = f.footballDetails.homeRecentMatches.filter((m) => m.isCompetitive).slice(0, 5);
-        const awayComp = f.footballDetails.awayRecentMatches.filter((m) => m.isCompetitive).slice(0, 5);
-        const homeScored = homeComp.filter((m) => m.scoredAtLeastOne).length;
-        const awayScored = awayComp.filter((m) => m.scoredAtLeastOne).length;
-        return (
-          homeComp.length >= 5 &&
-          awayComp.length >= 5 &&
-          homeScored >= thresholds.minRecentScoredCount &&
-          awayScored >= thresholds.minRecentScoredCount
-        );
-      },
+      test: (f) => passes(f, 'F3_RECENT_FORM_SCORED'),
     },
     {
       id: 'F4_EXCHANGE_PRICE',
-      name: 'Min. market odds',
+      name: FILTER_LABELS.F4_EXCHANGE_PRICE,
       targetRule: `Market odds for Over 1.5 Goals >= ${thresholds.minExchangeOdds.toFixed(2)}`,
       targetValue: `>= @${thresholds.minExchangeOdds.toFixed(2)}`,
-      test: (f) => {
-        const odds = f.marketOdds?.decimalOdds;
-        return typeof odds === 'number' && odds >= thresholds.minExchangeOdds;
-      },
+      test: (f) => passes(f, 'F4_EXCHANGE_PRICE'),
     },
   ];
 
@@ -213,7 +185,7 @@ function buildFootballOver15Breakdown(params: {
     priceWatchCount: priceWatch.length,
     fetchedAt: feedInfo?.fetchedAt,
     rawMatches: uniqueFootballMatches,
-    h2hOver15MinRate: thresholds.minH2HOver15Rate,
+    ruleThresholds: thresholds,
   };
 }
 
@@ -260,76 +232,49 @@ function buildFootballUnder35Breakdown(params: {
       priceWatchCount: 0,
       fetchedAt: feedInfo?.fetchedAt,
       rawMatches: uniqueFootballMatches,
+      ruleThresholds: thresholds,
     };
   }
+
+  // See the equivalent note in the Over 1.5 breakdown: pass/fail comes from the rules engine.
+  const passes = (f: CandidateFixture, id: string) =>
+    evaluateFootballUnder35(f, { ...thresholds, enabled: true }).filterChecks.find((c) => c.filterId === id)?.passed ?? false;
 
   const filterDefs: FilterDefinition[] = [
     {
       id: 'F1_PREV_SEASON_SCORED_U35',
-      name: 'Max. prev-season avg scored',
+      name: FILTER_LABELS.F1_PREV_SEASON_SCORED_U35,
       targetRule: `Both teams avg < ${thresholds.maxPrevSeasonAvgScored.toFixed(2)} goals scored/match`,
       targetValue: `< ${thresholds.maxPrevSeasonAvgScored.toFixed(2)} GF/m`,
-      test: (f) => {
-        if (!f.footballDetails) return false;
-        return (
-          f.footballDetails.homePrevSeason.avgGoalsScored < thresholds.maxPrevSeasonAvgScored &&
-          f.footballDetails.awayPrevSeason.avgGoalsScored < thresholds.maxPrevSeasonAvgScored
-        );
-      },
+      test: (f) => passes(f, 'F1_PREV_SEASON_SCORED_U35'),
     },
     {
       id: 'F2_PREV_SEASON_CONCEDED_U35',
-      name: 'Max. prev-season avg conceded',
+      name: FILTER_LABELS.F2_PREV_SEASON_CONCEDED_U35,
       targetRule: `Both teams avg < ${thresholds.maxPrevSeasonAvgConceded.toFixed(2)} goals conceded/match`,
       targetValue: `< ${thresholds.maxPrevSeasonAvgConceded.toFixed(2)} GA/m`,
-      test: (f) => {
-        if (!f.footballDetails) return false;
-        return (
-          f.footballDetails.homePrevSeason.avgGoalsConceded < thresholds.maxPrevSeasonAvgConceded &&
-          f.footballDetails.awayPrevSeason.avgGoalsConceded < thresholds.maxPrevSeasonAvgConceded
-        );
-      },
+      test: (f) => passes(f, 'F2_PREV_SEASON_CONCEDED_U35'),
     },
     {
       id: 'F3_H2H_UNDER35',
-      name: 'Min. H2H Under 3.5 rate',
+      name: FILTER_LABELS.F3_H2H_UNDER35,
       targetRule: `Last 10 competitive meetings >= ${(thresholds.minH2HUnder35Rate * 100).toFixed(0)}% Under 3.5 Goals`,
-      targetValue: `>= ${(thresholds.minH2HUnder35Rate * 100).toFixed(0)}% (last 10 H2H)`,
-      test: (f) => {
-        if (!f.footballDetails) return false;
-        const compH2H = f.footballDetails.h2hMatches.filter((m) => m.isCompetitive).slice(0, 10);
-        const under35Count = compH2H.filter((m) => m.totalGoals < 4).length;
-        return compH2H.length >= 8 && under35Count / compH2H.length >= thresholds.minH2HUnder35Rate;
-      },
+      targetValue: `>= ${(thresholds.minH2HUnder35Rate * 100).toFixed(0)}% (last 10 H2H, 8 meetings required)`,
+      test: (f) => passes(f, 'F3_H2H_UNDER35'),
     },
     {
       id: 'F4_RECENT_FORM_UNDER35',
-      name: 'Min. recent Under 3.5 count',
+      name: FILTER_LABELS.F4_RECENT_FORM_UNDER35,
       targetRule: `Each team has >= ${thresholds.minRecentUnder35Count} of last 5 competitive matches Under 3.5`,
       targetValue: `>= ${thresholds.minRecentUnder35Count} of last 5 matches`,
-      test: (f) => {
-        if (!f.footballDetails) return false;
-        const homeComp = f.footballDetails.homeRecentMatches.filter((m) => m.isCompetitive).slice(0, 5);
-        const awayComp = f.footballDetails.awayRecentMatches.filter((m) => m.isCompetitive).slice(0, 5);
-        const homeU35 = homeComp.filter((m) => m.under35Goals).length;
-        const awayU35 = awayComp.filter((m) => m.under35Goals).length;
-        return (
-          homeComp.length >= 5 &&
-          awayComp.length >= 5 &&
-          homeU35 >= thresholds.minRecentUnder35Count &&
-          awayU35 >= thresholds.minRecentUnder35Count
-        );
-      },
+      test: (f) => passes(f, 'F4_RECENT_FORM_UNDER35'),
     },
     {
       id: 'F5_EXCHANGE_PRICE_U35',
-      name: 'Min. market odds',
+      name: FILTER_LABELS.F5_EXCHANGE_PRICE_U35,
       targetRule: `Market odds for Under 3.5 Goals >= ${thresholds.minExchangeOdds.toFixed(2)}`,
       targetValue: `>= @${thresholds.minExchangeOdds.toFixed(2)}`,
-      test: (f) => {
-        const odds = f.marketOdds?.decimalOdds;
-        return typeof odds === 'number' && odds >= thresholds.minExchangeOdds;
-      },
+      test: (f) => passes(f, 'F5_EXCHANGE_PRICE_U35'),
     },
   ];
 
@@ -359,128 +304,7 @@ function buildFootballUnder35Breakdown(params: {
     priceWatchCount: priceWatch.length,
     fetchedAt: feedInfo?.fetchedAt,
     rawMatches: uniqueFootballMatches,
-  };
-}
-
-/* ================= Tennis Straight Sets ================= */
-
-function buildTennisStraightSetsBreakdown(params: {
-  thresholds: RuleThresholds['tennisStraightSets'];
-  fixtures: CandidateFixture[];
-  feedInfo?: FeedSummaryRecord;
-  isConfigured: boolean;
-  isLoading: boolean;
-  error?: string;
-}): SystemFeedBreakdown {
-  const { thresholds, fixtures, feedInfo, isConfigured, isLoading, error } = params;
-
-  const tennisFixtures = fixtures.filter(
-    (f) => f.sport === 'tennis' || f.tennisDetails !== undefined || f.system === 'tennis_straight_sets'
-  );
-  const uniqueTennisMatches = deduplicateMatches(tennisFixtures);
-
-  const rawTotal = feedInfo?.totalRecordsReceived ?? (uniqueTennisMatches[0]?.rawFeedTotal || uniqueTennisMatches.length);
-  const enrichedCount = uniqueTennisMatches.filter((f) => !!f.tennisDetails).length;
-  const incompleteCount = Math.max(0, rawTotal - enrichedCount);
-
-  const provider: DataProviderType | 'NONE' = feedInfo?.provider ?? (uniqueTennisMatches[0]?.sourceProvider || 'SPORTRADAR');
-
-  if (!isConfigured || error || isLoading || rawTotal === 0) {
-    return {
-      sport: 'tennis',
-      system: 'tennis_straight_sets',
-      ruleTitle: 'Tennis — Straight Sets',
-      leagueScopeLabel: 'Not applicable',
-      provider: isConfigured ? provider : 'NONE',
-      isConfigured,
-      isLoading,
-      error,
-      totalFeedRecords: rawTotal,
-      enrichedRecordsCount: enrichedCount,
-      incompleteDataCount: incompleteCount,
-      filterSteps: [],
-      preliminaryQualifiersCount: 0,
-      verifiedQualifiersCount: 0,
-      priceWatchCount: 0,
-      fetchedAt: feedInfo?.fetchedAt,
-      rawMatches: uniqueTennisMatches,
-    };
-  }
-
-  const filterDefs: FilterDefinition[] = [
-    {
-      id: 'T1_RANKING_DELTA',
-      name: 'Min. ranking delta',
-      targetRule: `Selected player ranked >= ${thresholds.minRankingDelta} places higher than opponent`,
-      targetValue: `>= +${thresholds.minRankingDelta} places`,
-      test: (f) => {
-        if (!f.tennisDetails) return false;
-        const diff = f.tennisDetails.opponentPlayer.ranking - f.tennisDetails.selectedPlayer.ranking;
-        return diff >= thresholds.minRankingDelta;
-      },
-    },
-    {
-      id: 'T2_SURFACE_WIN_RATE',
-      name: 'Min. career surface win rate',
-      targetRule: `Selected player career surface win rate >= ${thresholds.minSurfaceWinRate.toFixed(1)}%`,
-      targetValue: `>= ${thresholds.minSurfaceWinRate.toFixed(1)}% on surface`,
-      test: (f) => {
-        if (!f.tennisDetails) return false;
-        return f.tennisDetails.selectedPlayer.careerSurfaceWinRate >= thresholds.minSurfaceWinRate;
-      },
-    },
-    {
-      id: 'T3_RECENT_SINGLES_FORM',
-      name: 'Min. recent wins',
-      targetRule: `Won >= ${thresholds.minRecentWinsCount} of last 10 completed competitive singles matches`,
-      targetValue: `>= ${thresholds.minRecentWinsCount} of last 10 singles`,
-      test: (f) => {
-        if (!f.tennisDetails) return false;
-        const recent = f.tennisDetails.playerRecentSingles
-          .filter((m) => m.isCompetitiveSingles && m.isCompleted)
-          .slice(0, 10);
-        const wins = recent.filter((m) => m.won).length;
-        return recent.length >= 10 && wins >= thresholds.minRecentWinsCount;
-      },
-    },
-    {
-      id: 'T4_EXCHANGE_PRICE_TENNIS',
-      name: 'Min. market odds',
-      targetRule: `Market odds for Straight-Sets >= ${thresholds.minExchangeOdds.toFixed(2)}`,
-      targetValue: `>= @${thresholds.minExchangeOdds.toFixed(2)}`,
-      test: (f) => {
-        const odds = f.marketOdds?.decimalOdds;
-        return typeof odds === 'number' && odds >= thresholds.minExchangeOdds;
-      },
-    },
-  ];
-
-  const steps = computeFilterSteps(uniqueTennisMatches, filterDefs, rawTotal);
-
-  const statisticalQualifiers = uniqueTennisMatches.filter(
-    (f) => filterDefs[0].test(f) && filterDefs[1].test(f) && filterDefs[2].test(f)
-  );
-  const verifiedQualifiers = statisticalQualifiers.filter((f) => filterDefs[3].test(f));
-  const priceWatch = statisticalQualifiers.filter((f) => !filterDefs[3].test(f));
-
-  return {
-    sport: 'tennis',
-    system: 'tennis_straight_sets',
-    ruleTitle: 'Tennis — Straight Sets',
-    leagueScopeLabel: 'Not applicable',
-    provider,
-    isConfigured,
-    isLoading: false,
-    error: undefined,
-    totalFeedRecords: rawTotal,
-    enrichedRecordsCount: enrichedCount,
-    incompleteDataCount: incompleteCount,
-    filterSteps: steps,
-    preliminaryQualifiersCount: statisticalQualifiers.length,
-    verifiedQualifiersCount: verifiedQualifiers.length,
-    priceWatchCount: priceWatch.length,
-    fetchedAt: feedInfo?.fetchedAt,
-    rawMatches: uniqueTennisMatches,
+    ruleThresholds: thresholds,
   };
 }
 

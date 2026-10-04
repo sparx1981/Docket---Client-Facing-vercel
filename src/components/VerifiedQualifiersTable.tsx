@@ -9,7 +9,7 @@ import {
   Search,
   ShieldCheck,
 } from 'lucide-react';
-import { CandidateFixture, Sport, SystemType } from '../types';
+import { CandidateFixture, SystemType } from '../types';
 import {
   Button,
   Chip,
@@ -17,7 +17,6 @@ import {
   Plate,
   PlateHeader,
   PriceTag,
-  Segmented,
   Stamp,
   Tone,
 } from './ui';
@@ -33,7 +32,6 @@ interface VerifiedQualifiersTableProps {
 const SYSTEM_LABEL: Record<SystemType, { short: string; tone: Tone }> = {
   football_over_1_5: { short: 'A · Over 1.5', tone: 'brand' },
   football_under_3_5: { short: 'B · Under 3.5', tone: 'info' },
-  tennis_straight_sets: { short: 'T · Straight Sets', tone: 'warn' },
 };
 
 const googleUrl = (f: CandidateFixture) =>
@@ -61,13 +59,11 @@ export const VerifiedQualifiersTable: React.FC<VerifiedQualifiersTableProps> = (
   onRunScan,
   loadError,
 }) => {
-  const [selectedSport, setSelectedSport] = useState<'all' | Sport>('all');
   const [selectedSystem, setSelectedSystem] = useState<'all' | SystemType>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   const filtered = fixtures.filter((f) => {
     if (!f) return false;
-    if (selectedSport !== 'all' && f.sport !== selectedSport) return false;
     if (selectedSystem !== 'all' && f.system !== selectedSystem) return false;
     if (searchQuery && typeof searchQuery === 'string') {
       const q = searchQuery.toLowerCase().trim();
@@ -79,30 +75,12 @@ export const VerifiedQualifiersTable: React.FC<VerifiedQualifiersTableProps> = (
     return true;
   });
 
-  const footballCount = fixtures.filter((f) => f.sport === 'football').length;
-  const tennisCount = fixtures.filter((f) => f.sport === 'tennis').length;
-
   return (
     <div id="verified-qualifiers-view" className="space-y-5">
       {/* ---- Filter bar ---- */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-2">
-          <Segmented
-            label="Filter by sport"
-            value={selectedSport}
-            onChange={(v) => {
-              setSelectedSport(v as 'all' | Sport);
-              setSelectedSystem('all');
-            }}
-            segments={[
-              { value: 'all', label: 'All', count: fixtures.length },
-              { value: 'football', label: 'Football', count: footballCount },
-              { value: 'tennis', label: 'Tennis', count: tennisCount },
-            ]}
-          />
-
-          {selectedSport === 'football' && (
-            <select
+          <select
               aria-label="Filter by football system"
               value={selectedSystem}
               onChange={(e) => setSelectedSystem(e.target.value as SystemType)}
@@ -111,8 +89,7 @@ export const VerifiedQualifiersTable: React.FC<VerifiedQualifiersTableProps> = (
               <option value="all">Both football systems</option>
               <option value="football_over_1_5">System A · Over 1.5</option>
               <option value="football_under_3_5">System B · Under 3.5</option>
-            </select>
-          )}
+          </select>
         </div>
 
         <div className="relative w-full sm:w-72">
@@ -147,7 +124,7 @@ export const VerifiedQualifiersTable: React.FC<VerifiedQualifiersTableProps> = (
               fixtures.length === 0
                 ? loadError ||
                   'Every candidate fixture is measured against the locked filters and the raw-evidence audit. When the criteria or the price threshold are not met, the selection is excluded rather than softened.'
-                : 'Clear the sport or search filter to see the rest of the docket.'
+                : 'Clear the system or search filter to see the rest of the docket.'
             }
             action={
               fixtures.length === 0 ? (
@@ -158,7 +135,6 @@ export const VerifiedQualifiersTable: React.FC<VerifiedQualifiersTableProps> = (
                 <Button
                   variant="ghost"
                   onClick={() => {
-                    setSelectedSport('all');
                     setSelectedSystem('all');
                     setSearchQuery('');
                   }}

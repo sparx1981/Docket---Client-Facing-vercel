@@ -8,8 +8,6 @@ import type {
   MatchOddsData,
   RuleThresholds,
   TeamRecentMatch,
-  TennisPlayerStats,
-  TennisRecentMatch,
 } from '../types';
 import { evaluateFixture } from './rulesEngine.js';
 import { apiGet, sleep } from './backendClient.js';
@@ -18,10 +16,7 @@ import { describeLeagueScope } from './filterBreakdown.js';
 /**
  * Real fixture ingestion. Every football candidate fixture on screen now
  * comes from a live TheStatsAPI.com call, proxied through our own backend
- * (server/index.ts) — never from hardcoded seed data. Tennis has no
- * configured data supplier at all right now (Sportradar Tennis was removed
- * along with football's old providers; tennis's own migration is a later
- * phase), so tennis candidates are never fetched.
+ * (server/index.ts) — never from hardcoded seed data.
  *
  * When no TheStatsAPI key is configured, or the pull fails, this returns an
  * empty list plus a human-readable error the UI can surface, rather than
@@ -35,7 +30,6 @@ export interface FixtureFetchResult {
   /** Over 1.5 and Under 3.5 can target different leagues, so each gets its own feed summary. */
   footballOver15FeedInfo?: FeedSummaryRecord;
   footballUnder35FeedInfo?: FeedSummaryRecord;
-  tennisFeedInfo?: FeedSummaryRecord;
 }
 
 /**
@@ -45,7 +39,7 @@ export interface FixtureFetchResult {
  * that has no relationship to the real network calls underneath it.
  */
 export interface FeedProgressEvent {
-  sport: 'football' | 'tennis';
+  sport: 'football';
   message: string;
   /** Running total of raw fixtures received for this sport so far. */
   recordsSoFar: number;
@@ -62,7 +56,7 @@ export type FeedProgressCallback = (event: FeedProgressEvent) => void;
 export const MAX_ENRICHED_FIXTURES_PER_SPORT = 200;
 
 // A small pause between each enriched fixture's own burst of calls (3-4 for
-// football, 2 for tennis) — with none, up to 200 fixtures fire their calls
+// football) — with none, up to 200 fixtures fire their calls
 // back-to-back as fast as the event loop allows, which has been observed to
 // destabilize the backend/proxy partway through a scan (calls that succeeded
 // at the start start timing out or hitting "still starting" placeholders
@@ -133,17 +127,10 @@ export function describeScanPlan(settings: AppSettings): { lines: ScanPlanLine[]
     });
   }
 
-  if (settings.ruleThresholds.tennisStraightSets.enabled) {
-    lines.push({
-      label: 'Tennis — Straight Sets',
-      detail: 'Enabled, but tennis has no configured data supplier yet — nothing will actually be downloaded for it.',
-    });
-  }
-
   if (!hasAnyWork) {
     lines.push({
       label: 'Start scan disabled',
-      detail: 'No football rule is enabled in Filter Thresholds, and tennis has no data supplier configured yet — there is nothing this scan could download. Enable Over 1.5 Goals or Under 3.5 Goals to proceed.',
+      detail: 'No football rule is enabled in Filter Thresholds — there is nothing this scan could download. Enable Over 1.5 Goals or Under 3.5 Goals to proceed.',
     });
   }
 
@@ -174,13 +161,6 @@ function googleUrl(matchTitle: string, competition: string): string {
 
 function choosefootballProvider(settings: AppSettings): { key: string } | null {
   if (settings.theStatsApiKey) return { key: settings.theStatsApiKey };
-  return null;
-}
-
-function chooseTennisProvider(_settings: AppSettings): { key: string } | null {
-  // Tennis has no configured data supplier since the Sportradar/Sportmonks
-  // migration off cost-prohibitive trial tiers. It is planned to move to
-  // its own new provider in a later phase, not restored to Sportradar.
   return null;
 }
 
@@ -431,191 +411,6 @@ export function buildFootballCandidate(
   return candidate;
 }
 
-/* =============================== Tennis ================================ */
-
-interface RawTennisFixture {
-  providerId: string;
-  homeOrPlayer1: string;
-  awayOrPlayer2: string;
-  homeId?: string;
-  awayId?: string;
-  competition: string;
-  matchTime: string;
-  venue?: string;
-  surface?: 'Hard' | 'Clay' | 'Grass' | 'Carpet';
-}
-
-async function buildTennisCandidates(
-  key: string,
-  dates: string[],
-  thresholds: RuleThresholds,
-  onProgress?: FeedProgressCallback,
-  signal?: AbortSignal
-): Promise<{ candidates: CandidateFixture[]; rawTotal: number; partialError?: string }> {
-  const allRawFixtures: RawTennisFixture[] = [];
-  const dateErrors: string[] = [];
-  for (const date of dates) {
-    onProgress?.({
-      sport: 'tennis',
-      message: `Requesting tennis fixtures for ${date}…`,
-      recordsSoFar: allRawFixtures.length,
-    });
-    try {
-      const body = await apiGet(`/api/tennis/fixtures?date=${date}`, key, signal);
-      const received = body?.fixtures || [];
-      for (const f of received) {
-        allRawFixtures.push(f);
-      }
-      onProgress?.({
-        sport: 'tennis',
-        message: `Received ${received.length} tennis fixture(s) for ${date} (${allRawFixtures.length} total so far).`,
-        recordsSoFar: allRawFixtures.length,
-      });
-    } catch (err) {
-      if (isAbortError(err)) throw err;
-      const msg = err instanceof Error ? err.message : String(err);
-      dateErrors.push(`${date}: ${msg}`);
-      onProgress?.({
-        sport: 'tennis',
-        message: `Could not fetch tennis fixtures for ${date}: ${msg}`,
-        recordsSoFar: allRawFixtures.length,
-      });
-    }
-  }
-  if (dateErrors.length === dates.length) {
-    throw new Error(dateErrors.join(' · '));
-  }
-
-  const rawTotal = allRawFixtures.length;
-  const candidates: CandidateFixture[] = [];
-  const enrichTotal = Math.min(MAX_ENRICHED_FIXTURES_PER_SPORT, allRawFixtures.length);
-
-  // Enrich up to MAX_ENRICHED_FIXTURES_PER_SPORT to stay within trial API rate limits,
-  // while keeping ALL fixtures in the feed and CSV export so row count and record count match.
-  for (let i = 0; i < allRawFixtures.length; i++) {
-    const fx = allRawFixtures[i];
-    let tennisDetails: CandidateFixture['tennisDetails'] | undefined;
-
-    if (i < enrichTotal) {
-      onProgress?.({
-        sport: 'tennis',
-        message: `Enriching tennis fixture ${i + 1} of ${enrichTotal} (${fx.homeOrPlayer1} vs ${fx.awayOrPlayer2})…`,
-        recordsSoFar: rawTotal,
-      });
-    }
-
-    if (i < MAX_ENRICHED_FIXTURES_PER_SPORT && fx.homeId && fx.awayId) {
-      if (i > 0) await sleep(ENRICHMENT_PACING_MS, signal);
-      try {
-        const [p1, p2] = await Promise.all([
-          apiGet(`/api/tennis/player/${fx.homeId}`, key, signal),
-          apiGet(`/api/tennis/player/${fx.awayId}`, key, signal),
-        ]);
-
-        const player1: TennisPlayerStats | undefined = p1?.player?.player;
-        const player2: TennisPlayerStats | undefined = p2?.player?.player;
-        // Judgment call: the "selected" player for the straight-sets system is
-        // whichever of the two carries the better (lower) official ranking —
-        // the rule requires the selection to be ranked higher than its
-        // opponent, so there is no ambiguity about which side of the match we
-        // are screening.
-        const selected = player1 && player2 ? (player1.ranking <= player2.ranking ? player1 : player2) : undefined;
-        const opponent = selected === player1 ? player2 : player1;
-        const selectedRecent: TennisRecentMatch[] | undefined =
-          selected === player1 ? p1?.player?.recentMatches : p2?.player?.recentMatches;
-
-        if (selected && opponent && selectedRecent && selectedRecent.length > 0) {
-          tennisDetails = {
-            selectedPlayer: selected,
-            opponentPlayer: opponent,
-            playerRecentSingles: selectedRecent,
-          };
-        }
-      } catch (err) {
-        if (isAbortError(err)) throw err;
-        tennisDetails = undefined;
-      }
-
-      onProgress?.({
-        sport: 'tennis',
-        message: tennisDetails
-          ? `✓ Enriched ${fx.homeOrPlayer1} vs ${fx.awayOrPlayer2}.`
-          : `✗ Missing data for ${fx.homeOrPlayer1} vs ${fx.awayOrPlayer2} — player stats incomplete, will show as no data.`,
-        recordsSoFar: rawTotal,
-      });
-    }
-
-    candidates.push(buildTennisCandidate(fx, tennisDetails, thresholds, rawTotal));
-  }
-
-  return {
-    candidates,
-    rawTotal,
-    partialError: dateErrors.length > 0 ? `Some dates could not be fetched: ${dateErrors.join(' · ')}` : undefined,
-  };
-}
-
-function buildTennisCandidate(
-  fx: RawTennisFixture,
-  tennisDetails: CandidateFixture['tennisDetails'] | undefined,
-  thresholds: RuleThresholds,
-  rawTotal?: number
-): CandidateFixture {
-  const requiredOdds = thresholds.tennisStraightSets.minExchangeOdds;
-  const matchTitle = `${fx.homeOrPlayer1} vs ${fx.awayOrPlayer2}`;
-  // Judgment call: best-of-5 (and therefore a 3-0 straight-sets line) applies
-  // to men's Grand Slam singles; everything else on tour is best-of-3 (2-0).
-  // The normalized fixture doesn't carry a reliable "best of" field from the
-  // documented contract, so this is inferred from the competition name and
-  // should be re-verified once real schedule responses are available.
-  const isLikelyGrandSlam = /open|wimbledon|roland garros|french open|australian open|us open/i.test(
-    fx.competition
-  );
-  const bestOfSets: 3 | 5 = isLikelyGrandSlam ? 5 : 3;
-  const setsLabel = bestOfSets === 5 ? '3-0' : '2-0';
-  const selectedEntity = tennisDetails
-    ? `${tennisDetails.selectedPlayer.name} to Win in Straight Sets (${setsLabel})`
-    : `${fx.homeOrPlayer1} vs ${fx.awayOrPlayer2} (Straight Sets)`;
-
-  const candidate: CandidateFixture = {
-    id: `TN-SETS-${fx.providerId}`,
-    providerId: fx.providerId,
-    sport: 'tennis',
-    system: 'tennis_straight_sets',
-    matchTitle,
-    homeOrPlayer1: fx.homeOrPlayer1,
-    awayOrPlayer2: fx.awayOrPlayer2,
-    selectedEntity,
-    competition: fx.competition,
-    matchTime: fx.matchTime,
-    venue: fx.venue,
-    surface: fx.surface || tennisDetails?.selectedPlayer.surface || 'Hard',
-    bestOfSets,
-    betType: `Straight Sets (${setsLabel})`,
-    googleVerificationUrl: googleUrl(matchTitle, fx.competition),
-    // Tennis only ever comes from Sportradar — Sportmonks has no tennis coverage.
-    sourceProvider: 'SPORTRADAR',
-    currentOdds: 0,
-    requiredOdds,
-    oddsDifference: -requiredOdds,
-    status: 'FAILED',
-    tennisDetails,
-    rawFeedTotal: rawTotal,
-  };
-
-  const screening = evaluateFixture(candidate, thresholds);
-  candidate.status = screening.isVerifiedQualifier
-    ? 'VERIFIED_QUALIFIER'
-    : screening.isPriceWatch
-    ? 'PRICE_WATCH'
-    : screening.isPreliminaryQualifier
-    ? 'PRELIMINARY_QUALIFIER'
-    : 'FAILED';
-  candidate.failureReason = screening.failureReason;
-
-  return candidate;
-}
-
 /* =============================== Entry point ============================ */
 
 export async function fetchCandidateFixtures(
@@ -624,9 +419,8 @@ export async function fetchCandidateFixtures(
   signal?: AbortSignal
 ): Promise<FixtureFetchResult> {
   const football = choosefootballProvider(settings);
-  const tennis = chooseTennisProvider(settings);
 
-  if (!football && !tennis) {
+  if (!football) {
     return {
       fixtures: [],
       error: 'No data provider configured. Add a TheStatsAPI key in Engine Configuration to pull real football fixtures.',
@@ -639,7 +433,6 @@ export async function fetchCandidateFixtures(
   const fixtures: CandidateFixture[] = [];
   let footballOver15FeedInfo: FeedSummaryRecord | undefined;
   let footballUnder35FeedInfo: FeedSummaryRecord | undefined;
-  let tennisFeedInfo: FeedSummaryRecord | undefined;
   const footballEnrichmentCache: EnrichmentCache = new Map();
 
   if (football) {
@@ -697,43 +490,11 @@ export async function fetchCandidateFixtures(
     }
   }
 
-  if (!thresholds.tennisStraightSets.enabled) {
-    // System disabled in Engine Configuration — skip the calls entirely.
-  } else if (tennis) {
-    try {
-      const tnResult = await buildTennisCandidates(tennis.key, dates, thresholds, onProgress, signal);
-      fixtures.push(...tnResult.candidates);
-      tennisFeedInfo = {
-        sport: 'tennis',
-        provider: 'SPORTRADAR',
-        totalRecordsReceived: tnResult.rawTotal,
-        fetchedAt: new Date().toISOString(),
-        queryDates: dates,
-        error: tnResult.partialError,
-      };
-    } catch (err) {
-      if (isAbortError(err)) throw err;
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(msg);
-      tennisFeedInfo = {
-        sport: 'tennis',
-        provider: 'SPORTRADAR',
-        totalRecordsReceived: 0,
-        fetchedAt: new Date().toISOString(),
-        queryDates: dates,
-        error: msg,
-      };
-    }
-  } else {
-    errors.push('Tennis has no configured data supplier yet — it is planned to move to a new provider in a later phase.');
-  }
-
   return {
     fixtures,
     error: errors.length > 0 ? errors.join(' · ') : undefined,
     footballOver15FeedInfo,
     footballUnder35FeedInfo,
-    tennisFeedInfo,
   };
 }
 
@@ -785,11 +546,6 @@ export function describeLiveFeedPreviewPlan(settings: AppSettings): { lines: Sca
       detail: `Download: every scheduled fixture over the next ${DAYS_AHEAD} days from ${scope}. Enrich: up to ${MAX_ENRICHED_FIXTURES_PER_SPORT} of those matches also get each team's season stats, recent form, and head-to-head history pulled in. Filter: every one of those fixtures is then screened against this rule's own current (unsaved) thresholds, so the Filter & Impact numbers below reflect it.`,
     });
   }
-
-  lines.push({
-    label: 'Tennis — Straight Sets',
-    detail: 'Tennis has no configured data supplier yet — nothing will actually be downloaded for it.',
-  });
 
   return { lines, hasAnyWork };
 }
@@ -888,19 +644,15 @@ export async function fetchLiveFeedSummary(
   fixtures: CandidateFixture[];
   footballOver15FeedInfo?: FeedSummaryRecord;
   footballUnder35FeedInfo?: FeedSummaryRecord;
-  tennisFeedInfo?: FeedSummaryRecord;
   footballConfigured: boolean;
-  tennisConfigured: boolean;
   error?: string;
 }> {
   const football = choosefootballProvider(settings);
-  const tennis = chooseTennisProvider(settings);
   const dates = nextDates(DAYS_AHEAD);
   const fixtures: CandidateFixture[] = [];
   const errors: string[] = [];
   let footballOver15FeedInfo: FeedSummaryRecord | undefined;
   let footballUnder35FeedInfo: FeedSummaryRecord | undefined;
-  let tennisFeedInfo: FeedSummaryRecord | undefined;
   const footballEnrichmentCache: EnrichmentCache = new Map();
 
   if (football) {
@@ -984,40 +736,11 @@ export async function fetchLiveFeedSummary(
     }
   }
 
-  if (tennis && settings.ruleThresholds.tennisStraightSets.enabled) {
-    try {
-      const tnResult = await buildTennisCandidates(tennis.key, dates, settings.ruleThresholds, onProgress, signal);
-      fixtures.push(...tnResult.candidates);
-      tennisFeedInfo = {
-        sport: 'tennis',
-        provider: 'SPORTRADAR',
-        totalRecordsReceived: tnResult.rawTotal,
-        fetchedAt: new Date().toISOString(),
-        queryDates: dates,
-        error: tnResult.partialError,
-      };
-    } catch (err) {
-      if (isAbortError(err)) throw err;
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`Tennis feed error: ${msg}`);
-      tennisFeedInfo = {
-        sport: 'tennis',
-        provider: 'SPORTRADAR',
-        totalRecordsReceived: 0,
-        fetchedAt: new Date().toISOString(),
-        queryDates: dates,
-        error: msg,
-      };
-    }
-  }
-
   return {
     fixtures,
     footballOver15FeedInfo,
     footballUnder35FeedInfo,
-    tennisFeedInfo,
     footballConfigured: !!football,
-    tennisConfigured: !!tennis,
     error: errors.length > 0 ? errors.join(' · ') : undefined,
   };
 }
@@ -1025,8 +748,8 @@ export async function fetchLiveFeedSummary(
 /* ============================== Feed health check ======================= */
 
 export interface FeedHealthResult {
-  sport: 'football' | 'tennis';
-  provider: 'THESTATSAPI' | 'SPORTRADAR' | 'NONE';
+  sport: 'football';
+  provider: 'THESTATSAPI' | 'NONE';
   status: 'ok' | 'rate_limited' | 'error' | 'not_configured' | 'leagues_not_selected';
   /** Real error text from the failed call, when status isn't 'ok'. */
   message?: string;
@@ -1049,7 +772,6 @@ function classifyFeedError(message: string): 'rate_limited' | 'error' {
  */
 export async function checkFeedHealth(settings: AppSettings): Promise<FeedHealthResult[]> {
   const football = choosefootballProvider(settings);
-  const tennis = chooseTennisProvider(settings);
   const today = nextDates(1)[0];
   const results: FeedHealthResult[] = [];
 
@@ -1100,30 +822,6 @@ export async function checkFeedHealth(settings: AppSettings): Promise<FeedHealth
     }
   } else {
     results.push({ sport: 'football', provider: 'NONE', status: 'not_configured', checkedAt: new Date().toISOString() });
-  }
-
-  if (tennis) {
-    try {
-      const body = await apiGet(`/api/tennis/fixtures?date=${today}`, tennis.key);
-      results.push({
-        sport: 'tennis',
-        provider: 'SPORTRADAR',
-        status: 'ok',
-        recordCount: (body?.fixtures || []).length,
-        checkedAt: new Date().toISOString(),
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      results.push({
-        sport: 'tennis',
-        provider: 'SPORTRADAR',
-        status: classifyFeedError(message),
-        message,
-        checkedAt: new Date().toISOString(),
-      });
-    }
-  } else {
-    results.push({ sport: 'tennis', provider: 'NONE', status: 'not_configured', checkedAt: new Date().toISOString() });
   }
 
   return results;

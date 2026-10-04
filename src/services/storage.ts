@@ -124,24 +124,10 @@ export const DEFAULT_RULE_THRESHOLDS: RuleThresholds = {
     minExchangeOdds: 1.2,
     selectedLeagueIds: [],
   },
-  tennisStraightSets: {
-    // Tennis has no configured data supplier since the Sportradar/Sportmonks
-    // migration — Sportradar Tennis was removed along with football's
-    // providers, and tennis's own move to a new supplier is a later phase.
-    // Defaulting this off avoids showing a system that can never actually
-    // fetch data as if it were live.
-    enabled: false,
-    minRankingDelta: 50,
-    minSurfaceWinRate: 70.0,
-    minRecentWinsCount: 8,
-    minExchangeOdds: 1.2,
-    enhancedOddsThreshold: 1.5,
-  },
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
   flashscoreApiKey: '',
-  tennisAbstractApiKey: '',
   betfairAppKey: '',
   betfairSessionToken: '',
   theStatsApiKey: '',
@@ -192,8 +178,8 @@ export function getStoredSettings(): AppSettings {
       // defaults for whichever systems it doesn't have an override for.
       footballOver15: { ...DEFAULT_RULE_THRESHOLDS.footballOver15, ...parsed?.ruleThresholds?.footballOver15 },
       footballUnder35: { ...DEFAULT_RULE_THRESHOLDS.footballUnder35, ...parsed?.ruleThresholds?.footballUnder35 },
-      tennisStraightSets: { ...DEFAULT_RULE_THRESHOLDS.tennisStraightSets, ...parsed?.ruleThresholds?.tennisStraightSets },
     });
+    delete parsed.tennisAbstractApiKey; // tennis was removed from the product
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
@@ -224,7 +210,8 @@ export function getHistoricalBets(): HistoricalBetRecord[] {
     const raw = localStorage.getItem(HISTORICAL_BETS_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    // Tennis was removed from the product; drop any leftover tennis records.
+    return Array.isArray(parsed) ? parsed.filter((b: any) => b?.sport !== 'tennis') : [];
   } catch {
     return [];
   }
@@ -334,7 +321,7 @@ export function settleBet(
 
 /**
  * Calculates long-term win rate, strike rate, total stake, PnL, and ROI%
- * for Football, Tennis, or Combined
+ * for Football or Combined
  */
 export function calculateSystemAnalytics(
   bets: HistoricalBetRecord[],
@@ -563,10 +550,6 @@ export async function hydrateUserDataFromCloud(
       footballUnder35: {
         ...DEFAULT_RULE_THRESHOLDS.footballUnder35,
         ...cloudData.settings?.ruleThresholds?.footballUnder35,
-      },
-      tennisStraightSets: {
-        ...DEFAULT_RULE_THRESHOLDS.tennisStraightSets,
-        ...cloudData.settings?.ruleThresholds?.tennisStraightSets,
       },
     });
     const cloudSettings: AppSettings = {

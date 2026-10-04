@@ -19,8 +19,9 @@ head-to-head tables without explanation.
 ## Product Purpose
 
 Automates a fixed, pre-committed betting methodology so the operator never has to
-re-derive it by hand or trust a black box. Three locked systems: Football Over 1.5
-Goals (System A), Football Under 3.5 Goals (System B), and Tennis Straight-Sets.
+re-derive it by hand or trust a black box. Two locked systems: Football Over 1.5
+Goals (System A) and Football Under 3.5 Goals (System B). Tennis has been removed
+and may be revisited later.
 A daily scan ingests the fixture pool, applies the locked filters, then runs a
 mandatory verification audit that independently recalculates every aggregate from
 raw itemised match records. Success means the operator can act on a selection with
@@ -57,13 +58,12 @@ independent Google fixture confirmation link. The product's claim is auditabilit
   fixture) must be persistently visible — the operator's trust in a number
   depends on knowing where it came from. There is no "premium" tier and no
   "fallback" tier: both are real, equally-weighted providers, and Flashscore
-  / Tennis Abstract keys in Settings are inert placeholders reserved for a
+  keys in Settings are inert placeholders reserved for a
   future integration, not a currently-used data source.
 - "Enhanced Verification" is a real state, triggered once a fixture's exchange
   odds cross the threshold configured for its system in Engine Configuration →
-  Filter Thresholds (defaults: Over 1.5 above 1.25, Tennis Straight-Sets at or
-  above 1.50) — must be distinguishable at a glance in lists and detail.
-- The three systems' pass/fail thresholds are user-configurable per-operator
+  Filter Thresholds (default: Over 1.5 above 1.25) — must be distinguishable at a glance in lists and detail.
+- The two systems' pass/fail thresholds are user-configurable per-operator
   in Engine Configuration → Filter Thresholds (not hardcoded); each system can
   also be individually disabled. What is locked is the *shape* of each rule
   (which factors it checks) — the UI never lets the operator add, remove, or

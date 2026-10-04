@@ -70,7 +70,6 @@ interface SettingsViewProps {
   fixturesLoading?: boolean;
   fixturesError?: string;
   footballFeedInfo?: FeedSummaryRecord;
-  tennisFeedInfo?: FeedSummaryRecord;
   /**
    * Reports whenever the local draft (formData) starts or stops differing
    * from the last-saved settings — the header's Run Daily Scan button lives
@@ -92,7 +91,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   fixturesLoading = false,
   fixturesError,
   footballFeedInfo,
-  tennisFeedInfo,
   onDraftDirtyChange,
 }) => {
   const [formData, setFormData] = useState<AppSettings>(settings);
@@ -169,7 +167,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // moment they navigate away.
   const [backtestRuns, setBacktestRuns] = useState<BacktestRunRecord[]>(() => getStoredBacktestRuns());
   const [backtestHistorySortBySystem, setBacktestHistorySortBySystem] = useState<
-    Record<BacktestSystem, 'recent' | 'roi'>
+    Record<BacktestSystem, 'recent' | 'winRate'>
   >({
     football_over_1_5: 'recent',
     football_under_3_5: 'recent',
@@ -193,7 +191,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [liveFixtures, setLiveFixtures] = useState<CandidateFixture[]>(fixtures || []);
   const [feedInfoOver15, setFeedInfoOver15] = useState<FeedSummaryRecord | undefined>(footballFeedInfo);
   const [feedInfoUnder35, setFeedInfoUnder35] = useState<FeedSummaryRecord | undefined>(footballFeedInfo);
-  const [feedInfoTennis, setFeedInfoTennis] = useState<FeedSummaryRecord | undefined>(tennisFeedInfo);
   const [isRefreshingFeed, setIsRefreshingFeed] = useState(false);
   const [feedError, setFeedError] = useState<string | undefined>(fixturesError);
 
@@ -207,7 +204,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [isFeedPreviewCancelled, setIsFeedPreviewCancelled] = useState(false);
   const [feedPreviewEvents, setFeedPreviewEvents] = useState<FeedProgressEvent[]>([]);
   const [feedPreviewFootballRecords, setFeedPreviewFootballRecords] = useState(0);
-  const [feedPreviewTennisRecords, setFeedPreviewTennisRecords] = useState(0);
   const feedPreviewAbortControllerRef = useRef<AbortController | null>(null);
   const feedPreviewPlan = useMemo(() => describeLiveFeedPreviewPlan(formData), [formData]);
 
@@ -216,10 +212,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setLiveFixtures(fixtures);
     }
   }, [fixtures]);
-
-  useEffect(() => {
-    if (tennisFeedInfo) setFeedInfoTennis(tennisFeedInfo);
-  }, [tennisFeedInfo]);
 
   // Belt-and-braces alongside the UI lock below: disabling the controls
   // stops new "enabled with no league chosen" states from being created,
@@ -245,14 +237,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   }, [formData.ruleThresholds.footballOver15.selectedLeagueIds, formData.ruleThresholds.footballUnder35.selectedLeagueIds]);
 
   const footballConfigured = !!formData.theStatsApiKey;
-  // Tennis has no configured data supplier since the Sportradar/Sportmonks
-  // migration — kept as a constant (rather than deleted) so the tennis
-  // breakdown card below still renders its real "not configured" state.
-  const tennisConfigured = false;
-
   // Opens the same confirm-first modal the daily scan uses — Refresh live
-  // feed makes real, rate-limited provider calls for both football rules
-  // (plus tennis if it ever gets a supplier), so it deserves the same
+  // feed makes real, rate-limited provider calls for both football rules,
+  // so it deserves the same
   // "what will this download" step and the same ability to cancel, rather
   // than firing immediately with no visible progress and no way to stop it.
   const handleOpenFeedPreviewConfirm = () => {
@@ -274,7 +261,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setIsAwaitingFeedPreviewConfirmation(false);
     setFeedPreviewEvents([]);
     setFeedPreviewFootballRecords(0);
-    setFeedPreviewTennisRecords(0);
     setIsFeedPreviewFinished(false);
     setIsFeedPreviewCancelled(false);
     setIsRefreshingFeed(true);
@@ -284,8 +270,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     feedPreviewAbortControllerRef.current = controller;
     const onProgress = (evt: FeedProgressEvent) => {
       setFeedPreviewEvents((prev) => [...prev, evt]);
-      if (evt.sport === 'football') setFeedPreviewFootballRecords(evt.recordsSoFar);
-      else setFeedPreviewTennisRecords(evt.recordsSoFar);
+      setFeedPreviewFootballRecords(evt.recordsSoFar);
     };
 
     try {
@@ -295,9 +280,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       }
       if (res.footballOver15FeedInfo) setFeedInfoOver15(res.footballOver15FeedInfo);
       if (res.footballUnder35FeedInfo) setFeedInfoUnder35(res.footballUnder35FeedInfo);
-      if (res.tennisFeedInfo) {
-        setFeedInfoTennis(res.tennisFeedInfo);
-      }
       if (res.error) {
         setFeedError(res.error);
       }
@@ -366,20 +348,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         leagueCatalog: formData.leagueCatalog,
       }),
     [formData.ruleThresholds, formData.leagueCatalog, liveFixtures, feedInfoUnder35, footballConfigured, isRefreshingFeed, fixturesLoading]
-  );
-
-  const tennisBreakdown = useMemo(
-    () =>
-      calculateSystemBreakdown({
-        systemKey: 'tennisStraightSets',
-        thresholds: formData.ruleThresholds,
-        fixtures: liveFixtures,
-        feedInfo: feedInfoTennis,
-        isConfigured: tennisConfigured,
-        isLoading: isRefreshingFeed || fixturesLoading,
-        error: feedInfoTennis?.error || 'Tennis has no configured data supplier yet',
-      }),
-    [formData.ruleThresholds, liveFixtures, feedInfoTennis, tennisConfigured, isRefreshingFeed, fixturesLoading]
   );
 
   const hasProviderKey = !!formData.theStatsApiKey;
@@ -720,32 +688,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       .sort((a, b) => new Date(b.runAt).getTime() - new Date(a.runAt).getTime())[0];
 
   /** Shared by the live result panel and each saved-run card, so both show
-   *  the same Wins/Losses/Win rate/Required odds/Net units/ROI tiles. */
+   *  the same Wins/Losses/Win rate tiles. */
   const buildBacktestTiles = (result: BacktestSummary) => [
     { label: 'Wins', value: `${result.wins}`, tone: 'text-text' },
     { label: 'Losses', value: `${result.losses}`, tone: 'text-text' },
     { label: 'Win rate', value: `${result.winRatePct}%`, tone: 'text-text' },
-    { label: 'Required odds', value: result.requiredOdds.toFixed(2), tone: 'text-text' },
-    {
-      label: 'Net units',
-      value: `${result.netUnitsAtRequiredOdds >= 0 ? '+' : ''}${result.netUnitsAtRequiredOdds}`,
-      tone: result.netUnitsAtRequiredOdds >= 0 ? 'text-ok-ink' : 'text-bad-ink',
-    },
-    {
-      label: 'ROI',
-      value: `${result.roiPct >= 0 ? '+' : ''}${result.roiPct}%`,
-      tone: result.roiPct >= 0 ? 'text-ok-ink' : 'text-bad-ink',
-    },
   ];
 
   const renderTileGrid = (result: BacktestSummary) => (
-    <dl className="grid grid-cols-3 divide-line sm:grid-cols-6 sm:divide-x">
+    <dl className="grid grid-cols-3 divide-x divide-line">
       {buildBacktestTiles(result).map((t, i) => (
         <div
           key={t.label}
-          className={`p-2.5 ${i < 3 ? 'border-b border-line sm:border-b-0' : ''} ${
-            i % 3 !== 2 ? 'border-r border-line sm:border-r-0' : ''
-          }`}
+          className="p-2.5"
         >
           <dt className="text-[9.5px] font-bold uppercase tracking-wide text-text-3">{t.label}</dt>
           <dd className={`font-mono text-[15px] font-bold leading-tight tabular-nums ${t.tone}`}>{t.value}</dd>
@@ -760,8 +715,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
     const sortMode = backtestHistorySortBySystem[system];
     const sorted = [...runsForSystem].sort((a, b) =>
-      sortMode === 'roi'
-        ? b.summary.roiPct - a.summary.roiPct
+      sortMode === 'winRate'
+        ? b.summary.winRatePct - a.summary.winRatePct || b.summary.sampleSize - a.summary.sampleSize
         : new Date(b.runAt).getTime() - new Date(a.runAt).getTime()
     );
     const isOpen = backtestHistoryOpenBySystem[system];
@@ -770,10 +725,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     const configLabel = (snapshot: BacktestRunRecord['ruleSnapshot']): string => {
       if (ruleKey === 'footballOver15') {
         const s = snapshot as RuleThresholds['footballOver15'];
-        return `H2H≥${Math.round(s.minH2HOver15Rate * 100)}% · recent≥${s.minRecentScoredCount} · odds≥${s.minExchangeOdds.toFixed(2)}`;
+        return `H2H≥${Math.round(s.minH2HOver15Rate * 100)}% · recent≥${s.minRecentScoredCount}`;
       }
       const s = snapshot as RuleThresholds['footballUnder35'];
-      return `H2H≥${Math.round(s.minH2HUnder35Rate * 100)}% · recent≥${s.minRecentUnder35Count} · odds≥${s.minExchangeOdds.toFixed(2)}`;
+      return `H2H≥${Math.round(s.minH2HUnder35Rate * 100)}% · recent≥${s.minRecentUnder35Count}`;
     };
 
     return (
@@ -806,10 +761,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setBacktestHistorySortBySystem((prev) => ({ ...prev, [system]: 'roi' }))}
-                className={`rounded px-1.5 py-0.5 ${sortMode === 'roi' ? 'bg-brand text-white' : 'text-text-3 hover:bg-surface-2'}`}
+                onClick={() => setBacktestHistorySortBySystem((prev) => ({ ...prev, [system]: 'winRate' }))}
+                className={`rounded px-1.5 py-0.5 ${sortMode === 'winRate' ? 'bg-brand text-white' : 'text-text-3 hover:bg-surface-2'}`}
               >
-                Best ROI
+                Best win rate
               </button>
             </span>
           )}
@@ -1314,8 +1269,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             is sent to our own backend per request (never straight to TheStatsAPI from the
             browser), which forwards it server-to-server as a Bearer token. Sportradar and
             Sportmonks were retired from this app over cost and are no longer called anywhere.
-            Tennis has no configured data supplier yet — it is planned to move to its own new
-            provider in a later phase.
           </p>
 
           {/* ---- Current state ---- */}
@@ -1402,7 +1355,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     )}
                     <div className="min-w-0 flex-1">
                       <span className="font-bold uppercase tracking-wide">
-                        {h.sport === 'football' ? 'Football' : 'Tennis'} — {h.provider}
+                        Football — {h.provider}
                         {h.leagueLabel ? ` — ${h.leagueLabel}` : ''}
                       </span>
                       <span className="ml-1.5">
@@ -1693,6 +1646,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <Field
                 label="Min. exchange odds"
                 htmlFor="over15-odds"
+                hint="Applies to live scans and Price Watch. Not used in backtests."
                 action={
                   <FilterHoverPopup
                     breakdown={over15Breakdown}
@@ -1863,6 +1817,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <Field
                 label="Min. exchange odds"
                 htmlFor="under35-odds"
+                hint="Applies to live scans and Price Watch. Not used in backtests."
                 action={
                   <FilterHoverPopup
                     breakdown={under35Breakdown}
@@ -1888,136 +1843,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             {renderBacktestHistory('football_under_3_5')}
           </div>
 
-          {/* System C: Tennis Straight Sets */}
-          <div className="border-t border-line pt-4">
-            <div className="mb-3 flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h3 className="text-[12px] font-extrabold uppercase tracking-wider text-text">
-                  Tennis — Straight Sets
-                </h3>
-                <FilterHoverPopup
-                  breakdown={tennisBreakdown}
-                  onRefreshFeed={handleOpenFeedPreviewConfirm}
-                  isRefreshing={isRefreshingFeed}
-                />
-              </div>
-              <Switch
-                id="thresh-tennis-enabled"
-                checked={formData.ruleThresholds.tennisStraightSets.enabled}
-                onChange={(v) => setThreshold('tennisStraightSets', 'enabled', v)}
-                label="Enabled"
-              />
-            </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Field
-                label="Min. ranking delta (places)"
-                htmlFor="tennis-rank-delta"
-                action={
-                  <FilterHoverPopup
-                    breakdown={tennisBreakdown}
-                    activeFilterId="T1_RANKING_DELTA"
-                    size="sm"
-                  />
-                }
-              >
-                <input
-                  id="tennis-rank-delta"
-                  type="number"
-                  min={0}
-                  step="1"
-                  value={formData.ruleThresholds.tennisStraightSets.minRankingDelta}
-                  onChange={(e) => setThreshold('tennisStraightSets', 'minRankingDelta', Number(e.target.value) || 0)}
-                  className={`${inputClass} font-mono`}
-                />
-              </Field>
-              <Field
-                label="Min. career surface win rate (%)"
-                htmlFor="tennis-surface-rate"
-                action={
-                  <FilterHoverPopup
-                    breakdown={tennisBreakdown}
-                    activeFilterId="T2_SURFACE_WIN_RATE"
-                    size="sm"
-                  />
-                }
-              >
-                <input
-                  id="tennis-surface-rate"
-                  type="number"
-                  min={0}
-                  max={100}
-                  step="0.1"
-                  value={formData.ruleThresholds.tennisStraightSets.minSurfaceWinRate}
-                  onChange={(e) => setThreshold('tennisStraightSets', 'minSurfaceWinRate', Number(e.target.value) || 0)}
-                  className={`${inputClass} font-mono`}
-                />
-              </Field>
-              <Field
-                label="Min. recent wins (of last 10)"
-                htmlFor="tennis-recent-wins"
-                action={
-                  <FilterHoverPopup
-                    breakdown={tennisBreakdown}
-                    activeFilterId="T3_RECENT_SINGLES_FORM"
-                    size="sm"
-                  />
-                }
-              >
-                <input
-                  id="tennis-recent-wins"
-                  type="number"
-                  min={0}
-                  max={10}
-                  step="1"
-                  value={formData.ruleThresholds.tennisStraightSets.minRecentWinsCount}
-                  onChange={(e) => setThreshold('tennisStraightSets', 'minRecentWinsCount', Number(e.target.value) || 0)}
-                  className={`${inputClass} font-mono`}
-                />
-              </Field>
-              <Field
-                label="Min. exchange odds"
-                htmlFor="tennis-odds"
-                action={
-                  <FilterHoverPopup
-                    breakdown={tennisBreakdown}
-                    activeFilterId="T4_EXCHANGE_PRICE_TENNIS"
-                    size="sm"
-                  />
-                }
-              >
-                <input
-                  id="tennis-odds"
-                  type="number"
-                  min={1}
-                  step="0.01"
-                  value={formData.ruleThresholds.tennisStraightSets.minExchangeOdds}
-                  onChange={(e) => setThreshold('tennisStraightSets', 'minExchangeOdds', Number(e.target.value) || 0)}
-                  className={`${inputClass} font-mono`}
-                />
-              </Field>
-              <Field
-                label="Enhanced verification odds threshold"
-                htmlFor="tennis-enhanced-odds"
-                action={
-                  <FilterHoverPopup
-                    breakdown={tennisBreakdown}
-                    label="Audit threshold"
-                    size="sm"
-                  />
-                }
-              >
-                <input
-                  id="tennis-enhanced-odds"
-                  type="number"
-                  min={1}
-                  step="0.01"
-                  value={formData.ruleThresholds.tennisStraightSets.enhancedOddsThreshold}
-                  onChange={(e) => setThreshold('tennisStraightSets', 'enhancedOddsThreshold', Number(e.target.value) || 0)}
-                  className={`${inputClass} font-mono`}
-                />
-              </Field>
-            </div>
-          </div>
         </div>
       </CollapsibleSection>
 
@@ -2066,7 +1891,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         isCancelled={isFeedPreviewCancelled}
         events={feedPreviewEvents}
         footballRecords={feedPreviewFootballRecords}
-        tennisRecords={feedPreviewTennisRecords}
         onClose={isAwaitingFeedPreviewConfirmation ? handleCancelFeedPreviewConfirmation : () => setIsFeedPreviewModalOpen(false)}
         onStop={handleStopFeedPreview}
         onConfirmStart={handleConfirmStartFeedPreview}

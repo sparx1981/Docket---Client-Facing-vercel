@@ -12,12 +12,10 @@ import { buildFootballCandidate } from './dataFeed';
  * real "as of that date" reconstruction, not a same-day snapshot. Each
  * qualifying match's win/loss comes from its real final score.
  *
- * The one thing this cannot replay is a historical market odds price —
- * TheStatsAPI's odds endpoint is not re-queried per historical match here —
- * so a qualifying match is priced at the system's configured required odds
- * rather than a real historical market price, the same convention already
- * used for Archive backfill (historyBackfill.ts). That is disclosed in the
- * result's scopeNote rather than left implicit.
+ * Only the statistical filters are applied. A historical market price is
+ * not available per past match, so the Min. exchange odds filter is
+ * deliberately NOT part of a backtest (it still applies to live scans), and
+ * the result reports wins, losses and win rate only — no profit figures.
  *
  * Full context reconstruction costs several real calls per match (team
  * detail, previous-season stats x2, recent-form x2, H2H), so the number of
@@ -79,11 +77,6 @@ export async function runBacktest(
     .flat()
     .sort((a, b) => new Date(b.matchTime).getTime() - new Date(a.matchTime).getTime())
     .slice(0, sampleSize);
-
-  const requiredOdds =
-    system === 'football_over_1_5'
-      ? settings.ruleThresholds.footballOver15.minExchangeOdds
-      : settings.ruleThresholds.footballUnder35.minExchangeOdds;
 
   const toEvaluate = candidates.slice(0, MAX_EVALUATED_MATCHES);
   const matches: BacktestMatchResult[] = [];
@@ -161,12 +154,14 @@ export async function runBacktest(
       settings.ruleThresholds
     );
 
-    // Only matches the rule's real statistical filters would have flagged
-    // as a preliminary qualifier count toward the backtest sample — this is
-    // "how would this rule have performed", not "how often do goals happen".
-    if (candidateFixture.status !== 'PRELIMINARY_QUALIFIER' && candidateFixture.status !== 'VERIFIED_QUALIFIER') {
-      continue;
-    }
+    // Only matches that pass every statistical filter count toward the
+    // backtest sample — this is "how would this rule have performed", not
+    // "how often do goals happen". With no historical price attached, a
+    // match that clears the stats is classed PRICE_WATCH by the live rules
+    // (stats passed, price unknown), so that status counts here too; only
+    // FAILED (a statistical filter failed, or the data was incomplete) is
+    // excluded.
+    if (candidateFixture.status === 'FAILED') continue;
 
     const totalGoals = c.homeScore + c.awayScore;
     const won = system === 'football_over_1_5' ? totalGoals > 1 : totalGoals < 4;
@@ -183,9 +178,6 @@ export async function runBacktest(
 
   const wins = matches.filter((m) => m.won).length;
   const losses = matches.length - wins;
-  const stake = 1;
-  const netUnitsAtRequiredOdds = wins * (requiredOdds - 1) * stake - losses * stake;
-  const staked = matches.length * stake;
 
   return {
     system,
@@ -196,12 +188,9 @@ export async function runBacktest(
     wins,
     losses,
     winRatePct: matches.length > 0 ? Number(((wins / matches.length) * 100).toFixed(1)) : 0,
-    requiredOdds,
-    netUnitsAtRequiredOdds: Number(netUnitsAtRequiredOdds.toFixed(2)),
-    roiPct: staked > 0 ? Number(((netUnitsAtRequiredOdds / staked) * 100).toFixed(1)) : 0,
     matches,
     scopeNote:
-      'Each qualifying match is settled against its real final score. Backtest does not re-query TheStatsAPI\'s odds endpoint per historical match, so every qualifying match here is priced at this rule\'s configured required odds rather than a real historical market price.',
+      'Each qualifying match is settled against its real final score. A backtest applies the statistical filters only: Min. exchange odds is not part of the analysis (there is no historical market price for past matches), so no profit or ROI figures are shown.',
   };
 }
 
@@ -218,12 +207,12 @@ function describeRuleSnapshot(
     const s = snapshot as RuleThresholds['footballOver15'];
     return `Min. previous-season avg goals scored >= ${s.minPrevSeasonAvgScored}; Min. H2H Over 1.5 rate >= ${Math.round(
       s.minH2HOver15Rate * 100
-    )}%; Min. recent scoring count >= ${s.minRecentScoredCount} (of last 5); Min. exchange odds >= ${s.minExchangeOdds.toFixed(2)}`;
+    )}%; Min. recent scoring count >= ${s.minRecentScoredCount} (of last 5)`;
   }
   const s = snapshot as RuleThresholds['footballUnder35'];
   return `Max. previous-season avg goals scored <= ${s.maxPrevSeasonAvgScored}; Max. previous-season avg goals conceded <= ${s.maxPrevSeasonAvgConceded}; Min. H2H Under 3.5 rate >= ${Math.round(
     s.minH2HUnder35Rate * 100
-  )}%; Min. recent Under 3.5 count >= ${s.minRecentUnder35Count} (of last 5); Min. exchange odds >= ${s.minExchangeOdds.toFixed(2)}`;
+  )}%; Min. recent Under 3.5 count >= ${s.minRecentUnder35Count} (of last 5)`;
 }
 
 function csvCell(value: string | number | undefined | null): string {
@@ -245,16 +234,13 @@ export function buildBacktestCsv(run: BacktestRunRecord): string {
     ['Backtest run at', new Date(runAt).toLocaleString()],
     ['Rule', SYSTEM_LABEL[system]],
     ['League scope', summary.leagueLabel],
-    ['Thresholds applied', describeRuleSnapshot(system, ruleSnapshot)],
+    ['Thresholds applied (Min. exchange odds is not used in backtests)', describeRuleSnapshot(system, ruleSnapshot)],
     ['Finished matches found', summary.candidateCount],
     ['Evaluated with full historical context', summary.evaluatedCount],
     ['Would have qualified', summary.sampleSize],
     ['Wins', summary.wins],
     ['Losses', summary.losses],
     ['Win rate %', summary.winRatePct],
-    ['Required odds', summary.requiredOdds.toFixed(2)],
-    ['Net units (flat 1u stake)', summary.netUnitsAtRequiredOdds],
-    ['ROI %', summary.roiPct],
     ['Scope note', summary.scopeNote],
   ];
 

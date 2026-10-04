@@ -173,29 +173,6 @@ export const PriceWatchTable: React.FC<PriceWatchTableProps> = ({
                     </ul>
                   </div>
 
-                  {/* Rule C: Tennis Straight Sets */}
-                  <div className="rounded-lg border border-line bg-surface-2 p-2.5">
-                    <div className="flex items-center justify-between font-bold text-text">
-                      <span>Tennis: Straight Sets (2–0 / 3–0)</span>
-                      <span className="font-mono text-[10px] text-brand-ink font-semibold">
-                        {t.tennisStraightSets.enabled ? `min @${t.tennisStraightSets.minExchangeOdds.toFixed(2)}` : 'disabled'}
-                      </span>
-                    </div>
-                    <ul className="mt-1.5 space-y-1 text-text-2">
-                      <li className="flex items-start gap-1.5">
-                        <Check className="mt-0.5 h-3 w-3 shrink-0 text-ok-ink" strokeWidth={3} />
-                        <span>Selected player ranked &ge;{t.tennisStraightSets.minRankingDelta} places higher than opponent</span>
-                      </li>
-                      <li className="flex items-start gap-1.5">
-                        <Check className="mt-0.5 h-3 w-3 shrink-0 text-ok-ink" strokeWidth={3} />
-                        <span>Career surface win rate &ge;{t.tennisStraightSets.minSurfaceWinRate.toFixed(1)}%</span>
-                      </li>
-                      <li className="flex items-start gap-1.5">
-                        <Check className="mt-0.5 h-3 w-3 shrink-0 text-ok-ink" strokeWidth={3} />
-                        <span>Won &ge;{t.tennisStraightSets.minRecentWinsCount} of last 10 completed competitive singles</span>
-                      </li>
-                    </ul>
-                  </div>
                 </div>
 
                 <div className="mt-2.5 flex items-center justify-between border-t border-line pt-2 font-mono text-[10px] text-text-3">

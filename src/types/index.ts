@@ -1,9 +1,8 @@
-export type Sport = 'football' | 'tennis';
+export type Sport = 'football';
 
 export type SystemType = 
   | 'football_over_1_5' 
-  | 'football_under_3_5' 
-  | 'tennis_straight_sets';
+  | 'football_under_3_5';
 
 export type BetOutcome = 'WON' | 'LOST' | 'PENDING' | 'VOID';
 
@@ -49,33 +48,12 @@ export interface TeamRecentMatch {
   isCompetitive: boolean; // Excludes friendlies
 }
 
-export interface TennisPlayerStats {
-  name: string;
-  ranking: number;
-  surface: 'Hard' | 'Clay' | 'Grass' | 'Carpet';
-  careerSurfaceWins: number;
-  careerSurfaceLosses: number;
-  careerSurfaceWinRate: number; // 0-100 percentage
-}
-
-export interface TennisRecentMatch {
-  date: string;
-  opponent: string;
-  opponentRank: number;
-  score: string;
-  won: boolean;
-  tournament: string;
-  surface: string;
-  isCompleted: boolean;
-  isCompetitiveSingles: boolean; // strictly excl walkovers, friendlies, exhibitions
-}
-
 // Odds for a fixture, pulled directly from TheStatsAPI's own
 // GET /football/matches/{match_id}/odds endpoint — whichever bookmaker(s)
 // that endpoint returns, not limited to any single exchange or sportsbook.
 export interface MatchOddsData {
   bookmaker: string;
-  marketType: 'OVER_UNDER_15' | 'OVER_UNDER_35' | 'SET_BETTING';
+  marketType: 'OVER_UNDER_15' | 'OVER_UNDER_35';
   selectionName: string;
   decimalOdds: number;
   lastUpdated: string;
@@ -88,13 +66,19 @@ export interface FilterAuditCheck {
   observedValue: string;
   passed: boolean;
   auditDetails: string;
+  /** Short plain-English measured value, e.g. "3/3 (100%) — only 3 of 5 required meetings on record". Absent on audit cards saved before this field existed. */
+  actual?: string;
+  /** Short plain-English requirement, e.g. ">= 80% (4 of last 5), and 5 meetings on record". */
+  required?: string;
+  /** True when the value couldn't be measured because the data isn't available (e.g. no price on file yet). */
+  noData?: boolean;
 }
 
 export interface VerificationAuditCard {
   auditId: string;
   generatedAt: string;
   status: 'VERIFIED' | 'FAILED_RECALC' | 'PRICE_DEFICIT' | 'MISSING_DATA';
-  enhancedVerification: boolean; // Over 1.5 > 1.25 or Tennis Straight-Sets >= 1.50
+  enhancedVerification: boolean; // Over 1.5 odds above the enhanced-audit threshold
   enhancedVerificationReason?: string;
   providerUsed: DataProviderType;
   dataIntegrityScore: number; // e.g. 100% when independently recalculated
@@ -131,13 +115,9 @@ export interface CandidateFixture {
   competition: string;
   matchTime: string; // ISO or human readable
   venue?: string;
-  surface?: 'Hard' | 'Clay' | 'Grass' | 'Carpet';
-  bestOfSets?: 3 | 5; // for tennis straight sets (2-0 vs 3-0)
-  betType: string; // e.g. "Over 1.5 Goals", "Under 3.5 Goals", "Straight Sets (2-0)"
+  betType: string; // e.g. "Over 1.5 Goals", "Under 3.5 Goals"
   googleVerificationUrl: string; // Link to Google searching fixture confirmation on date/time
-  // Which real provider actually supplied this specific fixture's data —
-  // football and tennis can come from different providers in the same scan,
-  // so this is set per-fixture rather than assumed for the whole batch.
+  // Which real provider actually supplied this specific fixture's data.
   sourceProvider: DataProviderType;
 
   // Odds comparison
@@ -156,12 +136,6 @@ export interface CandidateFixture {
     h2hMatches: H2HMatchRecord[]; // Last 5 or 10
     homeRecentMatches: TeamRecentMatch[]; // Last 5
     awayRecentMatches: TeamRecentMatch[]; // Last 5
-  };
-  
-  tennisDetails?: {
-    selectedPlayer: TennisPlayerStats;
-    opponentPlayer: TennisPlayerStats;
-    playerRecentSingles: TennisRecentMatch[]; // Last 10 completed competitive
   };
   
   // Fetched from TheStatsAPI's own odds endpoint (GET
@@ -271,19 +245,10 @@ export interface RuleThresholds {
     /** See footballOver15.selectedLeagueIds. */
     selectedLeagueIds: string[];
   };
-  tennisStraightSets: {
-    enabled: boolean;
-    minRankingDelta: number; // selected player must rank at least this many places higher
-    minSurfaceWinRate: number; // percent, 0-100
-    minRecentWinsCount: number; // out of last 10 completed competitive singles
-    minExchangeOdds: number;
-    enhancedOddsThreshold: number; // odds above this trigger enhanced verification
-  };
 }
 
 export interface AppSettings {
   flashscoreApiKey: string;
-  tennisAbstractApiKey: string;
   betfairAppKey: string;
   betfairSessionToken: string;
   theStatsApiKey: string;
@@ -344,24 +309,17 @@ export interface BacktestSummary {
   candidateCount: number;
   /** Of those, how many had a real historical context (previous-season stats, recent form, H2H) reconstructed and evaluated. */
   evaluatedCount: number;
-  /** Of the evaluated matches, how many would have passed the rule's real statistical filters (a "preliminary qualifier"). */
+  /** Of the evaluated matches, how many would have passed every statistical filter (Min. exchange odds is not applied in a backtest). */
   sampleSize: number;
   wins: number;
   losses: number;
   winRatePct: number;
-  requiredOdds: number;
-  /** P&L for a flat stake of 1 unit per qualifying match, at the configured required odds. */
-  netUnitsAtRequiredOdds: number;
-  roiPct: number;
   matches: BacktestMatchResult[];
   /**
    * Each qualifying match's win/loss is the real final score against the
-   * system's goal line. Backtest does not re-query TheStatsAPI's odds
-   * endpoint per historical match (see marketOdds in CandidateFixture for
-   * the live-scan equivalent) — every qualifying match here is priced at
-   * the system's configured required odds, the same convention already
-   * used for Archive backfill (see historyBackfill.ts), rather than a real
-   * historical market price.
+   * system's goal line. A backtest applies only the statistical filters —
+   * it has no historical market prices, so Min. exchange odds is not part
+   * of the analysis and no profit figures are produced.
    */
   scopeNote: string;
 }
@@ -429,7 +387,7 @@ export interface SystemFeedBreakdown {
   priceWatchCount: number;
   fetchedAt?: string;
   rawMatches?: CandidateFixture[];
-  /** Over 1.5 rule's configured minimum H2H rate (0-1) — lets the CSV export evaluate H2H exactly as the filter does. */
-  h2hOver15MinRate?: number;
+  /** The rule's thresholds as screened — lets the CSV export re-evaluate each match exactly as the filters did. */
+  ruleThresholds?: RuleThresholds['footballOver15'] | RuleThresholds['footballUnder35'];
 }
 

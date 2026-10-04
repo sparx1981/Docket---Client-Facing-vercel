@@ -230,19 +230,15 @@ ${auditCard.rawEvidenceSummary.join('\n')}`;
                 <ExternalLink className="h-3 w-3 shrink-0" strokeWidth={2.5} />
               </a>
 
-              {/* Link 3: Flashscore or Tennis Abstract */}
+              {/* Link 3: Flashscore */}
               <a
                 id="btn-quick-stats-verify"
-                href={
-                  fixture.sport === 'tennis'
-                    ? `http://www.tennisabstract.com/cgi-bin/player.cgi?p=${encodeURIComponent(fixture.matchTitle.split(' v ')[0])}`
-                    : `https://www.flashscore.com/search/?q=${encodeURIComponent(fixture.matchTitle)}`
-                }
+                href={`https://www.flashscore.com/search/?q=${encodeURIComponent(fixture.matchTitle)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-between rounded-lg border border-line bg-surface px-2.5 py-2 text-[11px] font-bold text-text shadow-sm transition-all hover:border-brand hover:text-brand-ink"
               >
-                <span>{fixture.sport === 'tennis' ? 'Tennis Abstract' : 'Flashscore Stats'}</span>
+                <span>Flashscore Stats</span>
                 <ExternalLink className="h-3 w-3 shrink-0 text-text-3" strokeWidth={2.5} />
               </a>
             </div>
@@ -277,11 +273,7 @@ ${auditCard.rawEvidenceSummary.join('\n')}`;
                 </a>
                 <a
                   id="btn-drawer-schedule-external"
-                  href={
-                    fixture.sport === 'tennis'
-                      ? `https://www.flashscore.com/search/?q=${encodeURIComponent(fixture.matchTitle)}`
-                      : `https://www.flashscore.com/search/?q=${encodeURIComponent(fixture.matchTitle)}`
-                  }
+                  href={`https://www.flashscore.com/search/?q=${encodeURIComponent(fixture.matchTitle)}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex min-h-[34px] shrink-0 items-center gap-1.5 rounded-lg border border-info-line bg-surface px-2.5 text-[11px] font-bold text-info-ink transition-colors hover:bg-info-soft"
@@ -404,11 +396,7 @@ ${auditCard.rawEvidenceSummary.join('\n')}`;
                   <Chip tone="ok">0% divergence</Chip>
                   <a
                     id="btn-drawer-recalc-outbound"
-                    href={
-                      fixture.sport === 'tennis'
-                        ? `http://www.tennisabstract.com/cgi-bin/player.cgi?p=${encodeURIComponent(fixture.matchTitle.split(' v ')[0])}`
-                        : `https://www.flashscore.com/search/?q=${encodeURIComponent(fixture.matchTitle)}`
-                    }
+                    href={`https://www.flashscore.com/search/?q=${encodeURIComponent(fixture.matchTitle)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 font-mono text-[11px] font-bold text-text-2 underline hover:text-brand-ink"
@@ -574,65 +562,6 @@ ${auditCard.rawEvidenceSummary.join('\n')}`;
             </section>
           )}
 
-          {fixture.tennisDetails && (
-            <section className="mt-6">
-              <SectionTitle
-                icon={<Hash className="h-3.5 w-3.5" strokeWidth={2.5} />}
-                aside={
-                  <div className="flex items-center gap-1.5">
-                    <a
-                      id="btn-drawer-raw-tennis-abstract"
-                      href={`http://www.tennisabstract.com/cgi-bin/player.cgi?p=${encodeURIComponent(fixture.matchTitle.split(' v ')[0])}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] font-bold text-text transition-colors hover:border-brand hover:text-brand-ink"
-                    >
-                      Audit on Tennis Abstract
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                    <a
-                      id="btn-drawer-raw-tennis-flashscore"
-                      href={`https://www.flashscore.com/search/?q=${encodeURIComponent(fixture.matchTitle)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] font-bold text-text transition-colors hover:border-brand hover:text-brand-ink"
-                    >
-                      Flashscore Tennis
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </div>
-                }
-              >
-                Raw Evidence: Completed singles matches
-              </SectionTitle>
-              <ul className="overflow-hidden rounded-xl border border-line">
-                {fixture.tennisDetails.playerRecentSingles.slice(0, 10).map((m, i) => (
-                  <li
-                    key={i}
-                    className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-2 px-3 py-2 last:border-b-0"
-                  >
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span className="font-mono text-[10px] text-text-3">
-                        {m.date}
-                      </span>
-                      <span className="truncate text-[12px] font-semibold text-text">
-                        v {m.opponent}
-                      </span>
-                      <span className="shrink-0 font-mono text-[10px] text-text-3">
-                        #{m.opponentRank}
-                      </span>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2.5">
-                      <span className="font-mono text-[12px] tabular-nums text-text-2">
-                        {m.score}
-                      </span>
-                      <Chip tone={m.won ? 'ok' : 'bad'}>{m.won ? 'Win' : 'Loss'}</Chip>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
         </div>
 
         {/* ---------------- Footer ---------------- */}

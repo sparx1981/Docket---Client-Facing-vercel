@@ -102,8 +102,6 @@ test.describe('Engine Configuration — saving a Leagues shortlist unlocks Filte
 
     await expect(page.locator('#over15-odds')).toHaveValue('1.15');
     await expect(page.locator('#under35-odds')).toHaveValue('1.2');
-    await expect(page.locator('#tennis-odds')).toHaveValue('1.2');
-    await expect(page.locator('#tennis-rank-delta')).toHaveValue('50');
   });
 
   test('changing a threshold and saving persists across reload', async ({ page }) => {

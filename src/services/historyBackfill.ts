@@ -100,8 +100,6 @@ export interface BackfillResult {
 }
 
 export async function backfillHistoricalResults(settings: AppSettings): Promise<BackfillResult> {
-  // Tennis has no configured data supplier since the Sportradar/Sportmonks
-  // migration — only football (TheStatsAPI) can be backfilled right now.
   if (!settings.theStatsApiKey) {
     return { records: [], error: 'No provider configured — add a TheStatsAPI key in Engine Configuration to backfill.' };
   }

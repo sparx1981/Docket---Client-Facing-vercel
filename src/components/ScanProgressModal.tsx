@@ -26,7 +26,6 @@ interface ScanProgressModalProps {
   events: FeedProgressEvent[];
   /** Latest known "records received so far" count per sport, from real event data. */
   footballRecords: number;
-  tennisRecords: number;
   onClose: () => void;
   /** Actually cancels the in-flight provider calls — only called after the user confirms below. */
   onStop: () => void;
@@ -111,7 +110,6 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
   isCancelled,
   events,
   footballRecords,
-  tennisRecords,
   onClose,
   onStop,
   onConfirmStart,
@@ -131,7 +129,7 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
 
   if (!isOpen) return null;
 
-  const totalRecords = footballRecords + tennisRecords;
+  const totalRecords = footballRecords;
   const canClose = isFinished || isCancelled || awaitingConfirmation;
 
   if (awaitingConfirmation) {
@@ -279,14 +277,10 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
           </div>
 
           {/* Live record counters, driven by real provider responses */}
-          <div className="mt-3.5 grid grid-cols-3 gap-2">
+          <div className="mt-3.5 grid grid-cols-2 gap-2">
             <div className="rounded-lg border border-line bg-surface px-2.5 py-2">
               <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-text-3">Football</div>
               <div className="font-mono text-[15px] font-bold text-text">{footballRecords}</div>
-            </div>
-            <div className="rounded-lg border border-line bg-surface px-2.5 py-2">
-              <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-text-3">Tennis</div>
-              <div className="font-mono text-[15px] font-bold text-text">{tennisRecords}</div>
             </div>
             <div className="rounded-lg border border-line bg-surface px-2.5 py-2">
               <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-text-3">Total records</div>
