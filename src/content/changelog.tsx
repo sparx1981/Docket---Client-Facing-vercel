@@ -10,6 +10,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: '2026-10-05',
+    items: [
+      'Fixed Price Watch showing fixtures that had not passed the statistical filters: a fixture with missing or failed statistics could be labelled as a price shortfall, or as verified. Price Watch now only holds fixtures that passed every statistical filter and missed on price.',
+      'Made the wording match what the app does: prices are TheStatsAPI bookmaker odds (not Betfair Exchange prices), friendlies are not excluded, and enhanced verification is a manual flag rather than an automated audit.',
+      'Added plain-language notes about newly promoted teams (no previous season in the league, so Filter 1 shows no data) and about friendlies, in the field hints, the audit reasons and the User Guide.',
+      'Enhanced verification now shows a short checklist of suggested manual checks in the audit card. The price timestamp is labelled "Price checked", as it is the time Docket fetched the price.',
+    ],
+  },
+  {
     date: '2026-09-26',
     items: [
       'Migrated hosting from AI Studio to Vercel, on a separate copy of the app so the original was never touched.',

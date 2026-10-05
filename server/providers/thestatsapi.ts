@@ -480,14 +480,14 @@ export async function getTeamProfile(
         } else {
           seasonLabel = previous.seasonName;
           prevSeason = await fetchSeasonStats(apiKey, teamId, teamName, leagueName, previous);
-          if (!prevSeason) prevSeasonNote = `TheStatsAPI returned incomplete statistics for ${teamName} in ${seasonLabel}`;
+          if (!prevSeason) prevSeasonNote = `TheStatsAPI returned incomplete statistics for ${teamName} in ${seasonLabel} — this can happen when a team is new to the league (for example newly promoted)`;
         }
       }
     } catch (err) {
       if (!(err instanceof ProviderError)) throw err;
       prevSeasonNote =
         err.status === 404
-          ? `TheStatsAPI has no statistics for ${teamName} in ${seasonLabel} (${leagueName})`
+          ? `TheStatsAPI has no statistics for ${teamName} in ${seasonLabel} (${leagueName}) — this can happen when a team is new to the league (for example newly promoted)`
           : `Statistics for ${teamName} could not be loaded (${err.message})`;
     }
   }

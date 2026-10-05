@@ -196,6 +196,43 @@ test.describe('Real pipeline against a mocked backend', () => {
     await expect(page.locator('#verification-drawer')).not.toContainText('Fallback (B2B)');
   });
 
+  test('a qualifier priced above the enhanced threshold shows the manual-checks list and says no automated audit runs', async ({ page }) => {
+    await mockBackend(page);
+    // Registered after mockBackend's empty odds mock, so this one answers.
+    await page.route('**/api/football/market-odds/*', (route) =>
+      route.fulfill({
+        json: {
+          odds: [
+            {
+              bookmaker: 'MockBook',
+              marketType: 'OVER_UNDER_15',
+              selectionName: 'Over 1.5',
+              decimalOdds: 1.3,
+              lastUpdated: new Date().toISOString(),
+            },
+          ],
+        },
+      })
+    );
+    await seedEngineConfig(page);
+    await signIn(page);
+    await runScan(page);
+
+    await page.click('#nav-verified');
+    await page.click('#row-FT-OV15-mock-1');
+
+    const drawer = page.locator('#verification-drawer');
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toContainText('Enhanced verification log');
+    await expect(drawer).toContainText('no automated liquidity or line-up audit is run');
+    await expect(drawer).toContainText('Before backing this selection, check:');
+    await expect(drawer).toContainText('Docket does not run them for you');
+    await expect(drawer).toContainText('Price checked');
+    // The retired claims must never come back.
+    await expect(drawer).not.toContainText('audit passed');
+    await expect(drawer).not.toContainText('Last updated');
+  });
+
   test('a provider HTTP failure is surfaced honestly, not silently swallowed', async ({ page }) => {
     await page.route('**/api/football/competitions*', (route) =>
       route.fulfill({ json: { competitions: MOCK_COMPETITIONS } })

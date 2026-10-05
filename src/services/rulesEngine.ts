@@ -236,7 +236,7 @@ function priceCheck(
       : `No price on file yet for this fixture (Required: >= ${requiredOdds.toFixed(2)})`,
     passed: hasPrice && marketOdds >= requiredOdds,
     auditDetails: fixture.marketOdds
-      ? `Priced via ${fixture.marketOdds.bookmaker}, last updated ${fixture.marketOdds.lastUpdated}.`
+      ? `Price from ${fixture.marketOdds.bookmaker} via TheStatsAPI, checked ${fixture.marketOdds.lastUpdated}.`
       : 'TheStatsAPI has not returned a price for this fixture yet.',
     actual: hasPrice ? marketOdds.toFixed(2) : 'No price on file yet',
     required: `>= ${requiredOdds.toFixed(2)}`,

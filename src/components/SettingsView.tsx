@@ -1606,7 +1606,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <Field
                 label="Min. previous-season avg goals scored"
                 htmlFor="over15-avg-scored"
-                hint="Both teams must meet this, independently."
+                hint="Both teams must meet this, independently. A team new to the league (for example newly promoted) usually has no previous season in it, so this check shows no data and the fixture can't qualify."
                 action={
                   <FilterHoverPopup
                     breakdown={over15Breakdown}
@@ -1628,6 +1628,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <Field
                 label="Min. H2H Over 1.5 rate (last 5, %)"
                 htmlFor="over15-h2h-rate"
+                hint="TheStatsAPI doesn't label friendlies, so any friendly in these matches is counted."
                 action={
                   <FilterHoverPopup
                     breakdown={over15Breakdown}
@@ -1650,6 +1651,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <Field
                 label="Min. recent scoring count (of last 5)"
                 htmlFor="over15-recent-count"
+                hint="TheStatsAPI doesn't label friendlies, so any friendly in these matches is counted."
                 action={
                   <FilterHoverPopup
                     breakdown={over15Breakdown}
@@ -1757,6 +1759,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <Field
                 label="Max. previous-season avg goals scored"
                 htmlFor="under35-avg-scored"
+                hint="A team new to the league (for example newly promoted) usually has no previous season in it, so this check shows no data and the fixture can't qualify."
                 action={
                   <FilterHoverPopup
                     breakdown={under35Breakdown}
@@ -1799,6 +1802,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <Field
                 label="Min. H2H Under 3.5 rate (last 10, %)"
                 htmlFor="under35-h2h-rate"
+                hint="TheStatsAPI doesn't label friendlies, so any friendly in these matches is counted."
                 action={
                   <FilterHoverPopup
                     breakdown={under35Breakdown}
@@ -1821,6 +1825,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <Field
                 label="Min. recent Under 3.5 count (of last 5)"
                 htmlFor="under35-recent-count"
+                hint="TheStatsAPI doesn't label friendlies, so any friendly in these matches is counted."
                 action={
                   <FilterHoverPopup
                     breakdown={under35Breakdown}

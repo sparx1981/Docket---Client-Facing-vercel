@@ -311,6 +311,16 @@ ${auditCard.rawEvidenceSummary.join('\n')}`;
                 <p className="mt-1 text-[12px] leading-relaxed text-text-2">
                   {auditCard.enhancedVerificationReason}
                 </p>
+                <p className="mt-2.5 text-[12px] font-semibold text-text">Before backing this selection, check:</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[12px] leading-relaxed text-text-2">
+                  <li>Team news and confirmed line-ups: are key attackers missing or rested?</li>
+                  <li>What each side is playing for: a dead rubber or heavy rotation can cut goals.</li>
+                  <li>Weather and pitch conditions, if relevant.</li>
+                  <li>The same price at other bookmakers (see "Compare odds" below): a single odd quote can be an outlier.</li>
+                </ul>
+                <p className="mt-2 text-[11px] text-text-3">
+                  These are suggested manual checks. Docket does not run them for you.
+                </p>
               </section>
             )}
 
@@ -355,7 +365,7 @@ ${auditCard.rawEvidenceSummary.join('\n')}`;
                   <Detail label="Bookmaker" mono>
                     {fixture.marketOdds.bookmaker}
                   </Detail>
-                  <Detail label="Last updated" mono>
+                  <Detail label="Price checked" mono>
                     {new Date(fixture.marketOdds.lastUpdated).toLocaleString('en-GB', {
                       day: 'numeric',
                       month: 'short',
