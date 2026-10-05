@@ -181,12 +181,7 @@ async function runScanForUser(
   // fail (or re-run) the scan — it is only reported in the outcome.
   if (settings.emailNotificationsEnabled !== false) {
     try {
-      const email = buildScanEmail(
-        log,
-        refreshed.filter(isQualifier),
-        refreshed.filter((f) => !isQualifier(f) && isPriceWatch(f)),
-        describeBackupRun(ctx)
-      );
+      const email = buildScanEmail(log, refreshed.filter(isQualifier), describeBackupRun(ctx));
       await sendNotificationEmail(email.subject, email.html);
       outcome.emailed = true;
     } catch (err) {

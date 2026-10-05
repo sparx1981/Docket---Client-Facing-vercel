@@ -1174,7 +1174,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               checked={formData.emailNotificationsEnabled}
               onChange={(v) => set('emailNotificationsEnabled', v)}
               label="Email me after each daily scan"
-              hint="After every scan that runs on the server (the daily cron job), a summary email lists the verified qualifiers and Price Watch matches. Saved with the rest of this configuration."
+              hint="After every scan that runs on the server (the daily cron job), you get an email listing the verified qualifiers, with a button to open Docket. Price Watch stays in the app."
             />
 
             <div className="space-y-2 rounded-lg border border-line bg-surface-2 p-3">

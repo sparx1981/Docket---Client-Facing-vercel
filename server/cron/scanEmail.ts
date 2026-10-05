@@ -3,11 +3,21 @@ import { escapeHtml, htmlTable } from '../email.js';
 
 const MAX_ROWS = 50;
 
-/** Builds the daily-scan notification email (subject + HTML table markup). */
+/** Where the "Open Docket" button points. Override with the APP_URL environment variable. */
+const APP_URL = process.env.APP_URL || 'https://docket-client-facing.vercel.app';
+
+const openAppButton = () =>
+  `<p style="margin:16px 0;"><a href="${escapeHtml(APP_URL)}" style="display:inline-block;padding:10px 18px;background:#107a4f;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;font-family:Arial,sans-serif;font-size:14px;">Open Docket</a></p>`;
+
+/**
+ * Builds the daily-scan notification email (subject + HTML table markup):
+ * an "Open Docket" button, a short scan summary, and the verified
+ * qualifiers. Price Watch is deliberately not part of the email — it stays
+ * in the app.
+ */
 export function buildScanEmail(
   log: SyncLogRecord,
   qualifiers: CandidateFixture[],
-  priceWatch: CandidateFixture[],
   backupNote?: string
 ): { subject: string; html: string } {
   const day = log.timestamp.slice(0, 10);
@@ -21,35 +31,29 @@ export function buildScanEmail(
     [
       ['Run at (UTC)', log.timestamp.slice(0, 16).replace('T', ' ')],
       ['Matches scanned', log.totalRecordsScanned],
-      ['Verified qualifiers', log.qualifiersCount],
-      ['Price Watch', log.priceWatchCount],
-      ['Did not qualify / not enough data', log.rejectedCount],
+      ['Verified qualifiers', qualifiers.length],
       ['Status', log.status],
     ]
   );
 
-  const rows = (list: CandidateFixture[]) =>
-    list.slice(0, MAX_ROWS).map((f) => [
-      f.matchTitle,
-      f.competition,
-      f.matchTime.slice(0, 16).replace('T', ' '),
-      f.betType,
-      f.marketOdds ? f.marketOdds.decimalOdds.toFixed(2) : 'No price yet',
-    ]);
-  const headers = ['Match', 'Competition', 'Kick-off (UTC)', 'Market', 'Odds'];
-  const more = (n: number) => (n > MAX_ROWS ? `<p>…and ${n - MAX_ROWS} more in the app.</p>` : '');
+  const rows = qualifiers.slice(0, MAX_ROWS).map((f) => [
+    f.matchTitle,
+    f.competition,
+    f.matchTime.slice(0, 16).replace('T', ' '),
+    f.betType,
+    f.marketOdds ? f.marketOdds.decimalOdds.toFixed(2) : 'No price yet',
+  ]);
+  const more = qualifiers.length > MAX_ROWS ? `<p>…and ${qualifiers.length - MAX_ROWS} more in the app.</p>` : '';
 
   const parts: string[] = [];
   if (backupNote) parts.push(`<p><strong>Backup run:</strong> ${escapeHtml(backupNote)}</p>`);
+  parts.push(openAppButton());
   parts.push(summary);
   parts.push(
     qualifiers.length > 0
-      ? `<h3>Verified qualifiers</h3>${htmlTable(headers, rows(qualifiers))}${more(qualifiers.length)}`
+      ? `<h3>Verified qualifiers</h3>${htmlTable(['Match', 'Competition', 'Kick-off (UTC)', 'Market', 'Odds'], rows)}${more}`
       : '<p>No fixtures cleared every filter and the price requirement in this scan.</p>'
   );
-  if (priceWatch.length > 0) {
-    parts.push(`<h3>Price Watch (passed every statistical filter, waiting on price)</h3>${htmlTable(headers, rows(priceWatch))}${more(priceWatch.length)}`);
-  }
   if (log.status !== 'SUCCEEDED') {
     parts.push(`<p><strong>Note:</strong> ${escapeHtml(log.notes)}</p>`);
   }
@@ -77,27 +81,22 @@ export function buildTestScanEmail(input: {
 }): { subject: string; html: string; usedRealScan: boolean } {
   const { latestLog, fixtures, requestedBy } = input;
   const isQualifier = (f: CandidateFixture) => f.status === 'VERIFIED_QUALIFIER' && f.verificationCard?.status === 'VERIFIED';
-  const isPriceWatch = (f: CandidateFixture) => f.status === 'PRICE_WATCH' || f.verificationCard?.status === 'PRICE_DEFICIT';
 
   const usedRealScan = !!latestLog && Array.isArray(fixtures);
   const now = new Date().toISOString();
   const qualifiers = usedRealScan ? fixtures!.filter(isQualifier) : [SAMPLE_FIXTURE('Sample FC v Example United', 'Sample League', 1.28)];
-  const priceWatch = usedRealScan
-    ? fixtures!.filter((f) => !isQualifier(f) && isPriceWatch(f))
-    : [SAMPLE_FIXTURE('Demo Town v Placeholder Rovers', 'Sample League')];
   const log: SyncLogRecord = usedRealScan
     ? latestLog!
     : ({
         timestamp: now,
         totalRecordsScanned: 0,
         qualifiersCount: qualifiers.length,
-        priceWatchCount: priceWatch.length,
         rejectedCount: 0,
         status: 'SUCCEEDED',
         notes: '',
       } as unknown as SyncLogRecord);
 
-  const built = buildScanEmail(log, qualifiers, priceWatch);
+  const built = buildScanEmail(log, qualifiers);
   const banner =
     `<p style="padding:8px 12px;background:#fff7e0;border:1px solid #f0d58a;"><strong>This is a TEST of the daily scan email.</strong> ` +
     (usedRealScan
