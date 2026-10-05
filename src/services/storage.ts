@@ -10,7 +10,6 @@ import {
   RuleThresholds,
   BacktestRunRecord,
 } from '../types';
-import { backfillHistoricalResults } from './historyBackfill';
 import { buildHistoricalBetFromQualifier } from './archiveRecord';
 import {
   fetchUserCloudData,
@@ -19,6 +18,7 @@ import {
   persistUserHistoricalBetsToCloud,
   persistUserSyncDataToCloud,
   persistUserBacktestRunsToCloud,
+  resetUserCloudData,
 } from './firebase';
 
 export interface ActiveUserContext {
@@ -47,13 +47,14 @@ const BACKTEST_RUNS_KEY = 'sports_selection_backtest_runs_v1';
 /** Keeps the saved list from growing unbounded across many experimental configs. */
 const MAX_STORED_BACKTEST_RUNS = 100;
 const FIXTURES_KEY = 'sports_selection_fixtures_v1';
-const BACKFILL_ATTEMPTED_KEY = 'sports_selection_backfill_attempted_v1';
+/** Written by the removed 30-day historical backfill. Nothing reads it any more; a reset deletes it so no stale flag is left behind. */
+const OBSOLETE_BACKFILL_FLAG_KEY = 'sports_selection_backfill_attempted_v1';
 const LEGACY_PURGE_KEY = 'sports_selection_legacy_purge_v1';
 
 // Ids exclusively produced by the old synthetic generators
 // (src/services/historicalDataset.ts, removed) and the old hardcoded
-// SEED_SYNC_LOGS — never produced by real backfilled/logged data (see the
-// id formats in historyBackfill.ts and logVerifiedQualifierToHistory below).
+// SEED_SYNC_LOGS — never produced by real logged data (see the id format in
+// logVerifiedQualifierToHistory below).
 const LEGACY_HIST_ID = /^HIST-\d{1,3}$/;
 const LEGACY_FIXTURE_ID = /^FX-HIST-/;
 const LEGACY_SYNC_LOG_IDS = new Set([
@@ -215,47 +216,6 @@ export function getHistoricalBets(): HistoricalBetRecord[] {
   } catch {
     return [];
   }
-}
-
-/** True the very first time this device would show an empty archive — used to gate the one-shot backfill. */
-export function hasAttemptedHistoricalBackfill(): boolean {
-  try {
-    return localStorage.getItem(BACKFILL_ATTEMPTED_KEY) === 'true';
-  } catch {
-    return true; // fail safe: never loop retrying if localStorage is unavailable
-  }
-}
-
-export function markHistoricalBackfillAttempted(): void {
-  try {
-    localStorage.setItem(BACKFILL_ATTEMPTED_KEY, 'true');
-  } catch {
-    // ignore — worst case the backfill is retried once more on the next load
-  }
-}
-
-/**
- * Pulls real settled results from whichever provider is configured and
- * merges them into the archive, keeping any pending bets already logged.
- * Used both for the one-shot first-run backfill and for the manual
- * "Pull historical records" action in the UI.
- */
-export async function syncPastHistoricalRecords(
-  settings: AppSettings
-): Promise<{ bets: HistoricalBetRecord[]; error?: string }> {
-  const { records, error } = await backfillHistoricalResults(settings);
-  const currentBets = getHistoricalBets();
-  const existingIds = new Set(currentBets.map((b) => b.id));
-  const merged = [...currentBets];
-  for (const item of records) {
-    if (!existingIds.has(item.id)) {
-      merged.push(item);
-      existingIds.add(item.id);
-    }
-  }
-  merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  saveHistoricalBets(merged);
-  return { bets: merged, error };
 }
 
 export function saveHistoricalBets(bets: HistoricalBetRecord[]): void {
@@ -606,4 +566,59 @@ export async function hydrateUserDataFromCloud(
       backtestRuns: getStoredBacktestRuns(),
     };
   }
+}
+
+/* ============================== Reset data =============================== */
+
+/** What a reset would delete, for the confirmation screen. */
+export interface ResettableDataCounts {
+  archiveRows: number;
+  syncLogs: number;
+  backtestRuns: number;
+  /** Verified Qualifiers and Price Watch fixtures from the last scan, held on this device. */
+  currentFixtures: number;
+}
+
+export function getResettableDataCounts(): ResettableDataCounts {
+  return {
+    archiveRows: getHistoricalBets().length,
+    syncLogs: getStoredSyncLogs().length,
+    backtestRuns: getStoredBacktestRuns().length,
+    currentFixtures: getStoredFixtures().length,
+  };
+}
+
+/**
+ * Clears this browser's copy of everything a reset removes. Kept on purpose:
+ * Engine Configuration (SETTINGS_KEY), the last-scan time (it decides when
+ * the in-browser scheduler next runs, so wiping it would trigger an
+ * immediate scan) and the legacy-purge marker.
+ */
+export function clearLocalUserData(): void {
+  for (const key of [
+    HISTORICAL_BETS_KEY,
+    ARCHIVED_QUALIFIERS_KEY,
+    SYNC_LOGS_KEY,
+    BACKTEST_RUNS_KEY,
+    FIXTURES_KEY,
+    OBSOLETE_BACKFILL_FLAG_KEY,
+  ]) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // storage unavailable — nothing local to clear
+    }
+  }
+}
+
+/**
+ * Wipes the Archive, sync history, saved backtests and current scan results
+ * from the cloud and then from this browser, keeping Engine Configuration.
+ * The cloud goes first: if it fails (or a server scan is running) this
+ * throws before anything local is touched, so the two copies never disagree
+ * — a half-reset would just re-download the old data at the next sign-in.
+ */
+export async function resetUserData(userId: string | null): Promise<void> {
+  if (userId) await resetUserCloudData(userId);
+  clearLocalUserData();
 }

@@ -27,8 +27,6 @@ test.describe('Archive log CSV export', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript((bet) => {
       localStorage.setItem('sports_selection_historical_v2', JSON.stringify([bet]));
-      // Prevent the one-shot historical backfill from firing during this test.
-      localStorage.setItem('sports_selection_backfill_attempted_v1', 'true');
     }, SEEDED_BET);
     await signIn(page);
     await page.click('#nav-analytics');

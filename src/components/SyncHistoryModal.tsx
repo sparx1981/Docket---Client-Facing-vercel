@@ -23,8 +23,6 @@ interface SyncHistoryModalProps {
   onTriggerScan: () => void;
   isScanning: boolean;
   settings?: AppSettings;
-  onSyncHistoricalRecords?: () => void;
-  isSyncingHistory?: boolean;
 }
 
 export const SyncHistoryModal: React.FC<SyncHistoryModalProps> = ({
@@ -34,8 +32,6 @@ export const SyncHistoryModal: React.FC<SyncHistoryModalProps> = ({
   onTriggerScan,
   isScanning,
   settings,
-  onSyncHistoricalRecords,
-  isSyncingHistory = false,
 }) => {
   const [filter, setFilter] = useState<'all' | SyncStatus>('all');
   const [expandedLogId, setExpandedLogId] = useState<string | null>(
@@ -142,22 +138,6 @@ export const SyncHistoryModal: React.FC<SyncHistoryModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {onSyncHistoricalRecords && (
-              <button
-                id="btn-modal-sync-history-dataset"
-                disabled={isSyncingHistory}
-                onClick={() => {
-                  onSyncHistoricalRecords();
-                  onClose();
-                }}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-1.5 text-[12px] font-bold text-text-2 hover:border-brand hover:text-brand-ink transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-                title="Pull real settled results from the configured provider for the last 30 days"
-              >
-                <Database className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Pull Historical Results</span>
-                <span className="sm:hidden">History</span>
-              </button>
-            )}
             <button
               id="btn-trigger-sync-from-modal"
               onClick={onTriggerScan}

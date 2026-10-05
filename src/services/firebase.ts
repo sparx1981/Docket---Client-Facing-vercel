@@ -4,6 +4,7 @@ import {
   doc,
   getDoc,
   setDoc,
+  deleteDoc,
   Firestore,
   connectFirestoreEmulator,
 } from 'firebase/firestore';
@@ -233,6 +234,66 @@ export async function fetchLatestScanCache(
     console.error('Failed to fetch cached scan results from Firestore:', err);
     return null;
   }
+}
+
+/**
+ * A server scan marked "running" for less than this long is treated as still
+ * going (server/cron/schedule.ts treats one older than RUN_STALE_MINUTES = 12
+ * as dead). Wiping the user's data underneath a live scan would let the scan
+ * write its results straight back.
+ */
+const SERVER_SCAN_RUNNING_WINDOW_MS = 12 * 60_000;
+
+/**
+ * Wipes the signed-in user's synced data in Firestore, for "Reset data":
+ * the Archive, sync history, saved backtest runs, and the server's saved
+ * scan results (users/{uid}/scanCache/latest). Engine Configuration
+ * (settings) and lastScanTimestamp are left alone.
+ *
+ * The server decides whether a daily scan is owed from the newest successful
+ * sync log plus users/{uid}/scanState/current.lastSuccessAt. Wiping the logs
+ * would erase that evidence and make the 30-minute backup check run a scan
+ * straight away, so the newest successful time is first copied into
+ * scanState.lastSuccessAt (never moved backwards) and only then are the logs
+ * wiped. Throws, having changed nothing, if a server scan is running now.
+ */
+export async function resetUserCloudData(userId: string): Promise<void> {
+  const userRef = doc(db, 'users', userId);
+  const stateRef = doc(db, 'users', userId, 'scanState', 'current');
+  const [userSnap, stateSnap] = await Promise.all([getDoc(userRef), getDoc(stateRef)]);
+  const state = (stateSnap.exists() ? stateSnap.data() : {}) as {
+    status?: string;
+    startedAt?: string;
+    lastSuccessAt?: string;
+  };
+
+  if (
+    state.status === 'running' &&
+    state.startedAt &&
+    Date.now() - new Date(state.startedAt).getTime() < SERVER_SCAN_RUNNING_WINDOW_MS
+  ) {
+    throw new Error(
+      'A scheduled scan is running on the server right now. Wait a few minutes for it to finish, then try again.'
+    );
+  }
+
+  const logs: SyncLogRecord[] = Array.isArray(userSnap.data()?.syncLogs) ? userSnap.data()!.syncLogs : [];
+  const newestGoodLog = logs.find((l) => l?.status && l.status !== 'FAILED' && l.timestamp)?.timestamp;
+  const markerMs = [newestGoodLog, state.lastSuccessAt]
+    .filter((t): t is string => !!t)
+    .map((t) => new Date(t).getTime())
+    .filter((n) => Number.isFinite(n));
+  if (markerMs.length > 0) {
+    const marker = new Date(Math.max(...markerMs)).toISOString();
+    if (marker !== state.lastSuccessAt) await setDoc(stateRef, { lastSuccessAt: marker }, { merge: true });
+  }
+
+  await setDoc(
+    userRef,
+    { historicalBets: [], syncLogs: [], backtestRuns: [], updatedAt: new Date().toISOString() },
+    { merge: true }
+  );
+  await deleteDoc(doc(db, 'users', userId, 'scanCache', 'latest'));
 }
 
 /** The signed-in user's Firebase ID token, for authenticating calls to our own backend. Null when signed out. */

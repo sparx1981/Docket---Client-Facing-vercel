@@ -166,12 +166,24 @@ export const USER_GUIDE_SECTIONS: GuideSection[] = [
     id: 'archive-performance',
     heading: 'Archive & Performance',
     paragraphs: [
-      "What it's for: this is your real, running record — every bet that has actually been logged and settled against a genuine final score, with running P&L, win rate and ROI. Records get in here two ways: automatically, from a one-off 30-day historical backfill the first time the app runs, and manually, whenever you log a fixture from the Verification Drawer after reviewing its audit. Pending logged bets are settled automatically as soon as the provider confirms a final score.",
-      'Limitation: Archive does not re-query TheStatsAPI\'s odds endpoint for historical matches — backfilled and logged records are priced at each rule\'s disclosed minimum qualifying odds, not a real historical market price, and this is stated plainly in each record\'s notes.',
+      "What it's for: this is your running record of the bets Docket has identified and logged, each settled against a genuine final score, with running P&L, win rate and ROI. Records get in when a scan finds a Verified Qualifier and Auto-archive is on in Engine Configuration, or when you log a fixture yourself from the Verification Drawer after reviewing its audit. Pending bets are settled automatically as soon as the provider confirms a final score. It starts empty and only ever holds selections that passed your rules.",
+      'Limitation: Archive does not re-query TheStatsAPI\'s odds endpoint for historical matches. A record logged without a market price is priced at the rule\'s disclosed minimum qualifying odds, not a real historical market price, and this is stated plainly in the record\'s notes.',
       'Why this is different from Backtest: Backtest is a simulation — you pick a league scope, and it re-runs the rule engine on demand against a sample of real historical matches to ask "how would this rule have performed?" Archive & Performance is not a simulation — it\'s the actual ledger of bets this app has identified and logged, kept permanently, synced to the cloud, and built up over time as real scans and real settlements happen. Put simply: Backtest asks "what if," Archive & Performance records "what actually happened."',
     ],
     endpointsCalled:
-      'GET /api/football/results (params: from, to, competitionId) — one call per selected league, used for the one-time 30-day historical backfill on first run and for ongoing settlement of pending logged bets against real final scores.',
+      'GET /api/football/results (params: from, to, competitionId) — used to settle pending logged bets against real final scores.',
+  },
+  {
+    id: 'reset-data',
+    heading: 'Resetting Your Data',
+    paragraphs: [
+      "What it's for: after Docket's rules or data change, results saved earlier may no longer be comparable with new ones. Engine Configuration → Reset Data starts you from a clean slate without touching your setup.",
+      'What it deletes: your Archive & Performance log, sync history, saved backtests, and the current Verified Qualifiers and Price Watch, from your cloud account and from this browser. Because it is removed from your cloud account, it disappears on every device you use.',
+      'What it keeps: everything in Engine Configuration, including your TheStatsAPI key, leagues, filter thresholds, scan schedule, email and staking settings. It also leaves your last scan time alone, so a reset never triggers an immediate scan; Verified Qualifiers and Price Watch stay empty until your next scheduled scan, or until you run one yourself.',
+      'Safeguards: before anything is deleted you are shown how many items of each kind will go, offered a download of your Archive as a CSV, and asked to type RESET. A reset cannot be undone. If a scheduled scan is running on the server at that moment, the reset waits and asks you to try again in a few minutes, so a half-finished scan cannot write old data straight back.',
+      'If Docket is open on another device or browser tab, reload it after a reset so it does not show the old data.',
+    ],
+    endpointsCalled: 'None — a reset only changes your own stored data.',
   },
   {
     id: 'glossary',
@@ -185,7 +197,8 @@ export const USER_GUIDE_SECTIONS: GuideSection[] = [
       'Enrichment — the step where a raw fixture is topped up with real team profile, season-stats and head-to-head data so the rule engine has enough to evaluate it. Capped at 200 fixtures per rule per scan.',
       'Backtest — an on-demand simulation that replays real historical matches through the same rule engine to show how a rule would have performed.',
       'Saved backtest run — a backtest\'s result, saved with the exact rule thresholds used, so it can be reviewed and compared later.',
-      'Archive & Performance — the permanent, real record of bets this app has actually logged and settled.',
+      'Archive & Performance — the record of bets this app has logged and settled. Starts empty and only holds selections that passed your rules.',
+      'Reset Data — wipes the Archive, sync history, saved backtests and current scan results, while keeping Engine Configuration.',
       'Scan — the process of downloading current fixtures for your selected leagues and screening them against your rules. Can be scheduled (automatic) or manual (button + confirmation).',
       'Storage badge — the Cloud / Browser / Local indicator on every page heading, showing where that page\'s data actually lives, and what clearing your browser data would do to it.',
     ],

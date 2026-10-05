@@ -18,6 +18,7 @@ import {
   RefreshCw,
   Download,
   Mail,
+  Trash2,
   X,
 } from 'lucide-react';
 import { AppSettings, BacktestRunRecord, BacktestSummary, CandidateFixture, FeedSummaryRecord, LeagueOption, RuleThresholds } from '../types';
@@ -43,6 +44,7 @@ import {
 import { BacktestProgressEvent, buildBacktestCsv, downloadCsv, runBacktest } from '../services/backtest';
 import { deleteBacktestRun, getStoredBacktestRuns, logBacktestRun } from '../services/storage';
 import { ScanProgressModal } from './ScanProgressModal';
+import { ResetDataModal } from './ResetDataModal';
 import { sendTestEmail, TestEmailResult } from '../services/notifications';
 
 /** A link to the real place a provider's own dashboard lets you create/view an API key or token. */
@@ -119,6 +121,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [isTesting, setIsTesting] = useState(false);
   const [feedHealth, setFeedHealth] = useState<FeedHealthResult[] | null>(null);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [isResetDataOpen, setIsResetDataOpen] = useState(false);
   const [autoScanTriggered, setAutoScanTriggered] = useState(false);
 
   // League catalog (Filter Thresholds) — the persisted list of leagues each
@@ -1877,6 +1880,39 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </CollapsibleSection>
 
+      {/* ---- Reset data ---- */}
+      <CollapsibleSection
+        id="section-reset-data"
+        buttonId="btn-toggle-reset-data"
+        title="Reset Data"
+        icon={<Trash2 className="h-4 w-4" strokeWidth={2.5} />}
+        defaultOpen={false}
+      >
+        <div className="space-y-3 px-4 py-4">
+          <p className="text-[12px] leading-relaxed text-text-2">
+            Start from a clean slate. This deletes your{' '}
+            <strong className="text-text">Archive &amp; Performance</strong> log,{' '}
+            <strong className="text-text">sync history</strong>, <strong className="text-text">saved backtests</strong>{' '}
+            and the current <strong className="text-text">Verified Qualifiers / Price Watch</strong>, from your cloud
+            account and this browser. Everything on this page (your API key, leagues, thresholds, schedule, email and
+            staking settings) is kept.
+          </p>
+          <p className="text-[12px] leading-relaxed text-text-2">
+            Useful after changing how Docket works, when older results may no longer be comparable. You will see exactly
+            what will be deleted, and can download your Archive first, before confirming.
+          </p>
+          <Button
+            type="button"
+            id="btn-open-reset-data"
+            variant="danger"
+            icon={<Trash2 className="h-4 w-4" strokeWidth={2.5} />}
+            onClick={() => setIsResetDataOpen(true)}
+          >
+            Reset data…
+          </Button>
+        </div>
+      </CollapsibleSection>
+
       {/* ---- Save ---- */}
       <div className="sticky bottom-[70px] flex items-center justify-end gap-3 rounded-xl border border-line bg-surface/95 px-4 py-3 backdrop-blur-md lg:bottom-4">
         {isSavingToCloud && (
@@ -1910,6 +1946,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           Save configuration
         </Button>
       </div>
+
+      <ResetDataModal
+        isOpen={isResetDataOpen}
+        onClose={() => setIsResetDataOpen(false)}
+        userId={user?.uid ?? null}
+        blockedReason={
+          hasUnsavedChanges
+            ? 'You have unsaved configuration changes. Save them first: the page reloads after a reset and would discard them.'
+            : undefined
+        }
+      />
 
       <ScanProgressModal
         variant="feedPreview"

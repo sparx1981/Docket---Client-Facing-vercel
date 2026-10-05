@@ -95,9 +95,8 @@ async function mockBackend(page: Page) {
 
   await page.route('**/api/football/h2h*', (route) => route.fulfill({ json: { h2h: H2H_MATCHES } }));
 
-  // The one-shot historical backfill (storage.ts) fires once a key and a
-  // league are both configured — answer it too so it doesn't surface as an
-  // unmocked-request console error alongside the assertions above.
+  // Settlement of pending bets looks up final scores here — answer it so a
+  // lookup never surfaces as an unmocked-request console error alongside the assertions above.
   await page.route('**/api/football/results*', (route) => route.fulfill({ json: { results: [] } }));
 
   // No market-odds mock — TheStatsAPI simply hasn't returned a price for

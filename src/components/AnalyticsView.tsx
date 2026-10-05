@@ -3,7 +3,6 @@ import {
   Archive,
   Check,
   CheckCircle2,
-  Database,
   Download,
   ExternalLink,
   Info,
@@ -20,6 +19,7 @@ import {
   SystemType,
 } from '../types';
 import { calculateSystemAnalytics, settleBet } from '../services/storage';
+import { buildArchiveCsv } from '../services/archiveCsv';
 import {
   Button,
   EmptyState,
@@ -36,9 +36,7 @@ interface AnalyticsViewProps {
   onUpdateBets: (bets: HistoricalBetRecord[]) => void;
   settings: AppSettings;
   onAutoSettleAll?: () => void;
-  onSyncHistoricalRecords?: () => void;
   isAutoSettling?: boolean;
-  isSyncingHistory?: boolean;
 }
 
 const SYSTEM_NAME: Record<SystemType, string> = {
@@ -328,9 +326,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   onUpdateBets,
   settings,
   onAutoSettleAll,
-  onSyncHistoricalRecords,
   isAutoSettling = false,
-  isSyncingHistory = false,
 }) => {
   const t = settings.ruleThresholds;
   const [scope, setScope] = useState<string>('all');
@@ -377,47 +373,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     return true;
   });
 
-  const csvCell = (value: string | number | undefined): string => {
-    const str = value === undefined || value === null ? '' : String(value);
-    return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
-  };
-
   const handleExportCsv = () => {
-    const headers = [
-      'Date',
-      'Match',
-      'Competition',
-      'System',
-      'Selection',
-      'Odds Taken',
-      'Stake',
-      'Outcome',
-      'Final Score',
-      'P&L',
-      'ROI %',
-      'Settled At',
-      'Audit ID',
-      'Data Source',
-      'Notes',
-    ];
-    const rows = filteredBets.map((b) => [
-      csvCell(b.date),
-      csvCell(b.match),
-      csvCell(b.competition),
-      csvCell(b.system),
-      csvCell(b.selection),
-      csvCell(b.oddsTaken),
-      csvCell(b.stake),
-      csvCell(b.outcome),
-      csvCell(b.finalScore),
-      csvCell(b.pnl),
-      csvCell(b.roiContribution),
-      csvCell(b.settledAt),
-      csvCell(b.auditId),
-      csvCell(b.dataSourceName),
-      csvCell(b.notes),
-    ]);
-    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const csv = buildArchiveCsv(filteredBets);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -498,18 +455,6 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           />
         </div>
         <div className="flex items-center gap-2">
-          {onSyncHistoricalRecords && (
-            <button
-              id="btn-sync-250-history"
-              onClick={onSyncHistoricalRecords}
-              disabled={isSyncingHistory}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1 text-[11px] font-bold text-text-2 hover:border-brand hover:text-brand-ink transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-              title="Pull real settled results from the configured provider for the last 30 days"
-            >
-              <Database className={`h-3.5 w-3.5 ${isSyncingHistory ? 'animate-pulse' : ''}`} />
-              <span>{isSyncingHistory ? 'Pulling…' : 'Pull Historical Results'}</span>
-            </button>
-          )}
           <span className="font-mono text-[11px] text-text-3">
             {historicalBets.length} archived selections
           </span>
@@ -701,8 +646,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                       >
                         <p>
                           Archive does not re-query TheStatsAPI's odds endpoint per historical
-                          match, so there is no live price recorded here. Backfilled and
-                          manually-filed rows show the system&rsquo;s own disclosed minimum
+                          match, so there is no live price recorded here. Rows filed
+                          without a market price show the system&rsquo;s own disclosed minimum
                           qualifying price instead of a real market figure, and say so in their
                           notes.
                         </p>

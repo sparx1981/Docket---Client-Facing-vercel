@@ -42,7 +42,6 @@ server-to-server and never stores it itself.
 | `src/components/ui.tsx` | Shared primitives (Plate, Chip, Stamp, PriceTag, Field…) |
 | `src/components/AppShell.tsx` | Rail, topbar, mobile tab bar, seal mark |
 | `src/services/dataFeed.ts` | Builds real candidate fixtures from the backend, run through `rulesEngine.ts` |
-| `src/services/historyBackfill.ts` | One-shot backfill of real settled results into the Archive on first run |
 | `src/services/` | Rules engine, verification engine, storage, scheduler |
 | `DESIGN.md` | The visual system as built |
 | `PRODUCT.md` | Product truth — users, purpose, constraints |
@@ -54,7 +53,7 @@ All under `/api`, all requiring an `x-provider-key` header (400 without one):
 - `GET /football/fixtures?date=&provider=sportradar|sportmonks`
 - `GET /football/team/:teamId?provider=`
 - `GET /football/h2h?team1=&team2=&provider=`
-- `GET /football/results?from=&to=&provider=` — completed matches, for settlement + backfill
+- `GET /football/results?from=&to=&provider=` — completed matches, for settlement
 - `GET /health` — no key required
 
 A provider failure comes back as a 502 with the upstream status/message —

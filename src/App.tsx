@@ -21,12 +21,9 @@ import {
   getStoredLastScanTimestamp,
   getStoredSettings,
   getStoredSyncLogs,
-  hasAttemptedHistoricalBackfill,
   logVerifiedQualifierToHistory,
-  markHistoricalBackfillAttempted,
   saveStoredFixtures,
   saveStoredSettings,
-  syncPastHistoricalRecords,
   setActiveUserContext,
   hydrateUserDataFromCloud,
 } from './services/storage';
@@ -62,18 +59,6 @@ const hasAnyProviderKey = (settings: AppSettings) =>
   Boolean(
     settings.theStatsApiKey
   );
-
-/**
- * True once the user has saved a specific league selection on at least one
- * football rule. Until this is true, no TheStatsAPI endpoint beyond the
- * competitions listing (needed to populate the league picker itself) may be
- * called — an empty selection means "All leagues", which is exactly the
- * unscoped, expensive default this guard exists to prevent from ever being
- * hit silently.
- */
-const hasAnyLeagueSelected = (settings: AppSettings) =>
-  settings.ruleThresholds.footballOver15.selectedLeagueIds.length > 0 ||
-  settings.ruleThresholds.footballUnder35.selectedLeagueIds.length > 0;
 
 export interface UserProfile {
   uid: string;
@@ -124,7 +109,6 @@ export default function App() {
   } | null>(null);
   const [fixturesLoading, setFixturesLoading] = useState(false);
   const [fixturesError, setFixturesError] = useState<string | null>(null);
-  const [isSyncingHistory, setIsSyncingHistory] = useState(false);
   const [isAutoSettling, setIsAutoSettling] = useState(false);
   const [isAutoScanTesting, setIsAutoScanTesting] = useState(false);
   /** Reflects the outcome of the most recent real provider call — never a hardcoded claim. */
@@ -139,7 +123,6 @@ export default function App() {
   const [oddsRefreshProgress, setOddsRefreshProgress] = useState<OddsRefreshProgressEvent | null>(null);
   const oddsRefreshAbortControllerRef = useRef<AbortController | null>(null);
 
-  const backfillAttemptedRef = useRef(false);
   const scheduledScanInFlightRef = useRef(false);
 
   // Persists the last scan's classified fixtures (Verified Qualifiers /
@@ -340,26 +323,7 @@ export default function App() {
 
   // Initial load: deliberately does NOT call loadFixtures() — a fixture
   // pull must only happen at the configured schedule time or via an
-  // explicit manual trigger, never automatically on every app open. The
-  // one thing this still does automatically is a one-off historical
-  // backfill the very first time this device sees an empty archive with a
-  // provider configured, so the Archive isn't silently empty forever; that
-  // is a single one-time backfill, not a recurring sync, so it stays.
-  useEffect(() => {
-    if (!backfillAttemptedRef.current && !hasAttemptedHistoricalBackfill()) {
-      backfillAttemptedRef.current = true;
-      markHistoricalBackfillAttempted();
-      if (getHistoricalBets().length === 0 && hasAnyProviderKey(settings) && hasAnyLeagueSelected(settings)) {
-        syncPastHistoricalRecords(settings).then(({ bets, error }) => {
-          setHistoricalBets(bets);
-          if (error) {
-            console.warn('[Historical backfill]', error);
-          }
-        });
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // explicit manual trigger, never automatically on every app open.
 
   // Automated Background Scheduler Loop
   useEffect(() => {
@@ -422,29 +386,6 @@ export default function App() {
     if (timestamps.length === 0) return null;
     return new Date(Math.min(...timestamps)).toISOString();
   }, [fixtures]);
-
-  const handleSyncHistoricalRecords = async () => {
-    if (isSyncingHistory) return;
-    setIsSyncingHistory(true);
-    try {
-      const { bets, error } = await syncPastHistoricalRecords(settings);
-      setHistoricalBets(bets);
-      setAutoScanNotice({
-        message: error
-          ? `Historical backfill finished with issues: ${error}`
-          : 'Pulled and merged real settled results into the Archive ledger.',
-        timestamp: new Date().toLocaleTimeString([], {
-          hour: '2-digit',
-          minute: '2-digit',
-        }),
-      });
-      setTimeout(() => {
-        setAutoScanNotice(null);
-      }, 7000);
-    } finally {
-      setIsSyncingHistory(false);
-    }
-  };
 
   const verifiedQualifiers = useMemo(
     () =>
@@ -714,9 +655,7 @@ export default function App() {
             onUpdateBets={setHistoricalBets}
             settings={settings}
             onAutoSettleAll={handleAutoSettlePending}
-            onSyncHistoricalRecords={handleSyncHistoricalRecords}
             isAutoSettling={isAutoSettling}
-            isSyncingHistory={isSyncingHistory}
           />
         )}
 
@@ -777,8 +716,6 @@ export default function App() {
           handleRunScan();
         }}
         isScanning={isScanModalOpen}
-        onSyncHistoricalRecords={handleSyncHistoricalRecords}
-        isSyncingHistory={isSyncingHistory}
       />
 
       <SectionInfoModal
