@@ -20,20 +20,55 @@ function loadFirebaseConfig(): { projectId?: string; firestoreDatabaseId?: strin
   }
 }
 
+/**
+ * Thrown when the server's own Firebase credentials are missing or unusable
+ * (as opposed to a caller's bad token). Messages are written to be shown to
+ * the operator and never include any part of the key itself.
+ */
+export class AdminSetupError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AdminSetupError';
+  }
+}
+
 export function getAdminApp(): App {
   if (getApps().length > 0) return getApps()[0];
   const config = loadFirebaseConfig();
   const projectId = process.env.FIREBASE_PROJECT_ID || config.projectId;
   const json = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
   if (!json && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    throw new Error(
+    throw new AdminSetupError(
       "FIREBASE_SERVICE_ACCOUNT_JSON is not configured — add a Firebase service-account key to the Vercel project environment variables so the server can read users' settings and verify sign-ins."
     );
   }
-  return initializeApp({
-    projectId,
-    credential: json ? cert(JSON.parse(json)) : applicationDefault(),
-  });
+
+  let credential;
+  if (json) {
+    let parsed: any;
+    try {
+      parsed = JSON.parse(json.trim());
+    } catch {
+      throw new AdminSetupError(
+        'FIREBASE_SERVICE_ACCOUNT_JSON is set but is not valid JSON — paste the entire contents of the downloaded key file (starting with { and ending with }), with no extra quotes.'
+      );
+    }
+    if (parsed?.project_id && projectId && parsed.project_id !== projectId) {
+      throw new AdminSetupError(
+        `FIREBASE_SERVICE_ACCOUNT_JSON is a key for project "${parsed.project_id}", but this app's Firebase project is "${projectId}" — generate the key from the "${projectId}" project.`
+      );
+    }
+    try {
+      credential = cert(parsed);
+    } catch {
+      throw new AdminSetupError(
+        'FIREBASE_SERVICE_ACCOUNT_JSON is valid JSON but the service-account key inside it could not be read (the private_key may be damaged) — download a fresh key and paste it again.'
+      );
+    }
+  } else {
+    credential = applicationDefault();
+  }
+  return initializeApp({ projectId, credential });
 }
 
 export function getDb(): Firestore {

@@ -226,10 +226,18 @@ app.post('/api/notifications/test', async (req, res) => {
     const { verifyIdToken } = await import('./firebaseAdmin.js');
     ({ uid, email } = await verifyIdToken(idToken));
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    // Missing server credentials is a configuration problem (503), anything else is a bad/expired token (401).
-    return res.status(/not configured/i.test(message) ? 503 : 401).json({
-      error: /not configured/i.test(message) ? message : 'Your sign-in could not be verified — sign out and back in, then try again.',
+    const { AdminSetupError } = await import('./firebaseAdmin.js');
+    // The server's own credentials being wrong is a configuration problem
+    // (503, with a message that says exactly what to fix); anything else is
+    // the caller's token being rejected (401, with Firebase's error code).
+    if (err instanceof AdminSetupError) {
+      console.error('[notifications/test] server credentials problem:', err.message);
+      return res.status(503).json({ error: err.message });
+    }
+    const code = (err as { code?: string })?.code;
+    console.error('[notifications/test] ID token rejected:', code ?? err);
+    return res.status(401).json({
+      error: `Your sign-in could not be verified${code ? ` (${code})` : ''} — sign out and back in, then try again.`,
     });
   }
 
