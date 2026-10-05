@@ -1,9 +1,35 @@
 import type {
   CandidateFixture,
+  TeamRecentMatch,
   VerificationAuditCard,
   RuleThresholds,
 } from '../types';
 import { evaluateFixture, evaluateH2HOver15 } from './rulesEngine.js';
+
+/** The recent-form filters look at exactly this many competitive matches per team, and need all of them on record. */
+const RECENT_FORM_WINDOW = 5;
+
+/**
+ * One team's recent-form recount: how many of its matches count, out of how
+ * many are actually on record. Like the rules engine, a team with fewer than
+ * RECENT_FORM_WINDOW matches on record cannot pass — it has not got a full
+ * sample, even if it hit the count in every match it does have.
+ */
+function recentFormRecount<T extends { isCompetitive: boolean }>(matches: T[], counts: (m: T) => boolean, minCount: number) {
+  const window = matches.filter((m) => m.isCompetitive).slice(0, RECENT_FORM_WINDOW);
+  const tally = window.filter(counts).length;
+  const total = window.length;
+  const hasFullWindow = total >= RECENT_FORM_WINDOW;
+  return {
+    window,
+    tally,
+    total,
+    /** "4/5", or "4 of 3 on record" style text that never pretends a short sample was a full five. */
+    ratio: hasFullWindow ? `${tally}/${RECENT_FORM_WINDOW}` : `${tally} of ${total}`,
+    note: hasFullWindow ? '' : ` — only ${total} of ${RECENT_FORM_WINDOW} matches on record`,
+    passed: hasFullWindow && tally >= minCount,
+  };
+}
 
 /**
  * The Verification Engine (Mandatory Audit)
@@ -95,28 +121,26 @@ export function runVerificationAudit(
       });
 
       // 3. Raw itemized recalculation of last 5 competitive form games
-      const homeRawRecent = details.homeRecentMatches.filter((m) => m.isCompetitive).slice(0, 5);
-      const awayRawRecent = details.awayRecentMatches.filter((m) => m.isCompetitive).slice(0, 5);
-      const homeScoredTally = homeRawRecent.filter((m) => m.teamGoals > 0).length;
-      const awayScoredTally = awayRawRecent.filter((m) => m.teamGoals > 0).length;
+      const homeForm = recentFormRecount(details.homeRecentMatches, (m) => m.teamGoals > 0, t.minRecentScoredCount);
+      const awayForm = recentFormRecount(details.awayRecentMatches, (m) => m.teamGoals > 0, t.minRecentScoredCount);
 
       recalculatedMetrics.push({
         ruleLabel: 'Raw Home Scoring Form Audit',
-        computedMetric: `${homeScoredTally}/5 matches scored (Raw goals: ${homeRawRecent.map((m) => m.teamGoals).join(',')})`,
-        thresholdRequired: `>= ${t.minRecentScoredCount} of 5`,
-        verifiedMatch: homeScoredTally >= t.minRecentScoredCount,
+        computedMetric: `${homeForm.ratio} matches scored${homeForm.note} (Raw goals: ${homeForm.window.map((m) => m.teamGoals).join(',')})`,
+        thresholdRequired: `>= ${t.minRecentScoredCount} of ${RECENT_FORM_WINDOW}, and ${RECENT_FORM_WINDOW} matches on record`,
+        verifiedMatch: homeForm.passed,
       });
       recalculatedMetrics.push({
         ruleLabel: 'Raw Away Scoring Form Audit',
-        computedMetric: `${awayScoredTally}/5 matches scored (Raw goals: ${awayRawRecent.map((m) => m.teamGoals).join(',')})`,
-        thresholdRequired: `>= ${t.minRecentScoredCount} of 5`,
-        verifiedMatch: awayScoredTally >= t.minRecentScoredCount,
+        computedMetric: `${awayForm.ratio} matches scored${awayForm.note} (Raw goals: ${awayForm.window.map((m) => m.teamGoals).join(',')})`,
+        thresholdRequired: `>= ${t.minRecentScoredCount} of ${RECENT_FORM_WINDOW}, and ${RECENT_FORM_WINDOW} matches on record`,
+        verifiedMatch: awayForm.passed,
       });
 
       rawEvidenceSummary.push(
         `Previous season: ${details.homePrevSeason.team} (${homeGoals} GF in ${homeMatches} apps), ${details.awayPrevSeason.team} (${awayGoals} GF in ${awayMatches} apps).`,
         `Head-to-head verified scores: ${h2hRaw.map((m) => `${m.homeTeam} ${m.homeScore}-${m.awayScore} ${m.awayTeam} (${m.competition})`).join('; ')}`,
-        `Recent form: ${details.homePrevSeason.team} (${homeScoredTally}/5 matches scored), ${details.awayPrevSeason.team} (${awayScoredTally}/5 matches scored). TheStatsAPI does not label friendlies, so none are stripped.`
+        `Recent form: ${details.homePrevSeason.team} (${homeForm.ratio} matches scored${homeForm.note}), ${details.awayPrevSeason.team} (${awayForm.ratio} matches scored${awayForm.note}). TheStatsAPI does not label friendlies, so none are stripped.`
       );
     } else if (fixture.system === 'football_under_3_5') {
       const t = thresholds.footballUnder35;
@@ -144,28 +168,27 @@ export function runVerificationAudit(
         verifiedMatch: h2hRaw.length >= 8 && rawUnder35Count / h2hRaw.length >= t.minH2HUnder35Rate,
       });
 
-      const homeRawRecent = details.homeRecentMatches.filter((m) => m.isCompetitive).slice(0, 5);
-      const awayRawRecent = details.awayRecentMatches.filter((m) => m.isCompetitive).slice(0, 5);
-      const homeU35Tally = homeRawRecent.filter((m) => m.teamGoals + m.opponentGoals < 4).length;
-      const awayU35Tally = awayRawRecent.filter((m) => m.teamGoals + m.opponentGoals < 4).length;
+      const isUnder35 = (m: TeamRecentMatch) => m.teamGoals + m.opponentGoals < 4;
+      const homeForm = recentFormRecount(details.homeRecentMatches, isUnder35, t.minRecentUnder35Count);
+      const awayForm = recentFormRecount(details.awayRecentMatches, isUnder35, t.minRecentUnder35Count);
 
       recalculatedMetrics.push({
         ruleLabel: 'Raw Home Form Under 3.5 Audit',
-        computedMetric: `${homeU35Tally}/5 games finished Under 3.5 goals`,
-        thresholdRequired: `>= ${t.minRecentUnder35Count} of 5`,
-        verifiedMatch: homeU35Tally >= t.minRecentUnder35Count,
+        computedMetric: `${homeForm.ratio} games finished Under 3.5 goals${homeForm.note}`,
+        thresholdRequired: `>= ${t.minRecentUnder35Count} of ${RECENT_FORM_WINDOW}, and ${RECENT_FORM_WINDOW} matches on record`,
+        verifiedMatch: homeForm.passed,
       });
       recalculatedMetrics.push({
         ruleLabel: 'Raw Away Form Under 3.5 Audit',
-        computedMetric: `${awayU35Tally}/5 games finished Under 3.5 goals`,
-        thresholdRequired: `>= ${t.minRecentUnder35Count} of 5`,
-        verifiedMatch: awayU35Tally >= t.minRecentUnder35Count,
+        computedMetric: `${awayForm.ratio} games finished Under 3.5 goals${awayForm.note}`,
+        thresholdRequired: `>= ${t.minRecentUnder35Count} of ${RECENT_FORM_WINDOW}, and ${RECENT_FORM_WINDOW} matches on record`,
+        verifiedMatch: awayForm.passed,
       });
 
       rawEvidenceSummary.push(
         `Previous season bounds: ${details.homePrevSeason.team} (${recalculatedHomeAvgScored.toFixed(2)} GF / ${recalculatedHomeAvgConceded.toFixed(2)} GA), ${details.awayPrevSeason.team} (${recalculatedAwayAvgScored.toFixed(2)} GF / ${recalculatedAwayAvgConceded.toFixed(2)} GA).`,
         `10 H2H results verified: ${h2hRaw.map((m) => `${m.homeScore}-${m.awayScore}`).join(', ')} (${rawUnder35Count}/10 Under 3.5).`,
-        `Recent 5 form: ${details.homePrevSeason.team} (${homeU35Tally}/5 Under 3.5), ${details.awayPrevSeason.team} (${awayU35Tally}/5 Under 3.5).`
+        `Recent 5 form: ${details.homePrevSeason.team} (${homeForm.ratio} Under 3.5${homeForm.note}), ${details.awayPrevSeason.team} (${awayForm.ratio} Under 3.5${awayForm.note}).`
       );
     }
   }
