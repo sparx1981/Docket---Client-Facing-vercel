@@ -1,7 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { ProviderError } from './errors.js';
 import * as thestatsapi from './providers/thestatsapi.js';
-import { sendNotificationEmail, htmlTable } from './email.js';
+import { sendNotificationEmail } from './email.js';
 
 /**
  * Minimal backend proxy. Its only job is to forward provider requests
@@ -249,17 +249,25 @@ app.post('/api/notifications/test', async (req, res) => {
   lastTestEmailAt.set(uid, now);
 
   try {
-    const service = await sendNotificationEmail(
-      'Docket: test email',
-      `<p>This is a test email from Docket. If you can read this, notification emails are working.</p>${htmlTable(
-        ['Detail', 'Value'],
-        [
-          ['Sent at (UTC)', new Date(now).toISOString().slice(0, 16).replace('T', ' ')],
-          ['Requested by', email ?? uid],
-        ]
-      )}`
-    );
-    res.json({ ok: true, serviceStatus: service.status, serviceReply: service.reply, looksLikeWebPage: service.looksLikeWebPage });
+    // The test is the real daily-scan email (same builder), filled from the
+    // user's most recent scan when one exists.
+    let latestLog: any;
+    let fixtures: any[] | undefined;
+    try {
+      const { getDb } = await import('./firebaseAdmin.js');
+      const userRef = getDb().collection('users').doc(uid);
+      const [userSnap, cacheSnap] = await Promise.all([userRef.get(), userRef.collection('scanCache').doc('latest').get()]);
+      const logs = userSnap.data()?.syncLogs;
+      latestLog = Array.isArray(logs) ? logs[0] : undefined;
+      const json = cacheSnap.data()?.fixturesJson;
+      fixtures = typeof json === 'string' ? JSON.parse(json) : undefined;
+    } catch (err) {
+      console.error('[notifications/test] could not load the latest scan, using sample rows:', err);
+    }
+    const { buildTestScanEmail } = await import('./cron/scanEmail.js');
+    const test = buildTestScanEmail({ latestLog, fixtures, requestedBy: email ?? uid });
+    const service = await sendNotificationEmail(test.subject, test.html);
+    res.json({ ok: true, serviceStatus: service.status, serviceReply: service.reply, looksLikeWebPage: service.looksLikeWebPage, usedRealScan: test.usedRealScan });
   } catch (err) {
     lastTestEmailAt.delete(uid); // a failed send shouldn't lock the user out of retrying
     handleError(err, res);

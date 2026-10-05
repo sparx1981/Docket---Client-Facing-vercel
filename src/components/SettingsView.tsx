@@ -1180,8 +1180,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="space-y-2 rounded-lg border border-line bg-surface-2 p-3">
               <p className="text-[12px] font-semibold text-text">Test the email service</p>
               <p className="text-[11px] leading-relaxed text-text-2">
-                Sends a short test message through the notification email service. The recipient is set by that
-                service&rsquo;s own email template, not in this app, so check that inbox (and spam) after sending.
+                Sends a test copy of the daily scan email, built the same way as the real one and filled from your
+                latest scan (or labelled sample rows if none has run yet). The recipient is set by the email
+                service&rsquo;s own template, not in this app, and delivery can take a few minutes, so check that
+                inbox (and spam).
               </p>
               <div className="flex flex-wrap items-center gap-3">
                 <Button

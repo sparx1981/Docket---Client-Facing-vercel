@@ -55,3 +55,55 @@ export function buildScanEmail(
   }
   return { subject, html: parts.join('\n') };
 }
+
+const SAMPLE_FIXTURE = (title: string, competition: string, odds?: number): CandidateFixture =>
+  ({
+    matchTitle: title,
+    competition,
+    matchTime: new Date(Date.now() + 26 * 3_600_000).toISOString(),
+    betType: 'Over 1.5 Goals',
+    marketOdds: odds ? { decimalOdds: odds } : undefined,
+  }) as unknown as CandidateFixture;
+
+/**
+ * The "Send test email" message: the real daily-scan email, built by the very
+ * same buildScanEmail, from the user's most recent scan when there is one
+ * (otherwise clearly-labelled sample rows), with a banner saying it is a test.
+ */
+export function buildTestScanEmail(input: {
+  latestLog?: SyncLogRecord;
+  fixtures?: CandidateFixture[];
+  requestedBy: string;
+}): { subject: string; html: string; usedRealScan: boolean } {
+  const { latestLog, fixtures, requestedBy } = input;
+  const isQualifier = (f: CandidateFixture) => f.status === 'VERIFIED_QUALIFIER' && f.verificationCard?.status === 'VERIFIED';
+  const isPriceWatch = (f: CandidateFixture) => f.status === 'PRICE_WATCH' || f.verificationCard?.status === 'PRICE_DEFICIT';
+
+  const usedRealScan = !!latestLog && Array.isArray(fixtures);
+  const now = new Date().toISOString();
+  const qualifiers = usedRealScan ? fixtures!.filter(isQualifier) : [SAMPLE_FIXTURE('Sample FC v Example United', 'Sample League', 1.28)];
+  const priceWatch = usedRealScan
+    ? fixtures!.filter((f) => !isQualifier(f) && isPriceWatch(f))
+    : [SAMPLE_FIXTURE('Demo Town v Placeholder Rovers', 'Sample League')];
+  const log: SyncLogRecord = usedRealScan
+    ? latestLog!
+    : ({
+        timestamp: now,
+        totalRecordsScanned: 0,
+        qualifiersCount: qualifiers.length,
+        priceWatchCount: priceWatch.length,
+        rejectedCount: 0,
+        status: 'SUCCEEDED',
+        notes: '',
+      } as unknown as SyncLogRecord);
+
+  const built = buildScanEmail(log, qualifiers, priceWatch);
+  const banner =
+    `<p style="padding:8px 12px;background:#fff7e0;border:1px solid #f0d58a;"><strong>This is a TEST of the daily scan email.</strong> ` +
+    (usedRealScan
+      ? `It uses the results of your most recent scan (${escapeHtml(log.timestamp.slice(0, 16).replace('T', ' '))} UTC), laid out exactly like the real email.`
+      : 'No scan has run yet, so the matches below are made-up sample rows, laid out exactly like the real email.') +
+    ` Requested by ${escapeHtml(requestedBy)}.</p>`;
+
+  return { subject: `[TEST] ${built.subject}`, html: banner + built.html, usedRealScan };
+}
