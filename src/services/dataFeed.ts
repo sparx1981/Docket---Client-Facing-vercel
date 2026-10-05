@@ -314,7 +314,7 @@ async function buildFootballCandidates(
           gaps[`${side}PrevSeason`] = `${name}: team data could not be loaded (${res.error})`;
           gaps[`${side}Recent`] = `${name}: team data could not be loaded (${res.error})`;
         } else {
-          if (!prev) gaps[`${side}PrevSeason`] = `TheStatsAPI has no season statistics for ${name}`;
+          if (!prev) gaps[`${side}PrevSeason`] = res.value?.team?.prevSeasonNote ?? `TheStatsAPI has no previous-season statistics for ${name}`;
           if (!recent || recent.length === 0) gaps[`${side}Recent`] = `TheStatsAPI has no recent matches on record for ${name}`;
         }
         return { prev, recent: recent && recent.length > 0 ? recent : undefined };

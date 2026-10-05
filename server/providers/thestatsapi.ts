@@ -434,12 +434,13 @@ async function finishedMatchesForTeam(apiKey: string, teamId: string): Promise<a
 }
 
 /**
- * Team profile: current-season aggregate stats plus recent form, as of
- * *now* — used for live fixture enrichment (the daily scan), where "current
- * form" genuinely means the present. Built from three real calls — team
- * detail (for its primary competition), that competition's current season,
- * and the team's season stats — never padded when any of them comes back
- * incomplete.
+ * Team profile: the previous season's aggregate stats plus recent form, as
+ * of *now* — used for live fixture enrichment (the daily scan), where
+ * "recent form" genuinely means the present. The season aggregate is the
+ * previous completed season of the team's primary competition (matching the
+ * "previous-season" filters and the backtest). Built from real calls only —
+ * team detail, the competition's seasons, and the team's stats for the
+ * previous season — never padded when any of them comes back incomplete.
  */
 export async function getTeamProfile(
   apiKey: string,
@@ -456,17 +457,38 @@ export async function getTeamProfile(
   const teamName: string = team?.name || 'Unknown team';
   const competitionId: string | undefined = team?.primary_competition?.id;
 
+  // The "previous season" the filters are named after: the season that
+  // finished immediately before the competition's current one — the same
+  // meaning the backtest uses (getPreviousSeasonInfo relative to the match's
+  // season). `prevSeasonNote` says why it is missing when it is, so the
+  // scan can report the exact gap instead of a generic "no data".
+  const leagueName: string = team?.primary_competition?.name || 'Unknown league';
   let prevSeason: FootballPrevSeasonStats | undefined;
-  if (competitionId) {
+  let prevSeasonNote: string | undefined;
+  if (!competitionId) {
+    prevSeasonNote = `TheStatsAPI lists no primary competition for ${teamName}, so there is no season to read statistics from`;
+  } else {
+    let seasonLabel = 'the previous season';
     try {
-      const season = await getCurrentSeasonInfo(apiKey, competitionId);
-      if (season) {
-        prevSeason = await fetchSeasonStats(apiKey, teamId, teamName, team?.primary_competition?.name || 'Unknown league', season);
+      const current = await getCurrentSeasonInfo(apiKey, competitionId);
+      if (!current) {
+        prevSeasonNote = `TheStatsAPI lists no current season for ${leagueName}, so its previous season can't be determined`;
+      } else {
+        const previous = await getPreviousSeasonInfo(apiKey, competitionId, current.seasonId);
+        if (!previous) {
+          prevSeasonNote = `TheStatsAPI holds no earlier season for ${leagueName} (only ${current.seasonName}), so there is no previous season to read statistics from`;
+        } else {
+          seasonLabel = previous.seasonName;
+          prevSeason = await fetchSeasonStats(apiKey, teamId, teamName, leagueName, previous);
+          if (!prevSeason) prevSeasonNote = `TheStatsAPI returned incomplete statistics for ${teamName} in ${seasonLabel}`;
+        }
       }
     } catch (err) {
       if (!(err instanceof ProviderError)) throw err;
-      // Leave prevSeason undefined — the rules engine treats this as
-      // missing data rather than a crash.
+      prevSeasonNote =
+        err.status === 404
+          ? `TheStatsAPI has no statistics for ${teamName} in ${seasonLabel} (${leagueName})`
+          : `Statistics for ${teamName} could not be loaded (${err.message})`;
     }
   }
 
@@ -482,7 +504,7 @@ export async function getTeamProfile(
     if (!(err instanceof ProviderError)) throw err;
   }
 
-  return { team: teamName, prevSeason, recentMatches };
+  return { team: teamName, prevSeason, prevSeasonNote, recentMatches };
 }
 
 export interface HistoricalMatchContext {

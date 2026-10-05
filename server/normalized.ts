@@ -39,6 +39,8 @@ export interface NormalizedResult {
 export interface NormalizedTeamProfile {
   team: string;
   prevSeason?: FootballPrevSeasonStats;
+  /** Plain-English reason prevSeason is missing, when it is. */
+  prevSeasonNote?: string;
   recentMatches?: TeamRecentMatch[];
 }
 
