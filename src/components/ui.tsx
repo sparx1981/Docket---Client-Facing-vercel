@@ -196,7 +196,7 @@ export const OutcomeBadge: React.FC<{ outcome: string }> = ({ outcome }) => {
 };
 
 /* ==========================================================================
-   Price tag — the exchange price, set at bookmaker scale.
+   Price tag — the bookmaker price, set at bookmaker scale.
    ========================================================================== */
 
 export const PriceTag: React.FC<{

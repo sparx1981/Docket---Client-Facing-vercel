@@ -38,6 +38,11 @@ export function runVerificationAudit(
 
   let dataIntegrityScore = 100;
   let auditStatus: 'VERIFIED' | 'FAILED_RECALC' | 'PRICE_DEFICIT' | 'MISSING_DATA' = 'VERIFIED';
+  // Set when a stored average disagrees with the raw goals / matches it was
+  // derived from. Kept separate from auditStatus so the final status below
+  // cannot silently overwrite it.
+  let integrityFailed = false;
+  const hasFullEvidence = fixture.sport === 'football' && !!fixture.footballDetails;
 
   if (fixture.sport === 'football' && fixture.footballDetails) {
     const details = fixture.footballDetails;
@@ -60,7 +65,7 @@ export function runVerificationAudit(
     const awayDiff = Math.abs(recalculatedAwayAvgScored - details.awayPrevSeason.avgGoalsScored);
     if (homeDiff > 0.05 || awayDiff > 0.05) {
       dataIntegrityScore -= 30;
-      auditStatus = 'FAILED_RECALC';
+      integrityFailed = true;
     }
 
     if (fixture.system === 'football_over_1_5') {
@@ -111,7 +116,7 @@ export function runVerificationAudit(
       rawEvidenceSummary.push(
         `Previous season: ${details.homePrevSeason.team} (${homeGoals} GF in ${homeMatches} apps), ${details.awayPrevSeason.team} (${awayGoals} GF in ${awayMatches} apps).`,
         `Head-to-head verified scores: ${h2hRaw.map((m) => `${m.homeTeam} ${m.homeScore}-${m.awayScore} ${m.awayTeam} (${m.competition})`).join('; ')}`,
-        `Recent form: ${details.homePrevSeason.team} (${homeScoredTally}/5 matches scored), ${details.awayPrevSeason.team} (${awayScoredTally}/5 matches scored). Friendly fixtures strictly stripped.`
+        `Recent form: ${details.homePrevSeason.team} (${homeScoredTally}/5 matches scored), ${details.awayPrevSeason.team} (${awayScoredTally}/5 matches scored). TheStatsAPI does not label friendlies, so none are stripped.`
       );
     } else if (fixture.system === 'football_under_3_5') {
       const t = thresholds.footballUnder35;
@@ -163,14 +168,19 @@ export function runVerificationAudit(
         `Recent 5 form: ${details.homePrevSeason.team} (${homeU35Tally}/5 Under 3.5), ${details.awayPrevSeason.team} (${awayU35Tally}/5 Under 3.5).`
       );
     }
-  } else {
-    dataIntegrityScore = 0;
-    auditStatus = 'MISSING_DATA';
   }
 
-  // Check if any recalculated rule failed
+  // Final status, in strict order. PRICE_DEFICIT (what Price Watch reads) is
+  // only reachable once every statistical filter has passed — the rules
+  // engine's own verdict (screening.passedStats) is part of the gate, because
+  // this audit's raw recalculation is not a stand-in for it (e.g. it does not
+  // require five recent matches on record). Missing evidence stays
+  // MISSING_DATA instead of being overwritten by a price-only verdict.
   const anyRecalcFailed = recalculatedMetrics.some((m) => !m.verifiedMatch);
-  if (anyRecalcFailed) {
+  if (!hasFullEvidence) {
+    auditStatus = 'MISSING_DATA';
+    dataIntegrityScore = 0;
+  } else if (integrityFailed || anyRecalcFailed || !screening.passedStats) {
     auditStatus = 'FAILED_RECALC';
     dataIntegrityScore = Math.min(dataIntegrityScore, 65);
   } else if (!screening.passedOdds) {

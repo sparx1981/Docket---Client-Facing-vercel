@@ -152,7 +152,7 @@ function buildFootballOver15Breakdown(params: {
     {
       id: 'F4_EXCHANGE_PRICE',
       name: FILTER_LABELS.F4_EXCHANGE_PRICE,
-      targetRule: `Market odds for Over 1.5 Goals >= ${thresholds.minExchangeOdds.toFixed(2)}`,
+      targetRule: `Bookmaker odds (TheStatsAPI) for Over 1.5 Goals >= ${thresholds.minExchangeOdds.toFixed(2)}`,
       targetValue: `>= @${thresholds.minExchangeOdds.toFixed(2)}`,
       test: (f) => passes(f, 'F4_EXCHANGE_PRICE'),
     },
@@ -272,7 +272,7 @@ function buildFootballUnder35Breakdown(params: {
     {
       id: 'F5_EXCHANGE_PRICE_U35',
       name: FILTER_LABELS.F5_EXCHANGE_PRICE_U35,
-      targetRule: `Market odds for Under 3.5 Goals >= ${thresholds.minExchangeOdds.toFixed(2)}`,
+      targetRule: `Bookmaker odds (TheStatsAPI) for Under 3.5 Goals >= ${thresholds.minExchangeOdds.toFixed(2)}`,
       targetValue: `>= @${thresholds.minExchangeOdds.toFixed(2)}`,
       test: (f) => passes(f, 'F5_EXCHANGE_PRICE_U35'),
     },

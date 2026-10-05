@@ -13,7 +13,7 @@ import { buildFootballCandidate } from './dataFeed';
  * qualifying match's win/loss comes from its real final score.
  *
  * Only the statistical filters are applied. A historical market price is
- * not available per past match, so the Min. exchange odds filter is
+ * not available per past match, so the Min. bookmaker odds filter is
  * deliberately NOT part of a backtest (it still applies to live scans), and
  * the result reports wins, losses and win rate only — no profit figures.
  *
@@ -190,7 +190,7 @@ export async function runBacktest(
     winRatePct: matches.length > 0 ? Number(((wins / matches.length) * 100).toFixed(1)) : 0,
     matches,
     scopeNote:
-      'Each qualifying match is settled against its real final score. A backtest applies the statistical filters only: Min. exchange odds is not part of the analysis (there is no historical market price for past matches), so no profit or ROI figures are shown.',
+      'Each qualifying match is settled against its real final score. A backtest applies the statistical filters only: Min. bookmaker odds is not part of the analysis (there is no historical market price for past matches), so no profit or ROI figures are shown.',
   };
 }
 
@@ -234,7 +234,7 @@ export function buildBacktestCsv(run: BacktestRunRecord): string {
     ['Backtest run at', new Date(runAt).toLocaleString()],
     ['Rule', SYSTEM_LABEL[system]],
     ['League scope', summary.leagueLabel],
-    ['Thresholds applied (Min. exchange odds is not used in backtests)', describeRuleSnapshot(system, ruleSnapshot)],
+    ['Thresholds applied (Min. bookmaker odds is not used in backtests)', describeRuleSnapshot(system, ruleSnapshot)],
     ['Finished matches found', summary.candidateCount],
     ['Evaluated with full historical context', summary.evaluatedCount],
     ['Would have qualified', summary.sampleSize],

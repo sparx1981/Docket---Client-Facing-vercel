@@ -88,12 +88,12 @@ Setup: add repository secrets `DOCKET_SITE_URL` (production URL) and `CRON_SECRE
 ## Views
 
 - **Today's Docket** — selections that cleared every locked filter and the price threshold
-- **Price Watch** — statistically clean, held until the exchange reaches the required price
+- **Price Watch** — statistically clean, held until the bookmaker price reaches the required odds
 - **Archive & Performance** — settled results, per-system ROI, cumulative profit curve
 - **Engine Configuration** — providers, exchange credentials, scan schedule, staking
 
 Each selection opens a verification certificate: audit serial, integrity score,
-exchange market validation, the secondary recalculation table, a
+bookmaker price validation, the secondary recalculation table, a
 filter-by-filter breakdown, and the itemised raw evidence behind it.
 
 ## Note on data
@@ -104,8 +104,8 @@ and/or Sportmonks calls (whichever key is configured), proxied through
 a genuine empty state and a real error message rather than any fabricated
 data — nothing here is synthetic.
 
-**Betfair Exchange odds are not implemented yet** (phase 2 — it needs a
-certificate-based login flow, tracked separately). Every candidate that
-clears the statistical rules is held in Price Watch showing "Not yet
-connected — exchange odds integration pending" instead of a price; nothing
-can reach Verified Qualifiers until a real exchange price is wired in.
+**Prices come from TheStatsAPI's odds endpoint, not the Betfair Exchange.**
+The price used is the first bookmaker's current Over 1.5 / Under 3.5 quote
+that endpoint returns. Betfair Exchange odds are not integrated (it needs a
+certificate-based login flow, tracked separately). A fixture with no price on
+file yet is held in Price Watch rather than treated as a pass or a fail.

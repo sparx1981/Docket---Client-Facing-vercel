@@ -167,7 +167,7 @@ Market odds · via TheStatsAPI
                   <th className="rule-head px-4 py-2.5">Competition</th>
                   <th className="rule-head px-4 py-2.5">System &amp; selection</th>
                   <th className="rule-head px-4 py-2.5 text-right">
-                    Exchange price
+                    Bookmaker price
                   </th>
                   <th className="rule-head px-4 py-2.5 text-center">Audit</th>
                   <th className="rule-head px-4 py-2.5 text-right">

@@ -53,12 +53,12 @@ export const FILTER_LABELS = {
   F1_PREV_SEASON_SCORED: 'Min. previous-season avg goals scored',
   F2_H2H_OVER15: 'Min. H2H Over 1.5 rate',
   F3_RECENT_FORM_SCORED: 'Min. recent scoring count',
-  F4_EXCHANGE_PRICE: 'Min. exchange odds',
+  F4_EXCHANGE_PRICE: 'Min. bookmaker odds',
   F1_PREV_SEASON_SCORED_U35: 'Max. previous-season avg goals scored',
   F2_PREV_SEASON_CONCEDED_U35: 'Max. previous-season avg goals conceded',
   F3_H2H_UNDER35: 'Min. H2H Under 3.5 rate',
   F4_RECENT_FORM_UNDER35: 'Min. recent Under 3.5 count',
-  F5_EXCHANGE_PRICE_U35: 'Min. exchange odds',
+  F5_EXCHANGE_PRICE_U35: 'Min. bookmaker odds',
 } as const;
 
 /** Each football rule's filters in the order they are applied (the last one is always the price filter). */
@@ -214,8 +214,8 @@ function describeProblems(checks: FilterAuditCheck[]): string {
 
 function describePriceShortfall(marketOdds: number | undefined, requiredOdds: number): string {
   return typeof marketOdds === 'number'
-    ? `Passed every statistical filter, but Min. exchange odds failed: price @${marketOdds.toFixed(2)} is below the required >= ${requiredOdds.toFixed(2)}`
-    : 'Passed every statistical filter, but Min. exchange odds could not be checked: TheStatsAPI has no price on file for this match yet';
+    ? `Passed every statistical filter, but Min. bookmaker odds failed: TheStatsAPI price @${marketOdds.toFixed(2)} is below the required >= ${requiredOdds.toFixed(2)}`
+    : 'Passed every statistical filter, but Min. bookmaker odds could not be checked: TheStatsAPI has no price on file for this match yet';
 }
 
 function priceCheck(
@@ -230,7 +230,7 @@ function priceCheck(
   return {
     filterId,
     filterName: FILTER_LABELS[filterId as keyof typeof FILTER_LABELS],
-    targetRule: `Market odds for ${marketLabel} >= ${requiredOdds.toFixed(2)}${extraRule}`,
+    targetRule: `Bookmaker odds (TheStatsAPI) for ${marketLabel} >= ${requiredOdds.toFixed(2)}${extraRule}`,
     observedValue: hasPrice
       ? `@${marketOdds.toFixed(2)} (Required: >= ${requiredOdds.toFixed(2)})`
       : `No price on file yet for this fixture (Required: >= ${requiredOdds.toFixed(2)})`,
@@ -336,8 +336,8 @@ function gapReason(fixture: CandidateFixture, stats: FootballStatsInput | undefi
  * System A: Football Over 1.5 Goals
  * - Filter 1: Previous season average goals scored >= configured minimum for BOTH teams.
  * - Filter 2: In the last 5 competitive meetings (all 5 must exist), at least the configured rate must finish with Over 1.5 Goals.
- * - Filter 3: Each team must score at least one goal in the configured count of their last 5 competitive matches (strictly excluding friendlies).
- * - Filter 4: Market odds (TheStatsAPI) Over 1.5 Goals decimal price >= configured minimum. Prices above the configured threshold trigger enhanced verification.
+ * - Filter 3: Each team must score at least one goal in the configured count of their last 5 competitive matches. TheStatsAPI does not label friendlies, so every match it returns counts as competitive (see isCompetitive in thestatsapi.ts).
+ * - Filter 4: Bookmaker odds (TheStatsAPI) Over 1.5 Goals decimal price >= configured minimum. Prices above the configured threshold are flagged for enhanced verification (a manual flag — no automated secondary audit runs).
  * All thresholds are editable in Engine Configuration (AppSettings.ruleThresholds.footballOver15).
  *
  * Each filter is evaluated from whatever data loaded: a filter whose data is
@@ -414,7 +414,7 @@ export function evaluateFootballOver15(
       required: req.F3_RECENT_FORM_SCORED,
       minCount: minScoredCount,
       noun: 'scored in',
-      auditDetails: `Competitive recent games inspected for both teams. Excluded friendlies.`,
+      auditDetails: `Each team's five most recent finished matches on record at TheStatsAPI were inspected. TheStatsAPI does not label friendlies, so none are excluded.`,
       home: { name: homeTeam, matches: stats?.homeRecentMatches, gap: gapReason(fixture, stats, 'homeRecent', none) },
       away: { name: awayTeam, matches: stats?.awayRecentMatches, gap: gapReason(fixture, stats, 'awayRecent', none) },
       counts: (m) => m.scoredAtLeastOne,
@@ -435,7 +435,7 @@ export function evaluateFootballOver15(
     'F4_EXCHANGE_PRICE',
     'Over 1.5 Goals',
     requiredOdds,
-    ` (Trigger Enhanced Audit if > ${thresholds.enhancedOddsThreshold.toFixed(2)})`
+    ` (Flag for enhanced verification if > ${thresholds.enhancedOddsThreshold.toFixed(2)})`
   );
   filterChecks.push(priceFilter);
 
@@ -447,7 +447,7 @@ export function evaluateFootballOver15(
 
   let enhancedVerificationReason: string | undefined;
   if (enhancedVerificationNeeded && isVerifiedQualifier && typeof marketOdds === 'number') {
-    enhancedVerificationReason = `Odds @${marketOdds.toFixed(2)} exceed standard high-probability band (> 1.25). Secondary liquidity & squad line-up audit passed.`;
+    enhancedVerificationReason = `Odds @${marketOdds.toFixed(2)} exceed the enhanced-verification threshold (> ${thresholds.enhancedOddsThreshold.toFixed(2)}). Flagged for manual checking — no automated liquidity or line-up audit is run.`;
   }
 
   let failureReason: string | undefined;
@@ -561,7 +561,7 @@ export function evaluateFootballUnder35(
       required: req.F4_RECENT_FORM_UNDER35,
       minCount: minU35Count,
       noun: 'Under 3.5 in',
-      auditDetails: `Last 5 competitive matches evaluated for both clubs. All friendlies excluded.`,
+      auditDetails: `Each club's five most recent finished matches on record at TheStatsAPI were evaluated. TheStatsAPI does not label friendlies, so none are excluded.`,
       home: { name: homeTeam, matches: stats?.homeRecentMatches, gap: gapReason(fixture, stats, 'homeRecent', none) },
       away: { name: awayTeam, matches: stats?.awayRecentMatches, gap: gapReason(fixture, stats, 'awayRecent', none) },
       counts: (m) => m.under35Goals,

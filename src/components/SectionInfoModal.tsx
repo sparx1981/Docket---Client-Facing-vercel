@@ -77,13 +77,13 @@ const SECTION_CONTENT: Record<Extract<TabKey, 'verified' | 'pricewatch' | 'analy
     notIncluded: [
       'Fixtures with no price on file yet from TheStatsAPI\'s odds endpoint.',
       'Matches that passed the stats but whose market odds are currently too short (those are held in Price Watch).',
-      'Friendly matches, youth fixtures, exhibition tournaments, or cup matches where key players are routinely rotated.',
+      'Fixtures from competitions you have not selected. TheStatsAPI does not label friendlies, so a friendly can still appear in a team\'s recent form or head-to-head history.',
       'Unverified markets or fixtures where official kickoff schedules cannot be independently confirmed.',
     ],
   },
   pricewatch: {
     title: 'Price Watch',
-    badge: 'Awaiting Exchange Value',
+    badge: 'Awaiting Market Price',
     strap: 'Statistically clean fixtures waiting for a market odds price to reach our minimum requirement',
     icon: <TrendingDown className="h-6 w-6 text-brand-ink" strokeWidth={2.5} />,
     summary:

@@ -1670,7 +1670,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 />
               </Field>
               <Field
-                label="Min. exchange odds"
+                label="Min. bookmaker odds"
                 htmlFor="over15-odds"
                 hint="Applies to live scans and Price Watch. Not used in backtests."
                 action={
@@ -1841,7 +1841,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 />
               </Field>
               <Field
-                label="Min. exchange odds"
+                label="Min. bookmaker odds"
                 htmlFor="under35-odds"
                 hint="Applies to live scans and Price Watch. Not used in backtests."
                 action={

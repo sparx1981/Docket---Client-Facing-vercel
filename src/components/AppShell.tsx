@@ -148,7 +148,7 @@ const TITLES: Record<TabKey, { title: string; strap: string }> = {
   },
   pricewatch: {
     title: 'Price Watch',
-    strap: 'Statistically clean, waiting on the exchange to reach the required price',
+    strap: 'Statistically clean, waiting on the bookmaker price to reach the required odds',
   },
   analytics: {
     title: 'Archive & Performance',

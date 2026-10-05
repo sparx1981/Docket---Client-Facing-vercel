@@ -32,7 +32,7 @@ export interface H2HMatchRecord {
   awayScore: number;
   totalGoals: number;
   competition: string;
-  isCompetitive: boolean; // Excludes friendlies
+  isCompetitive: boolean; // Always true for TheStatsAPI data: it does not label friendlies, so none are excluded
 }
 
 export interface TeamRecentMatch {
@@ -45,7 +45,7 @@ export interface TeamRecentMatch {
   competition: string;
   scoredAtLeastOne: boolean;
   under35Goals: boolean;
-  isCompetitive: boolean; // Excludes friendlies
+  isCompetitive: boolean; // Always true for TheStatsAPI data: it does not label friendlies, so none are excluded
 }
 
 // Odds for a fixture, pulled directly from TheStatsAPI's own
@@ -331,7 +331,7 @@ export interface BacktestSummary {
   candidateCount: number;
   /** Of those, how many had a real historical context (previous-season stats, recent form, H2H) reconstructed and evaluated. */
   evaluatedCount: number;
-  /** Of the evaluated matches, how many would have passed every statistical filter (Min. exchange odds is not applied in a backtest). */
+  /** Of the evaluated matches, how many would have passed every statistical filter (Min. bookmaker odds is not applied in a backtest). */
   sampleSize: number;
   wins: number;
   losses: number;
@@ -340,7 +340,7 @@ export interface BacktestSummary {
   /**
    * Each qualifying match's win/loss is the real final score against the
    * system's goal line. A backtest applies only the statistical filters —
-   * it has no historical market prices, so Min. exchange odds is not part
+   * it has no historical market prices, so Min. bookmaker odds is not part
    * of the analysis and no profit figures are produced.
    */
   scopeNote: string;

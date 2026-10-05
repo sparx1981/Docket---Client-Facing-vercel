@@ -44,6 +44,8 @@ const BANNED = [
   [/Over 1\.5 &ge;1\.15, Under 3\.5/, 'a hardcoded price-floor claim that ignores configured Filter Thresholds'],
   [/Where new verified qualifiers are sent/, 'a fabricated claim that email notifications are wired up — nothing ever sends one'],
   [/Sends as soon as a selection clears the audit/, 'a fabricated claim that email notifications are wired up — nothing ever sends one'],
+  [/liquidity & squad line-up audit passed/i, 'a fabricated claim that an automated secondary audit ran — enhanced verification is only a manual flag'],
+  [/Excluded friendlies|friendlies excluded|Friendly fixtures strictly stripped/i, 'a false claim that friendlies are filtered out — TheStatsAPI does not label them, so none are'],
 ];
 
 /** Files that may legitimately reference a banned phrase (e.g. this file, or a changelog). */
