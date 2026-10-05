@@ -102,6 +102,23 @@ export interface VerificationAuditCard {
   };
 }
 
+/**
+ * Whatever statistics could be loaded for a match, possibly incomplete. The
+ * rules engine evaluates each filter from the pieces it has and reports the
+ * rest as "no data" with the reason in `gaps`, instead of discarding a match
+ * because one piece is missing. A fully loaded match is `footballDetails`.
+ */
+export interface FootballStatsInput {
+  homePrevSeason?: FootballPrevSeasonStats;
+  awayPrevSeason?: FootballPrevSeasonStats;
+  /** Undefined = the H2H lookup failed; an empty array = the teams genuinely have no recorded meetings. */
+  h2hMatches?: H2HMatchRecord[];
+  homeRecentMatches?: TeamRecentMatch[];
+  awayRecentMatches?: TeamRecentMatch[];
+  /** Plain-English reason each missing piece is missing. */
+  gaps?: Partial<Record<'homePrevSeason' | 'awayPrevSeason' | 'h2h' | 'homeRecent' | 'awayRecent', string>>;
+}
+
 export interface CandidateFixture {
   id: string;
   /** The provider's own raw match id (e.g. TheStatsAPI's "mt_..."), as opposed to `id`, which is prefixed per rule system. Needed to re-query just the odds endpoint for this exact fixture without re-deriving it from `id`. */
@@ -138,6 +155,11 @@ export interface CandidateFixture {
     awayRecentMatches: TeamRecentMatch[]; // Last 5
   };
   
+  /** Set when some, but not all, statistics loaded (see FootballStatsInput). Absent when footballDetails is complete. */
+  partialStats?: FootballStatsInput;
+  /** Why no statistics were loaded at all (e.g. beyond the enrichment cap), when that is the case. */
+  enrichmentNote?: string;
+
   // Fetched from TheStatsAPI's own odds endpoint (GET
   // /football/matches/{match_id}/odds) alongside the rest of a fixture's
   // enrichment. Absent when the provider has no odds on file for this match

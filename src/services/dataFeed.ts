@@ -3,6 +3,7 @@ import type {
   CandidateFixture,
   FeedSummaryRecord,
   FootballPrevSeasonStats,
+  FootballStatsInput,
   H2HMatchRecord,
   LeagueOption,
   MatchOddsData,
@@ -278,48 +279,73 @@ async function buildFootballCandidates(
       });
     }
     let footballDetails: CandidateFixture['footballDetails'] | undefined;
+    let partialStats: FootballStatsInput | undefined;
+    let enrichmentNote: string | undefined;
     let matchOdds: MatchOddsData[] = [];
+    if (i >= MAX_ENRICHED_FIXTURES_PER_SPORT) {
+      enrichmentNote = `Not screened: this was match ${i + 1} of ${rawTotal} in the feed, and only the first ${MAX_ENRICHED_FIXTURES_PER_SPORT} are enriched with statistics per scan`;
+    } else if (!fx.homeId || !fx.awayId) {
+      enrichmentNote = 'Not screened: TheStatsAPI did not supply team IDs for this match, so no team statistics could be looked up';
+    }
     if (i < MAX_ENRICHED_FIXTURES_PER_SPORT && fx.homeId && fx.awayId) {
       if (i > 0) await sleep(ENRICHMENT_PACING_MS, signal);
-      try {
-        const [homeProfile, awayProfile, h2h] = await Promise.all([
-          cachedApiGet(enrichmentCache, `/api/football/team/${fx.homeId}`, key, signal),
-          cachedApiGet(enrichmentCache, `/api/football/team/${fx.awayId}`, key, signal),
-          cachedApiGet(enrichmentCache, `/api/football/h2h?team1=${fx.homeId}&team2=${fx.awayId}`, key, signal),
-        ]);
 
-        const homePrevSeason: FootballPrevSeasonStats | undefined = homeProfile?.team?.prevSeason;
-        const awayPrevSeason: FootballPrevSeasonStats | undefined = awayProfile?.team?.prevSeason;
-        const homeRecentMatches: TeamRecentMatch[] | undefined = homeProfile?.team?.recentMatches;
-        const awayRecentMatches: TeamRecentMatch[] | undefined = awayProfile?.team?.recentMatches;
-        const h2hMatches: H2HMatchRecord[] | undefined = h2h?.h2h;
-
-        // Only build footballDetails when every field the locked rules need is
-        // genuinely present — a partial dataset is left as "missing data"
-        // rather than padded with anything invented.
-        if (
-          homePrevSeason &&
-          awayPrevSeason &&
-          homeRecentMatches &&
-          homeRecentMatches.length > 0 &&
-          awayRecentMatches &&
-          awayRecentMatches.length > 0 &&
-          h2hMatches &&
-          h2hMatches.length > 0
-        ) {
-          footballDetails = {
-            homePrevSeason,
-            awayPrevSeason,
-            h2hMatches,
-            homeRecentMatches,
-            awayRecentMatches,
-          };
+      // Each lookup is settled on its own, so one failing (or one team having
+      // no statistics) never discards what the others returned.
+      const settle = async <T,>(promise: Promise<T>): Promise<{ value?: T; error?: string }> => {
+        try {
+          return { value: await promise };
+        } catch (err) {
+          if (isAbortError(err)) throw err;
+          return { error: err instanceof Error ? err.message : String(err) };
         }
-      } catch (err) {
-        if (isAbortError(err)) throw err;
-        // Leave footballDetails undefined — the rules engine already handles
-        // that as "missing data" rather than crashing or inventing stats.
-        footballDetails = undefined;
+      };
+      const [homeRes, awayRes, h2hRes] = await Promise.all([
+        settle(cachedApiGet(enrichmentCache, `/api/football/team/${fx.homeId}`, key, signal)),
+        settle(cachedApiGet(enrichmentCache, `/api/football/team/${fx.awayId}`, key, signal)),
+        settle(cachedApiGet(enrichmentCache, `/api/football/h2h?team1=${fx.homeId}&team2=${fx.awayId}`, key, signal)),
+      ]);
+
+      const gaps: NonNullable<FootballStatsInput['gaps']> = {};
+      const teamPieces = (res: typeof homeRes, name: string, side: 'home' | 'away') => {
+        const prev: FootballPrevSeasonStats | undefined = res.value?.team?.prevSeason;
+        const recent: TeamRecentMatch[] | undefined = res.value?.team?.recentMatches;
+        if (res.error) {
+          gaps[`${side}PrevSeason`] = `${name}: team data could not be loaded (${res.error})`;
+          gaps[`${side}Recent`] = `${name}: team data could not be loaded (${res.error})`;
+        } else {
+          if (!prev) gaps[`${side}PrevSeason`] = `TheStatsAPI has no season statistics for ${name}`;
+          if (!recent || recent.length === 0) gaps[`${side}Recent`] = `TheStatsAPI has no recent matches on record for ${name}`;
+        }
+        return { prev, recent: recent && recent.length > 0 ? recent : undefined };
+      };
+      const home = teamPieces(homeRes, fx.homeOrPlayer1, 'home');
+      const away = teamPieces(awayRes, fx.awayOrPlayer2, 'away');
+      const h2hMatches: H2HMatchRecord[] | undefined = h2hRes.error ? undefined : h2hRes.value?.h2h ?? [];
+      if (h2hRes.error) gaps.h2h = `head-to-head history could not be loaded (${h2hRes.error})`;
+
+      if (home.prev && away.prev && home.recent && away.recent && h2hMatches && h2hMatches.length > 0) {
+        footballDetails = {
+          homePrevSeason: home.prev,
+          awayPrevSeason: away.prev,
+          h2hMatches,
+          homeRecentMatches: home.recent,
+          awayRecentMatches: away.recent,
+        };
+      } else {
+        // Keep whatever did load; the rules engine checks each filter from
+        // these pieces and reports the missing ones as "no data" with the
+        // reason, rather than discarding the match. Two teams with no
+        // recorded meetings is not missing data: h2hMatches stays [] and the
+        // H2H filter fails on its own.
+        partialStats = {
+          homePrevSeason: home.prev,
+          awayPrevSeason: away.prev,
+          h2hMatches,
+          homeRecentMatches: home.recent,
+          awayRecentMatches: away.recent,
+          gaps,
+        };
       }
 
       try {
@@ -334,7 +360,7 @@ async function buildFootballCandidates(
         sport: 'football',
         message: footballDetails
           ? `✓ Enriched ${fx.homeOrPlayer1} vs ${fx.awayOrPlayer2}${matchOdds.length === 0 ? ' (no odds returned)' : ''}.`
-          : `✗ Missing data for ${fx.homeOrPlayer1} vs ${fx.awayOrPlayer2} — team/H2H stats incomplete, will show as no data.`,
+          : `✗ Incomplete data for ${fx.homeOrPlayer1} vs ${fx.awayOrPlayer2} — ${Object.values(partialStats?.gaps ?? {}).join('; ') || 'no meetings on record'}.`,
         recordsSoFar: rawTotal,
       });
     }
@@ -343,7 +369,7 @@ async function buildFootballCandidates(
     const marketTypeUnder35 = matchOdds.find((o) => o.marketType === 'OVER_UNDER_35');
     const marketOdds = system === 'football_over_1_5' ? marketTypeOver15 : marketTypeUnder35;
 
-    candidates.push(buildFootballCandidate(system, fx, footballDetails, thresholds, rawTotal, marketOdds));
+    candidates.push(buildFootballCandidate(system, fx, footballDetails, thresholds, rawTotal, marketOdds, { partialStats, enrichmentNote }));
   }
 
   return {
@@ -359,7 +385,8 @@ export function buildFootballCandidate(
   footballDetails: CandidateFixture['footballDetails'] | undefined,
   thresholds: RuleThresholds,
   rawTotal?: number,
-  marketOdds?: CandidateFixture['marketOdds']
+  marketOdds?: CandidateFixture['marketOdds'],
+  extra?: { partialStats?: FootballStatsInput; enrichmentNote?: string }
 ): CandidateFixture {
   const requiredOdds =
     system === 'football_over_1_5'
@@ -393,6 +420,8 @@ export function buildFootballCandidate(
     oddsDifference: (marketOdds?.decimalOdds ?? 0) - requiredOdds,
     status: 'FAILED',
     footballDetails,
+    partialStats: extra?.partialStats,
+    enrichmentNote: extra?.enrichmentNote,
     marketOdds,
     rawFeedTotal: rawTotal,
     oddsCheckedAt: new Date().toISOString(),

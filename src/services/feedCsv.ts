@@ -3,7 +3,6 @@ import {
   FOOTBALL_FILTERS,
   H2H_OVER15_WINDOW,
   H2H_UNDER35_WINDOW,
-  MISSING_STATS_REASON,
   evaluateFootballOver15,
   evaluateFootballUnder35,
   footballFilterRequirements,
@@ -33,7 +32,7 @@ const RESULT_ORDER: Record<MatchResult, number> = {
   'NOT ENOUGH DATA': 3,
 };
 
-const NOT_LOADED = 'Not available — statistics could not be loaded';
+const NOT_LOADED = 'Not available — see Why';
 
 /** Quotes a cell, and defuses spreadsheet formulas (a cell starting with = + - @ would otherwise be executed). */
 function csvCell(value: unknown): string {
@@ -83,19 +82,22 @@ export function buildFeedCsv(breakdown: SystemFeedBreakdown): string | null {
       system === 'football_over_1_5'
         ? evaluateFootballOver15(m, { ...(thresholds as any), enabled: true })
         : evaluateFootballUnder35(m, { ...(thresholds as any), enabled: true });
-    const hasStats = !!m.footballDetails;
+    const stats = m.footballDetails ?? m.partialStats;
+    const nothingLoaded = !stats;
 
-    const result: MatchResult = !hasStats
-      ? 'NOT ENOUGH DATA'
-      : screening.isVerifiedQualifier
+    // A match is "not enough data" only when nothing it did have already
+    // failed a filter, so a clear fail is never hidden behind a missing piece.
+    const result: MatchResult = screening.isVerifiedQualifier
       ? 'QUALIFIES'
       : screening.isPriceWatch
       ? 'PRICE WATCH'
-      : 'DID NOT QUALIFY';
+      : screening.hardFailed
+      ? 'DID NOT QUALIFY'
+      : 'NOT ENOUGH DATA';
 
     let why: string;
-    if (result === 'NOT ENOUGH DATA') {
-      why = `${MISSING_STATS_REASON} Common causes: this match was beyond the first enriched matches in the scan, or TheStatsAPI has too little history for one of the teams.`;
+    if (nothingLoaded) {
+      why = `${m.enrichmentNote ?? 'Not screened: no team statistics could be loaded for this match'}. No filter could be checked.`;
     } else if (result === 'QUALIFIES') {
       why = `Passed all ${filters.length} filters.`;
     } else if (result === 'PRICE WATCH') {
@@ -104,25 +106,35 @@ export function buildFeedCsv(breakdown: SystemFeedBreakdown): string | null {
       why = `${screening.failureReason}.`;
     }
 
+    const firstProblem = screening.filterChecks.find((c) => !c.passed);
     const firstFailed =
-      result === 'NOT ENOUGH DATA'
+      result === 'QUALIFIES'
+        ? '—'
+        : nothingLoaded
         ? 'Not screened'
-        : screening.filterChecks.find((c) => !c.passed)?.filterName ?? '—';
+        : firstProblem
+        ? `${firstProblem.filterName}${firstProblem.noData ? ' (no data)' : ''}`
+        : '—';
 
     const filterCells = filters.flatMap((f) => {
       const check = screening.filterChecks.find((c) => c.filterId === f.id);
       if (!check) return ['NO DATA', NOT_LOADED, requirements[f.id] ?? ''];
       const outcome = check.noData ? 'NO DATA' : check.passed ? 'PASS' : 'FAIL';
-      return [outcome, check.actual ?? check.observedValue, check.required ?? check.targetRule];
+      // With nothing loaded the reason is already in the Why column; don't repeat it in every cell.
+      const actual = nothingLoaded ? NOT_LOADED : check.actual ?? check.observedValue;
+      return [outcome, actual, check.required ?? check.targetRule];
     });
 
-    const h2hList = m.footballDetails
-      ? m.footballDetails.h2hMatches
+    const h2hSource = stats?.h2hMatches;
+    const h2hList = h2hSource
+      ? h2hSource
           .filter((x) => x.isCompetitive)
           .slice(0, h2hWindow)
           .map((x) => `${x.date} ${x.homeTeam} ${x.homeScore}-${x.awayScore} ${x.awayTeam}`)
           .join(' | ') || 'No H2H meetings on record'
       : NOT_LOADED;
+
+    const priceAttempted = !m.enrichmentNote;
 
     const kickoffMs = new Date(m.matchTime).getTime();
     return {
@@ -138,8 +150,8 @@ export function buildFeedCsv(breakdown: SystemFeedBreakdown): string | null {
         m.awayOrPlayer2,
         ...filterCells,
         h2hList,
-        m.marketOdds?.bookmaker ?? (hasStats ? 'No price on file yet' : 'Not checked'),
-        m.oddsCheckedAt && hasStats ? formatKickoff(m.oddsCheckedAt) : '',
+        m.marketOdds?.bookmaker ?? (priceAttempted ? 'No price on file yet' : 'Not checked'),
+        m.oddsCheckedAt && priceAttempted ? formatKickoff(m.oddsCheckedAt) : '',
       ],
     };
   });

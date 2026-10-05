@@ -1,7 +1,10 @@
 import type {
   CandidateFixture,
   FilterAuditCheck,
+  FootballPrevSeasonStats,
+  FootballStatsInput,
   H2HMatchRecord,
+  TeamRecentMatch,
   VerificationAuditCard,
   DataProviderType,
   RuleThresholds,
@@ -18,6 +21,10 @@ export interface ScreeningResult {
   isPreliminaryQualifier: boolean;
   isVerifiedQualifier: boolean;
   isPriceWatch: boolean;
+  /** At least one statistical filter was checked and failed. */
+  hardFailed: boolean;
+  /** At least one statistical filter could not be checked because its data is missing. */
+  missingData: boolean;
   filterChecks: FilterAuditCheck[];
   enhancedVerificationNeeded: boolean;
   enhancedVerificationReason?: string;
@@ -30,6 +37,8 @@ const DISABLED_RESULT: ScreeningResult = {
   isPreliminaryQualifier: false,
   isVerifiedQualifier: false,
   isPriceWatch: false,
+  hardFailed: false,
+  missingData: false,
   filterChecks: [],
   enhancedVerificationNeeded: false,
   failureReason: 'System disabled in Engine Configuration',
@@ -68,9 +77,6 @@ export const FOOTBALL_FILTERS: Record<'football_over_1_5' | 'football_under_3_5'
     { id: 'F5_EXCHANGE_PRICE_U35', label: FILTER_LABELS.F5_EXCHANGE_PRICE_U35 },
   ],
 };
-
-export const MISSING_STATS_REASON =
-  'Not screened: team statistics, head-to-head or recent-form data could not be loaded for this match.';
 
 /** Number of most-recent competitive meetings the Over 1.5 H2H filter looks at (and requires to exist). */
 export const H2H_OVER15_WINDOW = 5;
@@ -177,32 +183,39 @@ export function footballFilterRequirements(
   };
 }
 
-/** Builds a plain-English sentence from a rule's failed filters — used as `failureReason`. */
-function describeFailedFilters(checks: FilterAuditCheck[]): string {
-  const failed = checks.filter((c) => !c.passed);
-  const parts = failed.map(
-    (c, i) => `(${i + 1}) ${c.filterName} — actual: ${c.actual ?? c.observedValue}; required: ${c.required ?? c.targetRule}`
-  );
-  return `Failed ${failed.length === 1 ? '1 filter' : `${failed.length} filters`}. ${parts.join('. ')}`;
+const isStatCheck = (c: FilterAuditCheck) => !/EXCHANGE_PRICE/.test(c.filterId);
+
+/**
+ * Plain-English sentence for a match that did not qualify, from its checks:
+ * the filters it failed (actual vs required), and separately the filters
+ * that could not be checked because data was missing.
+ */
+function describeProblems(checks: FilterAuditCheck[]): string {
+  const stat = checks.filter(isStatCheck);
+  const failed = checks.filter((c) => !c.passed && !c.noData);
+  const unknown = stat.filter((c) => c.noData);
+  const parts: string[] = [];
+  if (failed.length > 0) {
+    parts.push(
+      `Failed ${failed.length === 1 ? '1 filter' : `${failed.length} filters`}. ` +
+        failed
+          .map((c, i) => `(${i + 1}) ${c.filterName} — actual: ${c.actual ?? c.observedValue}; required: ${c.required ?? c.targetRule}`)
+          .join('. ')
+    );
+  }
+  if (unknown.length > 0) {
+    parts.push(
+      `${failed.length > 0 ? 'Also could' : 'Could'} not check ${unknown.length === 1 ? '1 filter' : `${unknown.length} filters`} because data is missing. ` +
+        unknown.map((c, i) => `(${i + 1}) ${c.filterName} — ${c.actual ?? c.observedValue}; required: ${c.required ?? c.targetRule}`).join('. ')
+    );
+  }
+  return parts.join(' ');
 }
 
 function describePriceShortfall(marketOdds: number | undefined, requiredOdds: number): string {
   return typeof marketOdds === 'number'
     ? `Passed every statistical filter, but Min. exchange odds failed: price @${marketOdds.toFixed(2)} is below the required >= ${requiredOdds.toFixed(2)}`
     : 'Passed every statistical filter, but Min. exchange odds could not be checked: TheStatsAPI has no price on file for this match yet';
-}
-
-function missingStatsResult(): ScreeningResult {
-  return {
-    passedStats: false,
-    passedOdds: false,
-    isPreliminaryQualifier: false,
-    isVerifiedQualifier: false,
-    isPriceWatch: false,
-    filterChecks: [],
-    enhancedVerificationNeeded: false,
-    failureReason: MISSING_STATS_REASON,
-  };
 }
 
 function priceCheck(
@@ -231,6 +244,94 @@ function priceCheck(
   };
 }
 
+/** A filter that must hold for BOTH teams. One team failing decides it (FAIL) even if the other team's data is missing. */
+function bothTeamsCheck(o: {
+  id: string;
+  targetRule: string;
+  required: string;
+  auditDetails: string;
+  home: { name: string; value?: number; gap: string };
+  away: { name: string; value?: number; gap: string };
+  passes: (v: number) => boolean;
+  format: (v: number) => string;
+}): FilterAuditCheck {
+  const sides = [o.home, o.away];
+  const anyFailed = sides.some((s) => s.value !== undefined && !o.passes(s.value));
+  const anyMissing = sides.some((s) => s.value === undefined);
+  const describe = (s: (typeof sides)[number]) => (s.value !== undefined ? `${s.name} ${o.format(s.value)}` : `${s.name} not available`);
+  const gaps = sides.filter((s) => s.value === undefined).map((s) => s.gap);
+  const actual = `${describe(o.home)} · ${describe(o.away)}${gaps.length > 0 ? ` (${gaps.join('; ')})` : ''}`;
+  return {
+    filterId: o.id,
+    filterName: FILTER_LABELS[o.id as keyof typeof FILTER_LABELS],
+    targetRule: o.targetRule,
+    observedValue: actual,
+    passed: !anyFailed && !anyMissing,
+    auditDetails: o.auditDetails,
+    actual,
+    required: o.required,
+    noData: anyMissing && !anyFailed,
+  };
+}
+
+/** Per-team "count out of the last 5" filter with the same fail-beats-missing rule as bothTeamsCheck. */
+function recentFormCheck(o: {
+  id: string;
+  targetRule: string;
+  required: string;
+  minCount: number;
+  noun: string;
+  auditDetails: string;
+  home: { name: string; matches?: TeamRecentMatch[]; gap: string };
+  away: { name: string; matches?: TeamRecentMatch[]; gap: string };
+  counts: (m: TeamRecentMatch) => boolean;
+}): FilterAuditCheck {
+  const read = (s: { matches?: TeamRecentMatch[] }) => {
+    if (!s.matches) return undefined;
+    const window = s.matches.filter((m) => m.isCompetitive).slice(0, 5);
+    return { count: window.filter(o.counts).length, total: window.length };
+  };
+  const sides = [
+    { ...o.home, r: read(o.home) },
+    { ...o.away, r: read(o.away) },
+  ];
+  const anyFailed = sides.some((s) => s.r && (s.r.total < 5 || s.r.count < o.minCount));
+  const anyMissing = sides.some((s) => !s.r);
+  const describe = (s: (typeof sides)[number]) => (s.r ? `${s.name} ${o.noun} ${s.r.count}/${s.r.total}` : `${s.name} not available`);
+  const notes: string[] = [];
+  sides.forEach((s) => {
+    if (!s.r) notes.push(s.gap);
+    else if (s.r.total < 5) notes.push(`fewer than 5 recent competitive matches on record for ${s.name}`);
+  });
+  const actual = `${describe(sides[0])} · ${describe(sides[1])}${notes.length > 0 ? ` (${notes.join('; ')})` : ''}`;
+  return {
+    filterId: o.id,
+    filterName: FILTER_LABELS[o.id as keyof typeof FILTER_LABELS],
+    targetRule: o.targetRule,
+    observedValue: actual,
+    passed: !anyFailed && !anyMissing,
+    auditDetails: o.auditDetails,
+    actual,
+    required: o.required,
+    noData: anyMissing && !anyFailed,
+  };
+}
+
+/** Combines a rule's checks into the screening outcome flags shared by both football rules. */
+function summarize(checks: FilterAuditCheck[]) {
+  const stat = checks.filter(isStatCheck);
+  return {
+    passedStats: stat.every((c) => c.passed),
+    hardFailed: stat.some((c) => !c.passed && !c.noData),
+    missingData: stat.some((c) => c.noData),
+  };
+}
+
+/** Why a piece of data is missing, falling back to the match-level note (e.g. beyond the enrichment cap). */
+function gapReason(fixture: CandidateFixture, stats: FootballStatsInput | undefined, piece: keyof NonNullable<FootballStatsInput['gaps']>, fallback: string): string {
+  return stats?.gaps?.[piece] ?? fixture.enrichmentNote ?? fallback;
+}
+
 /**
  * System A: Football Over 1.5 Goals
  * - Filter 1: Previous season average goals scored >= configured minimum for BOTH teams.
@@ -238,6 +339,11 @@ function priceCheck(
  * - Filter 3: Each team must score at least one goal in the configured count of their last 5 competitive matches (strictly excluding friendlies).
  * - Filter 4: Market odds (TheStatsAPI) Over 1.5 Goals decimal price >= configured minimum. Prices above the configured threshold trigger enhanced verification.
  * All thresholds are editable in Engine Configuration (AppSettings.ruleThresholds.footballOver15).
+ *
+ * Each filter is evaluated from whatever data loaded: a filter whose data is
+ * missing is reported as "no data" (with the reason), never silently dropped,
+ * and a match is only ever "not enough data" when nothing it did have already
+ * failed a filter.
  */
 export function evaluateFootballOver15(
   fixture: CandidateFixture,
@@ -245,69 +351,75 @@ export function evaluateFootballOver15(
 ): ScreeningResult {
   if (!thresholds.enabled) return DISABLED_RESULT;
 
-  const details = fixture.footballDetails;
-  if (!details) return missingStatsResult();
+  const stats: FootballStatsInput | undefined = fixture.footballDetails ?? fixture.partialStats;
   const filterChecks: FilterAuditCheck[] = [];
-  const homeTeam = details.homePrevSeason.team;
-  const awayTeam = details.awayPrevSeason.team;
+  const homeTeam = fixture.homeOrPlayer1;
+  const awayTeam = fixture.awayOrPlayer2;
   const req = footballFilterRequirements('football_over_1_5', thresholds);
+  const none = 'statistics could not be loaded for this match';
 
   // Filter 1: Previous Season Average Goals Scored >= configured minimum for BOTH teams
-  const homeAvg = details.homePrevSeason.avgGoalsScored;
-  const awayAvg = details.awayPrevSeason.avgGoalsScored;
   const minScored = thresholds.minPrevSeasonAvgScored;
-  const f1Passed = homeAvg >= minScored && awayAvg >= minScored;
-
-  filterChecks.push({
-    filterId: 'F1_PREV_SEASON_SCORED',
-    filterName: FILTER_LABELS.F1_PREV_SEASON_SCORED,
-    targetRule: `Both teams >= ${minScored.toFixed(2)} goals scored / match in previous domestic season`,
-    observedValue: `${homeTeam}: ${homeAvg.toFixed(2)} | ${awayTeam}: ${awayAvg.toFixed(2)}`,
-    passed: f1Passed,
-    auditDetails: `${homeTeam} scored ${details.homePrevSeason.goalsScored} in ${details.homePrevSeason.matchesPlayed} games (${details.homePrevSeason.season}). ${awayTeam} scored ${details.awayPrevSeason.goalsScored} in ${details.awayPrevSeason.matchesPlayed} games.`,
-    actual: `${homeTeam} ${homeAvg.toFixed(2)} · ${awayTeam} ${awayAvg.toFixed(2)}`,
-    required: req.F1_PREV_SEASON_SCORED,
-  });
+  filterChecks.push(
+    bothTeamsCheck({
+      id: 'F1_PREV_SEASON_SCORED',
+      targetRule: `Both teams >= ${minScored.toFixed(2)} goals scored / match in previous domestic season`,
+      required: req.F1_PREV_SEASON_SCORED,
+      auditDetails: [stats?.homePrevSeason, stats?.awayPrevSeason]
+        .filter((p): p is FootballPrevSeasonStats => !!p)
+        .map((p) => `${p.team} scored ${p.goalsScored} in ${p.matchesPlayed} games (${p.season}).`)
+        .join(' ') || 'Season statistics were not available.',
+      home: { name: homeTeam, value: stats?.homePrevSeason?.avgGoalsScored, gap: gapReason(fixture, stats, 'homePrevSeason', none) },
+      away: { name: awayTeam, value: stats?.awayPrevSeason?.avgGoalsScored, gap: gapReason(fixture, stats, 'awayPrevSeason', none) },
+      passes: (v) => v >= minScored,
+      format: (v) => v.toFixed(2),
+    })
+  );
 
   // Filter 2: Head-to-Head - Last 5 competitive meetings, at least the configured rate Over 1.5 Goals
-  const h2h = evaluateH2HOver15(details.h2hMatches, thresholds.minH2HOver15Rate);
-  const competitiveH2H = details.h2hMatches.filter((m) => m.isCompetitive).slice(0, H2H_OVER15_WINDOW);
-  const f2Passed = h2h.passed;
-
-  filterChecks.push({
-    filterId: 'F2_H2H_OVER15',
-    filterName: FILTER_LABELS.F2_H2H_OVER15,
-    targetRule: `Last ${H2H_OVER15_WINDOW} competitive H2H meetings >= ${h2h.required} (${pctLabel(thresholds.minH2HOver15Rate)}) Over 1.5 Goals`,
-    observedValue: `${h2h.over15}/${h2h.considered} matches (${h2h.ratePercent}%)${h2h.hasFullWindow ? '' : ` — needs ${H2H_OVER15_WINDOW} meetings`}`,
-    passed: f2Passed,
-    auditDetails: `Recent competitive scores: ${competitiveH2H.map((m) => `${m.homeScore}-${m.awayScore} (${m.date})`).join(', ')}`,
-    actual: h2h.summary,
-    required: req.F2_H2H_OVER15,
-  });
+  if (stats?.h2hMatches) {
+    const h2h = evaluateH2HOver15(stats.h2hMatches, thresholds.minH2HOver15Rate);
+    const competitiveH2H = stats.h2hMatches.filter((m) => m.isCompetitive).slice(0, H2H_OVER15_WINDOW);
+    filterChecks.push({
+      filterId: 'F2_H2H_OVER15',
+      filterName: FILTER_LABELS.F2_H2H_OVER15,
+      targetRule: `Last ${H2H_OVER15_WINDOW} competitive H2H meetings >= ${h2h.required} (${pctLabel(thresholds.minH2HOver15Rate)}) Over 1.5 Goals`,
+      observedValue: `${h2h.over15}/${h2h.considered} matches (${h2h.ratePercent}%)${h2h.hasFullWindow ? '' : ` — needs ${H2H_OVER15_WINDOW} meetings`}`,
+      passed: h2h.passed,
+      auditDetails: `Recent competitive scores: ${competitiveH2H.map((m) => `${m.homeScore}-${m.awayScore} (${m.date})`).join(', ')}`,
+      actual: h2h.summary,
+      required: req.F2_H2H_OVER15,
+    });
+  } else {
+    const reason = `Not available — ${gapReason(fixture, stats, 'h2h', none)}`;
+    filterChecks.push({
+      filterId: 'F2_H2H_OVER15',
+      filterName: FILTER_LABELS.F2_H2H_OVER15,
+      targetRule: `Last ${H2H_OVER15_WINDOW} competitive H2H meetings Over 1.5 Goals`,
+      observedValue: reason,
+      passed: false,
+      auditDetails: reason,
+      actual: reason,
+      required: req.F2_H2H_OVER15,
+      noData: true,
+    });
+  }
 
   // Filter 3: Recent Form - Each team scored at least 1 goal in the configured count of their last 5 competitive matches
-  const homeCompRecent = details.homeRecentMatches.filter((m) => m.isCompetitive).slice(0, 5);
-  const awayCompRecent = details.awayRecentMatches.filter((m) => m.isCompetitive).slice(0, 5);
-  const homeScoredCount = homeCompRecent.filter((m) => m.scoredAtLeastOne).length;
-  const awayScoredCount = awayCompRecent.filter((m) => m.scoredAtLeastOne).length;
   const minScoredCount = thresholds.minRecentScoredCount;
-  const f3Passed =
-    homeCompRecent.length >= 5 &&
-    awayCompRecent.length >= 5 &&
-    homeScoredCount >= minScoredCount &&
-    awayScoredCount >= minScoredCount;
-  const shortForm = homeCompRecent.length < 5 || awayCompRecent.length < 5;
-
-  filterChecks.push({
-    filterId: 'F3_RECENT_FORM_SCORED',
-    filterName: FILTER_LABELS.F3_RECENT_FORM_SCORED,
-    targetRule: `Each team scored >= 1 goal in at least ${minScoredCount} of their last 5 competitive matches`,
-    observedValue: `${homeTeam}: ${homeScoredCount}/${homeCompRecent.length} | ${awayTeam}: ${awayScoredCount}/${awayCompRecent.length}`,
-    passed: f3Passed,
-    auditDetails: `Competitive recent games inspected: ${homeTeam} (${homeScoredCount}/${homeCompRecent.length} scored), ${awayTeam} (${awayScoredCount}/${awayCompRecent.length} scored). Excluded friendlies.`,
-    actual: `${homeTeam} scored in ${homeScoredCount}/${homeCompRecent.length} · ${awayTeam} scored in ${awayScoredCount}/${awayCompRecent.length}${shortForm ? ' — fewer than 5 recent competitive matches on record' : ''}`,
-    required: req.F3_RECENT_FORM_SCORED,
-  });
+  filterChecks.push(
+    recentFormCheck({
+      id: 'F3_RECENT_FORM_SCORED',
+      targetRule: `Each team scored >= 1 goal in at least ${minScoredCount} of their last 5 competitive matches`,
+      required: req.F3_RECENT_FORM_SCORED,
+      minCount: minScoredCount,
+      noun: 'scored in',
+      auditDetails: `Competitive recent games inspected for both teams. Excluded friendlies.`,
+      home: { name: homeTeam, matches: stats?.homeRecentMatches, gap: gapReason(fixture, stats, 'homeRecent', none) },
+      away: { name: awayTeam, matches: stats?.awayRecentMatches, gap: gapReason(fixture, stats, 'awayRecent', none) },
+      counts: (m) => m.scoredAtLeastOne,
+    })
+  );
 
   // Filter 4: Price - Market odds (TheStatsAPI) Over 1.5 Goals decimal price >= configured minimum
   // TheStatsAPI's odds endpoint doesn't always carry a price for every
@@ -326,10 +438,9 @@ export function evaluateFootballOver15(
     ` (Trigger Enhanced Audit if > ${thresholds.enhancedOddsThreshold.toFixed(2)})`
   );
   filterChecks.push(priceFilter);
-  const f4Passed = priceFilter.passed;
 
-  const passedStats = f1Passed && f2Passed && f3Passed;
-  const passedOdds = f4Passed;
+  const { passedStats, hardFailed, missingData } = summarize(filterChecks);
+  const passedOdds = priceFilter.passed;
   const isPreliminaryQualifier = passedStats;
   const isVerifiedQualifier = passedStats && passedOdds;
   const isPriceWatch = passedStats && !passedOdds;
@@ -340,7 +451,7 @@ export function evaluateFootballOver15(
   }
 
   let failureReason: string | undefined;
-  if (!passedStats) failureReason = describeFailedFilters(filterChecks);
+  if (!passedStats) failureReason = describeProblems(filterChecks);
   else if (!passedOdds) failureReason = describePriceShortfall(marketOdds, requiredOdds);
 
   return {
@@ -349,6 +460,8 @@ export function evaluateFootballOver15(
     isPreliminaryQualifier,
     isVerifiedQualifier,
     isPriceWatch,
+    hardFailed,
+    missingData,
     filterChecks,
     enhancedVerificationNeeded,
     enhancedVerificationReason,
@@ -363,6 +476,7 @@ export function evaluateFootballOver15(
  * - Filter 4: For each team independently, at least the configured count of their last 5 competitive matches must finish with Under 3.5 Goals.
  * - Filter 5: Market odds (TheStatsAPI) Under 3.5 Goals decimal price >= configured minimum.
  * All thresholds are editable in Engine Configuration (AppSettings.ruleThresholds.footballUnder35).
+ * Missing data is handled per filter exactly as in evaluateFootballOver15.
  */
 export function evaluateFootballUnder35(
   fixture: CandidateFixture,
@@ -370,84 +484,89 @@ export function evaluateFootballUnder35(
 ): ScreeningResult {
   if (!thresholds.enabled) return DISABLED_RESULT;
 
-  const details = fixture.footballDetails;
-  if (!details) return missingStatsResult();
+  const stats: FootballStatsInput | undefined = fixture.footballDetails ?? fixture.partialStats;
   const filterChecks: FilterAuditCheck[] = [];
-  const homeTeam = details.homePrevSeason.team;
-  const awayTeam = details.awayPrevSeason.team;
+  const homeTeam = fixture.homeOrPlayer1;
+  const awayTeam = fixture.awayOrPlayer2;
   const req = footballFilterRequirements('football_under_3_5', thresholds);
+  const none = 'statistics could not be loaded for this match';
 
-  // Filters 1 & 2: Scored < configured AND Conceded < configured for BOTH teams
-  const homeScored = details.homePrevSeason.avgGoalsScored;
-  const homeConceded = details.homePrevSeason.avgGoalsConceded;
-  const awayScored = details.awayPrevSeason.avgGoalsScored;
-  const awayConceded = details.awayPrevSeason.avgGoalsConceded;
+  const seasonAudit =
+    [stats?.homePrevSeason, stats?.awayPrevSeason]
+      .filter((p): p is FootballPrevSeasonStats => !!p)
+      .map((p) => `${p.team} (${p.goalsScored} GF / ${p.goalsConceded} GA in ${p.matchesPlayed} games).`)
+      .join(' ') || 'Season statistics were not available.';
   const maxScored = thresholds.maxPrevSeasonAvgScored;
   const maxConceded = thresholds.maxPrevSeasonAvgConceded;
+  const homeGap = gapReason(fixture, stats, 'homePrevSeason', none);
+  const awayGap = gapReason(fixture, stats, 'awayPrevSeason', none);
 
-  const f1Passed = homeScored < maxScored && awayScored < maxScored;
-  const f2Passed = homeConceded < maxConceded && awayConceded < maxConceded;
-  const seasonAudit = `${homeTeam} (${details.homePrevSeason.goalsScored} GF / ${details.homePrevSeason.goalsConceded} GA in ${details.homePrevSeason.matchesPlayed} games). ${awayTeam} (${details.awayPrevSeason.goalsScored} GF / ${details.awayPrevSeason.goalsConceded} GA in ${details.awayPrevSeason.matchesPlayed} games).`;
-
-  filterChecks.push({
-    filterId: 'F1_PREV_SEASON_SCORED_U35',
-    filterName: FILTER_LABELS.F1_PREV_SEASON_SCORED_U35,
-    targetRule: `Both teams avg < ${maxScored.toFixed(2)} goals scored / match in domestic season`,
-    observedValue: `${homeTeam}: ${homeScored.toFixed(2)} GF | ${awayTeam}: ${awayScored.toFixed(2)} GF`,
-    passed: f1Passed,
-    auditDetails: seasonAudit,
-    actual: `${homeTeam} ${homeScored.toFixed(2)} · ${awayTeam} ${awayScored.toFixed(2)}`,
-    required: req.F1_PREV_SEASON_SCORED_U35,
-  });
-  filterChecks.push({
-    filterId: 'F2_PREV_SEASON_CONCEDED_U35',
-    filterName: FILTER_LABELS.F2_PREV_SEASON_CONCEDED_U35,
-    targetRule: `Both teams avg < ${maxConceded.toFixed(2)} goals conceded / match in domestic season`,
-    observedValue: `${homeTeam}: ${homeConceded.toFixed(2)} GA | ${awayTeam}: ${awayConceded.toFixed(2)} GA`,
-    passed: f2Passed,
-    auditDetails: seasonAudit,
-    actual: `${homeTeam} ${homeConceded.toFixed(2)} · ${awayTeam} ${awayConceded.toFixed(2)}`,
-    required: req.F2_PREV_SEASON_CONCEDED_U35,
-  });
+  filterChecks.push(
+    bothTeamsCheck({
+      id: 'F1_PREV_SEASON_SCORED_U35',
+      targetRule: `Both teams avg < ${maxScored.toFixed(2)} goals scored / match in domestic season`,
+      required: req.F1_PREV_SEASON_SCORED_U35,
+      auditDetails: seasonAudit,
+      home: { name: homeTeam, value: stats?.homePrevSeason?.avgGoalsScored, gap: homeGap },
+      away: { name: awayTeam, value: stats?.awayPrevSeason?.avgGoalsScored, gap: awayGap },
+      passes: (v) => v < maxScored,
+      format: (v) => v.toFixed(2),
+    }),
+    bothTeamsCheck({
+      id: 'F2_PREV_SEASON_CONCEDED_U35',
+      targetRule: `Both teams avg < ${maxConceded.toFixed(2)} goals conceded / match in domestic season`,
+      required: req.F2_PREV_SEASON_CONCEDED_U35,
+      auditDetails: seasonAudit,
+      home: { name: homeTeam, value: stats?.homePrevSeason?.avgGoalsConceded, gap: homeGap },
+      away: { name: awayTeam, value: stats?.awayPrevSeason?.avgGoalsConceded, gap: awayGap },
+      passes: (v) => v < maxConceded,
+      format: (v) => v.toFixed(2),
+    })
+  );
 
   // Filter 3: Head-to-Head - Last 10 competitive meetings, at least the configured rate Under 3.5 Goals
-  const h2h = evaluateH2HUnder35(details.h2hMatches, thresholds.minH2HUnder35Rate);
-  const f3Passed = h2h.passed;
-
-  filterChecks.push({
-    filterId: 'F3_H2H_UNDER35',
-    filterName: FILTER_LABELS.F3_H2H_UNDER35,
-    targetRule: `Last ${H2H_UNDER35_WINDOW} competitive meetings >= ${pctLabel(thresholds.minH2HUnder35Rate)} Under 3.5 Goals`,
-    observedValue: `${h2h.under35}/${h2h.considered} matches (${h2h.ratePercent}%)`,
-    passed: f3Passed,
-    auditDetails: `Checked ${h2h.considered} verified competitive meetings: ${h2h.under35} finished Under 3.5 Goals.`,
-    actual: h2h.summary,
-    required: req.F3_H2H_UNDER35,
-  });
+  if (stats?.h2hMatches) {
+    const h2h = evaluateH2HUnder35(stats.h2hMatches, thresholds.minH2HUnder35Rate);
+    filterChecks.push({
+      filterId: 'F3_H2H_UNDER35',
+      filterName: FILTER_LABELS.F3_H2H_UNDER35,
+      targetRule: `Last ${H2H_UNDER35_WINDOW} competitive meetings >= ${pctLabel(thresholds.minH2HUnder35Rate)} Under 3.5 Goals`,
+      observedValue: `${h2h.under35}/${h2h.considered} matches (${h2h.ratePercent}%)`,
+      passed: h2h.passed,
+      auditDetails: `Checked ${h2h.considered} verified competitive meetings: ${h2h.under35} finished Under 3.5 Goals.`,
+      actual: h2h.summary,
+      required: req.F3_H2H_UNDER35,
+    });
+  } else {
+    const reason = `Not available — ${gapReason(fixture, stats, 'h2h', none)}`;
+    filterChecks.push({
+      filterId: 'F3_H2H_UNDER35',
+      filterName: FILTER_LABELS.F3_H2H_UNDER35,
+      targetRule: `Last ${H2H_UNDER35_WINDOW} competitive meetings Under 3.5 Goals`,
+      observedValue: reason,
+      passed: false,
+      auditDetails: reason,
+      actual: reason,
+      required: req.F3_H2H_UNDER35,
+      noData: true,
+    });
+  }
 
   // Filter 4: Recent Form - For each team independently, >= configured count of last 5 competitive matches Under 3.5
-  const homeCompRecent = details.homeRecentMatches.filter((m) => m.isCompetitive).slice(0, 5);
-  const awayCompRecent = details.awayRecentMatches.filter((m) => m.isCompetitive).slice(0, 5);
-  const homeU35Count = homeCompRecent.filter((m) => m.under35Goals).length;
-  const awayU35Count = awayCompRecent.filter((m) => m.under35Goals).length;
   const minU35Count = thresholds.minRecentUnder35Count;
-  const f4Passed =
-    homeCompRecent.length >= 5 &&
-    awayCompRecent.length >= 5 &&
-    homeU35Count >= minU35Count &&
-    awayU35Count >= minU35Count;
-  const shortForm = homeCompRecent.length < 5 || awayCompRecent.length < 5;
-
-  filterChecks.push({
-    filterId: 'F4_RECENT_FORM_UNDER35',
-    filterName: FILTER_LABELS.F4_RECENT_FORM_UNDER35,
-    targetRule: `Each team independently has >= ${minU35Count} of last 5 competitive matches Under 3.5 Goals`,
-    observedValue: `${homeTeam}: ${homeU35Count}/${homeCompRecent.length} | ${awayTeam}: ${awayU35Count}/${awayCompRecent.length}`,
-    passed: f4Passed,
-    auditDetails: `Last 5 competitive matches evaluated for both clubs. All friendlies excluded.`,
-    actual: `${homeTeam} ${homeU35Count}/${homeCompRecent.length} · ${awayTeam} ${awayU35Count}/${awayCompRecent.length}${shortForm ? ' — fewer than 5 recent competitive matches on record' : ''}`,
-    required: req.F4_RECENT_FORM_UNDER35,
-  });
+  filterChecks.push(
+    recentFormCheck({
+      id: 'F4_RECENT_FORM_UNDER35',
+      targetRule: `Each team independently has >= ${minU35Count} of last 5 competitive matches Under 3.5 Goals`,
+      required: req.F4_RECENT_FORM_UNDER35,
+      minCount: minU35Count,
+      noun: 'Under 3.5 in',
+      auditDetails: `Last 5 competitive matches evaluated for both clubs. All friendlies excluded.`,
+      home: { name: homeTeam, matches: stats?.homeRecentMatches, gap: gapReason(fixture, stats, 'homeRecent', none) },
+      away: { name: awayTeam, matches: stats?.awayRecentMatches, gap: gapReason(fixture, stats, 'awayRecent', none) },
+      counts: (m) => m.under35Goals,
+    })
+  );
 
   // Filter 5: Price - Market odds (TheStatsAPI) Under 3.5 Goals decimal price >= configured minimum
   // See the equivalent guard in evaluateFootballOver15.
@@ -455,16 +574,15 @@ export function evaluateFootballUnder35(
   const requiredOdds = thresholds.minExchangeOdds;
   const priceFilter = priceCheck(fixture, 'F5_EXCHANGE_PRICE_U35', 'Under 3.5 Goals', requiredOdds);
   filterChecks.push(priceFilter);
-  const f5Passed = priceFilter.passed;
 
-  const passedStats = f1Passed && f2Passed && f3Passed && f4Passed;
-  const passedOdds = f5Passed;
+  const { passedStats, hardFailed, missingData } = summarize(filterChecks);
+  const passedOdds = priceFilter.passed;
   const isPreliminaryQualifier = passedStats;
   const isVerifiedQualifier = passedStats && passedOdds;
   const isPriceWatch = passedStats && !passedOdds;
 
   let failureReason: string | undefined;
-  if (!passedStats) failureReason = describeFailedFilters(filterChecks);
+  if (!passedStats) failureReason = describeProblems(filterChecks);
   else if (!passedOdds) failureReason = describePriceShortfall(marketOdds, requiredOdds);
 
   return {
@@ -473,6 +591,8 @@ export function evaluateFootballUnder35(
     isPreliminaryQualifier,
     isVerifiedQualifier,
     isPriceWatch,
+    hardFailed,
+    missingData,
     filterChecks,
     enhancedVerificationNeeded: false,
     failureReason,
