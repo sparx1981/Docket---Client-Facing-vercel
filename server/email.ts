@@ -10,13 +10,21 @@ import { ProviderError } from './errors.js';
 const DEFAULT_ENDPOINT = 'https://www.reps.co.uk/docket/';
 const TIMEOUT_MS = 20_000;
 
-export async function sendNotificationEmail(subject: string, html: string): Promise<void> {
+export interface EmailServiceReply {
+  status: number;
+  /** The endpoint's own response text, tags stripped and truncated — what it said it did. */
+  reply: string;
+  /** True when the reply looks like a web page (an HTML document, WAF challenge, error page) rather than a short confirmation. */
+  looksLikeWebPage: boolean;
+}
+
+export async function sendNotificationEmail(subject: string, html: string): Promise<EmailServiceReply> {
   const endpoint = process.env.EMAIL_ENDPOINT_URL || DEFAULT_ENDPOINT;
   let response: Response;
   try {
     response = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Docket/1.0 (+notification)' },
       body: new URLSearchParams({ subject, data: html }).toString(),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
@@ -25,10 +33,15 @@ export async function sendNotificationEmail(subject: string, html: string): Prom
     throw new ProviderError('email', 0, `Could not reach the email endpoint (${reason}).`);
   }
 
+  const raw = await response.text().catch(() => '');
+  const looksLikeWebPage = /^\s*<(!doctype|html|head|body)/i.test(raw);
+  const reply = raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+  console.log(`[email] endpoint answered ${response.status}: ${reply || '(empty body)'}`);
+
   if (!response.ok) {
-    const body = (await response.text().catch(() => '')).slice(0, 200);
-    throw new ProviderError('email', response.status, `The email endpoint answered ${response.status}${body ? `: ${body}` : '.'}`);
+    throw new ProviderError('email', response.status, `The email endpoint answered ${response.status}${reply ? `: ${reply}` : '.'}`);
   }
+  return { status: response.status, reply, looksLikeWebPage };
 }
 
 export const escapeHtml = (value: unknown): string =>

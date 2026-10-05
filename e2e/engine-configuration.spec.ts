@@ -38,12 +38,13 @@ test.describe('Engine Configuration — collapsible sections', () => {
       const header = route.request().headers()['authorization'] ?? '';
       if (!header.startsWith('Bearer ')) return route.fulfill({ status: 401, json: { error: 'no token' } });
       return calls === 1
-        ? route.fulfill({ json: { ok: true } })
+        ? route.fulfill({ json: { ok: true, serviceStatus: 200, serviceReply: 'Message queued', looksLikeWebPage: false } })
         : route.fulfill({ status: 502, json: { error: 'The email endpoint answered 500: template error' } });
     });
 
     await page.click('#btn-send-test-email');
-    await expect(page.locator('#test-email-result')).toContainText('Test email sent');
+    await expect(page.locator('#test-email-result')).toContainText('HTTP 200');
+    await expect(page.locator('#test-email-result')).toContainText('Message queued');
 
     await page.click('#btn-send-test-email');
     await expect(page.locator('#test-email-result')).toContainText('template error');

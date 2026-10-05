@@ -249,7 +249,7 @@ app.post('/api/notifications/test', async (req, res) => {
   lastTestEmailAt.set(uid, now);
 
   try {
-    await sendNotificationEmail(
+    const service = await sendNotificationEmail(
       'Docket: test email',
       `<p>This is a test email from Docket. If you can read this, notification emails are working.</p>${htmlTable(
         ['Detail', 'Value'],
@@ -259,7 +259,7 @@ app.post('/api/notifications/test', async (req, res) => {
         ]
       )}`
     );
-    res.json({ ok: true });
+    res.json({ ok: true, serviceStatus: service.status, serviceReply: service.reply, looksLikeWebPage: service.looksLikeWebPage });
   } catch (err) {
     lastTestEmailAt.delete(uid); // a failed send shouldn't lock the user out of retrying
     handleError(err, res);

@@ -17,7 +17,14 @@ export async function sendTestEmail(): Promise<TestEmailResult> {
     });
     const body = await response.json().catch(() => null);
     if (response.ok) {
-      return { ok: true, message: 'Test email sent. Check your inbox (and spam folder) in a minute.' };
+      const reply = body?.serviceReply ? `“${body.serviceReply}”` : 'an empty reply';
+      const caution = body?.looksLikeWebPage
+        ? ' That looks like a web page, not a confirmation, so the email service may be blocking or rejecting the request.'
+        : '';
+      return {
+        ok: true,
+        message: `The request was accepted (HTTP ${body?.serviceStatus ?? response.status}). The email service replied with ${reply}.${caution} Check your inbox and spam folder; if nothing arrives within a few minutes, the problem is in the email service, not in Docket.`,
+      };
     }
     return { ok: false, message: body?.error || `The test email failed (status ${response.status}).` };
   } catch (err) {
