@@ -117,10 +117,9 @@ export const DEFAULT_RULE_THRESHOLDS: RuleThresholds = {
   },
   footballUnder35: {
     enabled: true,
-    maxPrevSeasonAvgScored: 1.5,
-    maxPrevSeasonAvgConceded: 1.5,
-    minH2HUnder35Rate: 0.8,
-    minRecentUnder35Count: 4,
+    maxLast5AvgScored: 1.0,
+    maxLast5AvgConceded: 1.8,
+    maxLast10AvgTotalGoals: 2.0,
     minExchangeOdds: 1.2,
     selectedLeagueIds: [],
   },

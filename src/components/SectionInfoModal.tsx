@@ -231,7 +231,7 @@ function buildVerifiedCriteria(t: RuleThresholds): SectionDetails['criteriaList'
     {
       rule: 'Football: Under 3.5 Goals',
       description: t.footballUnder35.enabled
-        ? `Both teams must average below ${t.footballUnder35.maxPrevSeasonAvgScored.toFixed(2)} scored AND below ${t.footballUnder35.maxPrevSeasonAvgConceded.toFixed(2)} conceded per match last season, ≥${pct(t.footballUnder35.minH2HUnder35Rate)} of their last 10 head-to-head meetings must have finished Under 3.5 goals, each team must independently have ≥${t.footballUnder35.minRecentUnder35Count} of their last 5 matches finish Under 3.5, and the market odds price must be at least ${t.footballUnder35.minExchangeOdds.toFixed(2)}.`
+        ? `Each team’s last 5 matches must independently average scored <${(t.footballUnder35.maxLast5AvgScored ?? 1).toFixed(2)} AND conceded ≤${(t.footballUnder35.maxLast5AvgConceded ?? 1.8).toFixed(2)} per match, the combined average total goals from the home team’s last 10 and away team’s last 10 matches (total goals divided by 20) must be ≤${(t.footballUnder35.maxLast10AvgTotalGoals ?? 2).toFixed(2)}, and the market odds price must be at least ${t.footballUnder35.minExchangeOdds.toFixed(2)}.`
         : 'Currently disabled in Engine Configuration — no fixtures are screened against this system.',
     },
   ];

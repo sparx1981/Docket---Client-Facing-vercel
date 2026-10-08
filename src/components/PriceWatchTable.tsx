@@ -136,7 +136,7 @@ export const PriceWatchTable: React.FC<PriceWatchTableProps> = ({
                     <ul className="mt-1.5 space-y-1 text-text-2">
                       <li className="flex items-start gap-1.5">
                         <Check className="mt-0.5 h-3 w-3 shrink-0 text-ok-ink" strokeWidth={3} />
-                        <span>Both teams avg &ge; {t.footballOver15.minPrevSeasonAvgScored.toFixed(2)} goals scored/match last season</span>
+                        <span>Both teams avg &ge; {t.footballOver15.minPrevSeasonAvgScored.toFixed(2)} goals scored/match last 5 matches</span>
                       </li>
                       <li className="flex items-start gap-1.5">
                         <Check className="mt-0.5 h-3 w-3 shrink-0 text-ok-ink" strokeWidth={3} />
@@ -160,16 +160,13 @@ export const PriceWatchTable: React.FC<PriceWatchTableProps> = ({
                     <ul className="mt-1.5 space-y-1 text-text-2">
                       <li className="flex items-start gap-1.5">
                         <Check className="mt-0.5 h-3 w-3 shrink-0 text-ok-ink" strokeWidth={3} />
-                        <span>Both teams avg &lt; {t.footballUnder35.maxPrevSeasonAvgScored.toFixed(2)} scored AND &lt; {t.footballUnder35.maxPrevSeasonAvgConceded.toFixed(2)} conceded last season</span>
+                        <span>Each team’s last 5: avg scored &lt; {(t.footballUnder35.maxLast5AvgScored ?? 1).toFixed(2)} AND conceded &le; {(t.footballUnder35.maxLast5AvgConceded ?? 1.8).toFixed(2)}</span>
                       </li>
                       <li className="flex items-start gap-1.5">
                         <Check className="mt-0.5 h-3 w-3 shrink-0 text-ok-ink" strokeWidth={3} />
-                        <span>&ge;{pct(t.footballUnder35.minH2HUnder35Rate)} of last 10 head-to-head meetings Under 3.5 goals</span>
+                        <span>Combined home last 10 + away last 10 average total goals &le;{(t.footballUnder35.maxLast10AvgTotalGoals ?? 2).toFixed(2)} (total goals divided by 20)</span>
                       </li>
-                      <li className="flex items-start gap-1.5">
-                        <Check className="mt-0.5 h-3 w-3 shrink-0 text-ok-ink" strokeWidth={3} />
-                        <span>Each team independently &ge;{t.footballUnder35.minRecentUnder35Count} of last 5 matches Under 3.5</span>
-                      </li>
+
                     </ul>
                   </div>
 

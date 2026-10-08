@@ -68,9 +68,12 @@ export function runVerificationAudit(
   // derived from. Kept separate from auditStatus so the final status below
   // cannot silently overwrite it.
   let integrityFailed = false;
-  const hasFullEvidence = fixture.sport === 'football' && !!fixture.footballDetails;
+  const underStats = fixture.footballDetails ?? fixture.partialStats;
+  const hasFullEvidence = fixture.system === 'football_under_3_5'
+    ? !!underStats?.homeRecentMatches && !!underStats?.awayRecentMatches
+    : fixture.sport === 'football' && !!fixture.footballDetails;
 
-  if (fixture.sport === 'football' && fixture.footballDetails) {
+  if (fixture.system === 'football_over_1_5' && fixture.footballDetails) {
     const details = fixture.footballDetails;
     
     // 1. Raw recalculation of Previous Season Goal Averages
@@ -142,55 +145,35 @@ export function runVerificationAudit(
         `Head-to-head verified scores: ${h2hRaw.map((m) => `${m.homeTeam} ${m.homeScore}-${m.awayScore} ${m.awayTeam} (${m.competition})`).join('; ')}`,
         `Recent form: ${details.homePrevSeason.team} (${homeForm.ratio} matches scored${homeForm.note}), ${details.awayPrevSeason.team} (${awayForm.ratio} matches scored${awayForm.note}). TheStatsAPI does not label friendlies, so none are stripped.`
       );
-    } else if (fixture.system === 'football_under_3_5') {
-      const t = thresholds.footballUnder35;
-
-      recalculatedMetrics.push({
-        ruleLabel: 'Raw Home Scored & Conceded Under Bounds',
-        computedMetric: `Scored ${recalculatedHomeAvgScored.toFixed(2)}, Conceded ${recalculatedHomeAvgConceded.toFixed(2)}`,
-        thresholdRequired: `Scored < ${t.maxPrevSeasonAvgScored.toFixed(2)}, Conceded < ${t.maxPrevSeasonAvgConceded.toFixed(2)}`,
-        verifiedMatch: recalculatedHomeAvgScored < t.maxPrevSeasonAvgScored && recalculatedHomeAvgConceded < t.maxPrevSeasonAvgConceded,
-      });
-      recalculatedMetrics.push({
-        ruleLabel: 'Raw Away Scored & Conceded Under Bounds',
-        computedMetric: `Scored ${recalculatedAwayAvgScored.toFixed(2)}, Conceded ${recalculatedAwayAvgConceded.toFixed(2)}`,
-        thresholdRequired: `Scored < ${t.maxPrevSeasonAvgScored.toFixed(2)}, Conceded < ${t.maxPrevSeasonAvgConceded.toFixed(2)}`,
-        verifiedMatch: recalculatedAwayAvgScored < t.maxPrevSeasonAvgScored && recalculatedAwayAvgConceded < t.maxPrevSeasonAvgConceded,
-      });
-
-      // Raw H2H last 10
-      const h2hRaw = details.h2hMatches.filter((m) => m.isCompetitive).slice(0, 10);
-      const rawUnder35Count = h2hRaw.filter((m) => m.homeScore + m.awayScore < 4).length;
-      recalculatedMetrics.push({
-        ruleLabel: 'Raw H2H Under 3.5 Recalculation',
-        computedMetric: `${rawUnder35Count} of ${h2hRaw.length} matches finished Under 3.5 (${((rawUnder35Count / (h2hRaw.length || 1)) * 100).toFixed(0)}%)`,
-        thresholdRequired: `>= 8 of 10 (${(t.minH2HUnder35Rate * 100).toFixed(0)}%)`,
-        verifiedMatch: h2hRaw.length >= 8 && rawUnder35Count / h2hRaw.length >= t.minH2HUnder35Rate,
-      });
-
-      const isUnder35 = (m: TeamRecentMatch) => m.teamGoals + m.opponentGoals < 4;
-      const homeForm = recentFormRecount(details.homeRecentMatches, isUnder35, t.minRecentUnder35Count);
-      const awayForm = recentFormRecount(details.awayRecentMatches, isUnder35, t.minRecentUnder35Count);
-
-      recalculatedMetrics.push({
-        ruleLabel: 'Raw Home Form Under 3.5 Audit',
-        computedMetric: `${homeForm.ratio} games finished Under 3.5 goals${homeForm.note}`,
-        thresholdRequired: `>= ${t.minRecentUnder35Count} of ${RECENT_FORM_WINDOW}, and ${RECENT_FORM_WINDOW} matches on record`,
-        verifiedMatch: homeForm.passed,
-      });
-      recalculatedMetrics.push({
-        ruleLabel: 'Raw Away Form Under 3.5 Audit',
-        computedMetric: `${awayForm.ratio} games finished Under 3.5 goals${awayForm.note}`,
-        thresholdRequired: `>= ${t.minRecentUnder35Count} of ${RECENT_FORM_WINDOW}, and ${RECENT_FORM_WINDOW} matches on record`,
-        verifiedMatch: awayForm.passed,
-      });
-
-      rawEvidenceSummary.push(
-        `Previous season bounds: ${details.homePrevSeason.team} (${recalculatedHomeAvgScored.toFixed(2)} GF / ${recalculatedHomeAvgConceded.toFixed(2)} GA), ${details.awayPrevSeason.team} (${recalculatedAwayAvgScored.toFixed(2)} GF / ${recalculatedAwayAvgConceded.toFixed(2)} GA).`,
-        `10 H2H results verified: ${h2hRaw.map((m) => `${m.homeScore}-${m.awayScore}`).join(', ')} (${rawUnder35Count}/10 Under 3.5).`,
-        `Recent 5 form: ${details.homePrevSeason.team} (${homeForm.ratio} Under 3.5${homeForm.note}), ${details.awayPrevSeason.team} (${awayForm.ratio} Under 3.5${awayForm.note}).`
-      );
     }
+  }
+
+  if (fixture.system === 'football_under_3_5' && hasFullEvidence) {
+    const t = thresholds.footballUnder35;
+    const recent = (matches: TeamRecentMatch[], count: number) => matches.filter((m) => m.isCompetitive).slice().sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).slice(0, count);
+    const homeTen = recent(underStats!.homeRecentMatches!, 10);
+    const awayTen = recent(underStats!.awayRecentMatches!, 10);
+    for (const [name, matches] of [[fixture.homeOrPlayer1, homeTen], [fixture.awayOrPlayer2, awayTen]] as const) {
+      const five = matches.slice(0, 5);
+      const scored = five.reduce((sum, m) => sum + m.teamGoals, 0) / 5;
+      const conceded = five.reduce((sum, m) => sum + m.opponentGoals, 0) / 5;
+      recalculatedMetrics.push({
+        ruleLabel: `Raw ${name} Last-5 Goals Averages`,
+        computedMetric: `${five.length}/5 matches; scored ${scored.toFixed(2)}, conceded ${conceded.toFixed(2)}`,
+        thresholdRequired: `Scored < ${(t.maxLast5AvgScored ?? 1).toFixed(2)} AND conceded <= ${(t.maxLast5AvgConceded ?? 1.8).toFixed(2)}`,
+        verifiedMatch: five.length === 5 && scored < (t.maxLast5AvgScored ?? 1) && conceded <= (t.maxLast5AvgConceded ?? 1.8),
+      });
+      rawEvidenceSummary.push(`${name} last 10: ${matches.map((m) => `${m.teamGoals}-${m.opponentGoals} (${m.date})`).join(', ')}.`);
+    }
+    const rawGoals = [...homeTen, ...awayTen].reduce((sum, m) => sum + m.teamGoals + m.opponentGoals, 0);
+    const fullTen = homeTen.length === 10 && awayTen.length === 10;
+    recalculatedMetrics.push({
+      ruleLabel: 'Raw Combined Last-10 Total Goals Average',
+      computedMetric: fullTen ? `${rawGoals} goals / 20 match entries = ${(rawGoals / 20).toFixed(2)}` : `Home ${homeTen.length}/10; away ${awayTen.length}/10 matches available`,
+      thresholdRequired: `<= ${(t.maxLast10AvgTotalGoals ?? 2).toFixed(2)} combined average; 10 matches per team required`,
+      verifiedMatch: fullTen && rawGoals / 20 <= (t.maxLast10AvgTotalGoals ?? 2),
+    });
+    rawEvidenceSummary.push('Combine each team’s last 10: scored + conceded across 20 entries, divided by 20. Shared fixtures count in both samples.');
   }
 
   // Final status, in strict order. PRICE_DEFICIT (what Price Watch reads) is

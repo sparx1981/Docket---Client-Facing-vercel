@@ -2,7 +2,7 @@ import type { CandidateFixture, SystemFeedBreakdown } from '../types';
 import {
   FOOTBALL_FILTERS,
   H2H_OVER15_WINDOW,
-  H2H_UNDER35_WINDOW,
+  UNDER35_RECENT_WINDOW,
   evaluateFootballOver15,
   evaluateFootballUnder35,
   footballFilterRequirements,
@@ -61,7 +61,7 @@ export function buildFeedCsv(breakdown: SystemFeedBreakdown): string | null {
   const system = breakdown.system;
   const filters = FOOTBALL_FILTERS[system];
   const requirements = footballFilterRequirements(system, thresholds);
-  const h2hWindow = system === 'football_over_1_5' ? H2H_OVER15_WINDOW : H2H_UNDER35_WINDOW;
+  const h2hWindow = H2H_OVER15_WINDOW;
 
   const headers = [
     'Result',
@@ -72,7 +72,7 @@ export function buildFeedCsv(breakdown: SystemFeedBreakdown): string | null {
     'Home team',
     'Away team',
     ...filters.flatMap((f) => [`${f.label}: Result`, `${f.label}: Actual`, `${f.label}: Required`]),
-    `Last ${h2hWindow} H2H meetings`,
+    ...(system === 'football_over_1_5' ? [`Last ${h2hWindow} H2H meetings`] : ['Home last 10 match scores', 'Away last 10 match scores']),
     'Bookmaker',
     'Price checked (UTC)',
   ];
@@ -149,7 +149,9 @@ export function buildFeedCsv(breakdown: SystemFeedBreakdown): string | null {
         m.homeOrPlayer1,
         m.awayOrPlayer2,
         ...filterCells,
-        h2hList,
+        ...(system === 'football_over_1_5' ? [h2hList] : [stats?.homeRecentMatches, stats?.awayRecentMatches].map((matches) => matches
+          ? matches.filter((m) => m.isCompetitive).slice().sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).slice(0, UNDER35_RECENT_WINDOW).map((m) => `${m.date} ${m.teamGoals}-${m.opponentGoals} vs ${m.opponent}`).join(' | ')
+          : NOT_LOADED)),
         m.marketOdds?.bookmaker ?? (priceAttempted ? 'No price on file yet' : 'Not checked'),
         m.oddsCheckedAt && priceAttempted ? formatKickoff(m.oddsCheckedAt) : '',
       ],

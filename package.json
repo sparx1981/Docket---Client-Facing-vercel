@@ -12,9 +12,10 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test:truthfulness": "node scripts/check-fake-copy.mjs",
+    "test:rules": "node --import tsx --test tests/under35.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test": "npm run lint && npm run test:truthfulness && npm run test:e2e"
+    "test": "npm run lint && npm run test:rules && npm run test:truthfulness && npm run test:e2e"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

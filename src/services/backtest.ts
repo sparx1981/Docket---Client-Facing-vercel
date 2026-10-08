@@ -128,12 +128,11 @@ export async function runBacktest(
       context.homeRecentMatches.length > 0 &&
       context.awayRecentMatches &&
       context.awayRecentMatches.length > 0 &&
-      context.h2hMatches &&
-      context.h2hMatches.length > 0
+      (system === 'football_under_3_5' || (context.h2hMatches && context.h2hMatches.length > 0))
         ? {
             homePrevSeason: context.homePrevSeason,
             awayPrevSeason: context.awayPrevSeason,
-            h2hMatches: context.h2hMatches,
+            h2hMatches: context.h2hMatches ?? [],
             homeRecentMatches: context.homeRecentMatches,
             awayRecentMatches: context.awayRecentMatches,
           }
@@ -151,7 +150,7 @@ export async function runBacktest(
         matchTime: c.matchTime,
       },
       footballDetails,
-      settings.ruleThresholds
+      settings.ruleThresholds, undefined, undefined, { partialStats: context }
     );
 
     // Only matches that pass every statistical filter count toward the
@@ -210,8 +209,9 @@ function describeRuleSnapshot(
     )}%; Min. recent scoring count >= ${s.minRecentScoredCount} (of last 5)`;
   }
   const s = snapshot as RuleThresholds['footballUnder35'];
+  if (s.maxLast10AvgTotalGoals !== undefined) return `Each team last-5 avg scored < ${s.maxLast5AvgScored ?? 1}; conceded <= ${s.maxLast5AvgConceded ?? 1.8}; Combined home last 10 + away last 10 average total goals <= ${s.maxLast10AvgTotalGoals.toFixed(2)}`;
   return `Max. previous-season avg goals scored <= ${s.maxPrevSeasonAvgScored}; Max. previous-season avg goals conceded <= ${s.maxPrevSeasonAvgConceded}; Min. H2H Under 3.5 rate >= ${Math.round(
-    s.minH2HUnder35Rate * 100
+    (s.minH2HUnder35Rate ?? 0.8) * 100
   )}%; Min. recent Under 3.5 count >= ${s.minRecentUnder35Count} (of last 5)`;
 }
 

@@ -324,11 +324,11 @@ async function buildFootballCandidates(
       const h2hMatches: H2HMatchRecord[] | undefined = h2hRes.error ? undefined : h2hRes.value?.h2h ?? [];
       if (h2hRes.error) gaps.h2h = `head-to-head history could not be loaded (${h2hRes.error})`;
 
-      if (home.prev && away.prev && home.recent && away.recent && h2hMatches && h2hMatches.length > 0) {
+      if (home.prev && away.prev && home.recent && away.recent && (system === 'football_under_3_5' || (h2hMatches && h2hMatches.length > 0))) {
         footballDetails = {
           homePrevSeason: home.prev,
           awayPrevSeason: away.prev,
-          h2hMatches,
+          h2hMatches: h2hMatches ?? [],
           homeRecentMatches: home.recent,
           awayRecentMatches: away.recent,
         };

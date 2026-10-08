@@ -9,7 +9,7 @@ import type {
   SystemFeedBreakdown,
   SystemType,
 } from '../types';
-import { FILTER_LABELS, evaluateFootballOver15, evaluateFootballUnder35 } from './rulesEngine.js';
+import { FILTER_LABELS, evaluateFootballOver15, evaluateFootballUnder35, under35MaxTotalGoals } from './rulesEngine.js';
 
 /** Human-readable summary of a rule's league scope, e.g. "All leagues" or "Premier League, La Liga". */
 export function describeLeagueScope(selectedLeagueIds: string[], leagueCatalog: LeagueOption[]): string {
@@ -208,7 +208,7 @@ function buildFootballUnder35Breakdown(params: {
   const uniqueFootballMatches = deduplicateMatches(footballFixtures);
 
   const rawTotal = feedInfo?.totalRecordsReceived ?? (uniqueFootballMatches[0]?.rawFeedTotal || uniqueFootballMatches.length);
-  const enrichedCount = uniqueFootballMatches.filter((f) => !!f.footballDetails).length;
+  const enrichedCount = uniqueFootballMatches.filter((f) => { const stats = f.footballDetails ?? f.partialStats; return (stats?.homeRecentMatches?.length ?? 0) >= 10 && (stats?.awayRecentMatches?.length ?? 0) >= 10; }).length;
   const incompleteCount = Math.max(0, rawTotal - enrichedCount);
 
   const provider: DataProviderType | 'NONE' = feedInfo?.provider ?? (uniqueFootballMatches[0]?.sourceProvider || 'THESTATSAPI');
@@ -241,50 +241,27 @@ function buildFootballUnder35Breakdown(params: {
     evaluateFootballUnder35(f, { ...thresholds, enabled: true }).filterChecks.find((c) => c.filterId === id)?.passed ?? false;
 
   const filterDefs: FilterDefinition[] = [
-    {
-      id: 'F1_PREV_SEASON_SCORED_U35',
-      name: FILTER_LABELS.F1_PREV_SEASON_SCORED_U35,
-      targetRule: `Both teams avg < ${thresholds.maxPrevSeasonAvgScored.toFixed(2)} goals scored/match`,
-      targetValue: `< ${thresholds.maxPrevSeasonAvgScored.toFixed(2)} GF/m`,
-      test: (f) => passes(f, 'F1_PREV_SEASON_SCORED_U35'),
-    },
-    {
-      id: 'F2_PREV_SEASON_CONCEDED_U35',
-      name: FILTER_LABELS.F2_PREV_SEASON_CONCEDED_U35,
-      targetRule: `Both teams avg < ${thresholds.maxPrevSeasonAvgConceded.toFixed(2)} goals conceded/match`,
-      targetValue: `< ${thresholds.maxPrevSeasonAvgConceded.toFixed(2)} GA/m`,
-      test: (f) => passes(f, 'F2_PREV_SEASON_CONCEDED_U35'),
-    },
-    {
-      id: 'F3_H2H_UNDER35',
-      name: FILTER_LABELS.F3_H2H_UNDER35,
-      targetRule: `Last 10 competitive meetings >= ${(thresholds.minH2HUnder35Rate * 100).toFixed(0)}% Under 3.5 Goals`,
-      targetValue: `>= ${(thresholds.minH2HUnder35Rate * 100).toFixed(0)}% (last 10 H2H, 8 meetings required)`,
-      test: (f) => passes(f, 'F3_H2H_UNDER35'),
-    },
-    {
-      id: 'F4_RECENT_FORM_UNDER35',
-      name: FILTER_LABELS.F4_RECENT_FORM_UNDER35,
-      targetRule: `Each team has >= ${thresholds.minRecentUnder35Count} of last 5 competitive matches Under 3.5`,
-      targetValue: `>= ${thresholds.minRecentUnder35Count} of last 5 matches`,
-      test: (f) => passes(f, 'F4_RECENT_FORM_UNDER35'),
-    },
-    {
-      id: 'F5_EXCHANGE_PRICE_U35',
-      name: FILTER_LABELS.F5_EXCHANGE_PRICE_U35,
-      targetRule: `Bookmaker odds (TheStatsAPI) for Under 3.5 Goals >= ${thresholds.minExchangeOdds.toFixed(2)}`,
-      targetValue: `>= @${thresholds.minExchangeOdds.toFixed(2)}`,
-      test: (f) => passes(f, 'F5_EXCHANGE_PRICE_U35'),
-    },
+    { id: 'F1_HOME_LAST5_GOALS', name: FILTER_LABELS.F1_HOME_LAST5_GOALS,
+      targetRule: `Home last 5: scored < ${(thresholds.maxLast5AvgScored ?? 1).toFixed(2)} AND conceded <= ${(thresholds.maxLast5AvgConceded ?? 1.8).toFixed(2)}`,
+      targetValue: 'Home last 5: both averages must pass', test: (f) => passes(f, 'F1_HOME_LAST5_GOALS') },
+    { id: 'F2_AWAY_LAST5_GOALS', name: FILTER_LABELS.F2_AWAY_LAST5_GOALS,
+      targetRule: `Away last 5: scored < ${(thresholds.maxLast5AvgScored ?? 1).toFixed(2)} AND conceded <= ${(thresholds.maxLast5AvgConceded ?? 1.8).toFixed(2)}`,
+      targetValue: 'Away last 5: both averages must pass', test: (f) => passes(f, 'F2_AWAY_LAST5_GOALS') },
+    { id: 'F3_LAST10_AVG_TOTAL_GOALS', name: FILTER_LABELS.F3_LAST10_AVG_TOTAL_GOALS,
+      targetRule: `Combined home last 10 + away last 10 average total goals <= ${under35MaxTotalGoals(thresholds).toFixed(2)}`,
+      targetValue: `<= ${under35MaxTotalGoals(thresholds).toFixed(2)} total goals/match (20 entries)`, test: (f) => passes(f, 'F3_LAST10_AVG_TOTAL_GOALS') },
+    { id: 'F5_EXCHANGE_PRICE_U35', name: FILTER_LABELS.F5_EXCHANGE_PRICE_U35,
+      targetRule: `Under 3.5 bookmaker odds >= ${thresholds.minExchangeOdds.toFixed(2)}`,
+      targetValue: `>= @${thresholds.minExchangeOdds.toFixed(2)}`, test: (f) => passes(f, 'F5_EXCHANGE_PRICE_U35') },
   ];
 
   const steps = computeFilterSteps(uniqueFootballMatches, filterDefs, rawTotal);
 
   const statisticalQualifiers = uniqueFootballMatches.filter(
-    (f) => filterDefs[0].test(f) && filterDefs[1].test(f) && filterDefs[2].test(f) && filterDefs[3].test(f)
+    (f) => filterDefs[0].test(f) && filterDefs[1].test(f) && filterDefs[2].test(f)
   );
-  const verifiedQualifiers = statisticalQualifiers.filter((f) => filterDefs[4].test(f));
-  const priceWatch = statisticalQualifiers.filter((f) => !filterDefs[4].test(f));
+  const verifiedQualifiers = statisticalQualifiers.filter((f) => filterDefs[3].test(f));
+  const priceWatch = statisticalQualifiers.filter((f) => !filterDefs[3].test(f));
 
   return {
     sport: 'football',

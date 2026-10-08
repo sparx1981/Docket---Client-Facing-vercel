@@ -54,10 +54,9 @@ export const FILTER_LABELS = {
   F2_H2H_OVER15: 'Min. H2H Over 1.5 rate',
   F3_RECENT_FORM_SCORED: 'Min. recent scoring count',
   F4_EXCHANGE_PRICE: 'Min. bookmaker odds',
-  F1_PREV_SEASON_SCORED_U35: 'Max. previous-season avg goals scored',
-  F2_PREV_SEASON_CONCEDED_U35: 'Max. previous-season avg goals conceded',
-  F3_H2H_UNDER35: 'Min. H2H Under 3.5 rate',
-  F4_RECENT_FORM_UNDER35: 'Min. recent Under 3.5 count',
+  F1_HOME_LAST5_GOALS: 'Home last-5 scored and conceded averages',
+  F2_AWAY_LAST5_GOALS: 'Away last-5 scored and conceded averages',
+  F3_LAST10_AVG_TOTAL_GOALS: 'Max. combined last-10 avg total goals',
   F5_EXCHANGE_PRICE_U35: 'Min. bookmaker odds',
 } as const;
 
@@ -70,10 +69,9 @@ export const FOOTBALL_FILTERS: Record<'football_over_1_5' | 'football_under_3_5'
     { id: 'F4_EXCHANGE_PRICE', label: FILTER_LABELS.F4_EXCHANGE_PRICE },
   ],
   football_under_3_5: [
-    { id: 'F1_PREV_SEASON_SCORED_U35', label: FILTER_LABELS.F1_PREV_SEASON_SCORED_U35 },
-    { id: 'F2_PREV_SEASON_CONCEDED_U35', label: FILTER_LABELS.F2_PREV_SEASON_CONCEDED_U35 },
-    { id: 'F3_H2H_UNDER35', label: FILTER_LABELS.F3_H2H_UNDER35 },
-    { id: 'F4_RECENT_FORM_UNDER35', label: FILTER_LABELS.F4_RECENT_FORM_UNDER35 },
+    { id: 'F1_HOME_LAST5_GOALS', label: FILTER_LABELS.F1_HOME_LAST5_GOALS },
+    { id: 'F2_AWAY_LAST5_GOALS', label: FILTER_LABELS.F2_AWAY_LAST5_GOALS },
+    { id: 'F3_LAST10_AVG_TOTAL_GOALS', label: FILTER_LABELS.F3_LAST10_AVG_TOTAL_GOALS },
     { id: 'F5_EXCHANGE_PRICE_U35', label: FILTER_LABELS.F5_EXCHANGE_PRICE_U35 },
   ],
 };
@@ -121,34 +119,26 @@ export function evaluateH2HOver15(h2hMatches: H2HMatchRecord[], minRate: number)
   return { considered, over15, required, ratePercent, hasFullWindow, passed, summary };
 }
 
-/** Last 10 competitive meetings, of which at least 8 must exist. */
-export const H2H_UNDER35_WINDOW = 10;
-export const H2H_UNDER35_MIN_MEETINGS = 8;
+export const UNDER35_RECENT_WINDOW = 10;
 
-export interface H2HUnder35Evaluation {
-  considered: number;
-  under35: number;
-  ratePercent: number;
-  hasMinimumMeetings: boolean;
-  passed: boolean;
-  summary: string;
+/** Legacy saved settings have no goals-average threshold. Never reinterpret an H2H percentage as goals. */
+export function under35MaxTotalGoals(t: RuleThresholds['footballUnder35']): number {
+  return t.maxLast10AvgTotalGoals ?? 2;
 }
 
-export function evaluateH2HUnder35(h2hMatches: H2HMatchRecord[], minRate: number): H2HUnder35Evaluation {
-  const window = h2hMatches.filter((m) => m.isCompetitive).slice(0, H2H_UNDER35_WINDOW);
-  const considered = window.length;
-  const under35 = window.filter((m) => m.totalGoals < 4).length;
-  const ratePercent = considered > 0 ? Math.round((under35 / considered) * 100) : 0;
-  const hasMinimumMeetings = considered >= H2H_UNDER35_MIN_MEETINGS;
-  // Compared in whole percent so 80% means 80%, regardless of float noise.
-  const passed = hasMinimumMeetings && (under35 / considered) * 100 >= minRate * 100 - 1e-9;
-  const summary =
-    considered === 0
-      ? 'No competitive H2H meetings on record'
-      : hasMinimumMeetings
-      ? `${under35}/${considered} (${ratePercent}%)`
-      : `${under35}/${considered} (${ratePercent}%) — only ${considered} of ${H2H_UNDER35_MIN_MEETINGS} required meetings on record`;
-  return { considered, under35, ratePercent, hasMinimumMeetings, passed, summary };
+/** Each team's last ten against any opponents contributes ten entries, including shared fixtures in both samples. */
+export function evaluateCombinedLast10Goals(homeMatches: TeamRecentMatch[] | undefined, awayMatches: TeamRecentMatch[] | undefined, maximum: number) {
+  const window = (matches: TeamRecentMatch[] | undefined) => (matches ?? [])
+    .filter((m) => m.isCompetitive)
+    .slice().sort((a, b) => Date.parse(b.date) - Date.parse(a.date))
+    .slice(0, UNDER35_RECENT_WINDOW);
+  const home = window(homeMatches);
+  const away = window(awayMatches);
+  const hasFullWindow = home.length === UNDER35_RECENT_WINDOW && away.length === UNDER35_RECENT_WINDOW;
+  const valid = [...home, ...away].every((m) => Number.isFinite(m.teamGoals) && m.teamGoals >= 0 && Number.isFinite(m.opponentGoals) && m.opponentGoals >= 0);
+  const totalGoals = [...home, ...away].reduce((sum, m) => sum + m.teamGoals + m.opponentGoals, 0);
+  const average = hasFullWindow && valid ? totalGoals / (UNDER35_RECENT_WINDOW * 2) : undefined;
+  return { home, away, totalGoals, average, passed: average !== undefined && average <= maximum };
 }
 
 const pctLabel = (rate: number) => `${(rate * 100).toFixed(0)}%`;
@@ -175,10 +165,9 @@ export function footballFilterRequirements(
   }
   const u = t as RuleThresholds['footballUnder35'];
   return {
-    F1_PREV_SEASON_SCORED_U35: `< ${u.maxPrevSeasonAvgScored.toFixed(2)} for both teams`,
-    F2_PREV_SEASON_CONCEDED_U35: `< ${u.maxPrevSeasonAvgConceded.toFixed(2)} for both teams`,
-    F3_H2H_UNDER35: `>= ${pctLabel(u.minH2HUnder35Rate)} of the last ${H2H_UNDER35_WINDOW}, and at least ${H2H_UNDER35_MIN_MEETINGS} meetings on record`,
-    F4_RECENT_FORM_UNDER35: `>= ${u.minRecentUnder35Count} of last 5 for each team, and 5 matches on record`,
+    F1_HOME_LAST5_GOALS: `Scored < ${(u.maxLast5AvgScored ?? 1).toFixed(2)} AND conceded <= ${(u.maxLast5AvgConceded ?? 1.8).toFixed(2)}; home last 5 matches required`,
+    F2_AWAY_LAST5_GOALS: `Scored < ${(u.maxLast5AvgScored ?? 1).toFixed(2)} AND conceded <= ${(u.maxLast5AvgConceded ?? 1.8).toFixed(2)}; away last 5 matches required`,
+    F3_LAST10_AVG_TOTAL_GOALS: `<= ${under35MaxTotalGoals(u).toFixed(2)} combined average total goals; 10 matches per team (20 entries) required`,
     F5_EXCHANGE_PRICE_U35: `>= ${u.minExchangeOdds.toFixed(2)}`,
   };
 }
@@ -471,9 +460,8 @@ export function evaluateFootballOver15(
 
 /**
  * System B: Football Under 3.5 Goals
- * - Filters 1 & 2: Both teams independently avg < configured scored AND < configured conceded per match in previous domestic season.
- * - Filter 3: In the last 10 competitive meetings (at least 8 must exist), at least the configured rate must finish with Under 3.5 Goals.
- * - Filter 4: For each team independently, at least the configured count of their last 5 competitive matches must finish with Under 3.5 Goals.
+ * - Filters 1 & 2: Each team last 5 independently averages scored < configured maximum AND conceded <= configured maximum.
+ * - Filter 3: Combined home last 10 + away last 10 average total goals <= configured maximum (20 entries required).
  * - Filter 5: Market odds (TheStatsAPI) Under 3.5 Goals decimal price >= configured minimum.
  * All thresholds are editable in Engine Configuration (AppSettings.ruleThresholds.footballUnder35).
  * Missing data is handled per filter exactly as in evaluateFootballOver15.
@@ -491,82 +479,47 @@ export function evaluateFootballUnder35(
   const req = footballFilterRequirements('football_under_3_5', thresholds);
   const none = 'statistics could not be loaded for this match';
 
-  const seasonAudit =
-    [stats?.homePrevSeason, stats?.awayPrevSeason]
-      .filter((p): p is FootballPrevSeasonStats => !!p)
-      .map((p) => `${p.team} (${p.goalsScored} GF / ${p.goalsConceded} GA in ${p.matchesPlayed} games).`)
-      .join(' ') || 'Season statistics were not available.';
-  const maxScored = thresholds.maxPrevSeasonAvgScored;
-  const maxConceded = thresholds.maxPrevSeasonAvgConceded;
-  const homeGap = gapReason(fixture, stats, 'homePrevSeason', none);
-  const awayGap = gapReason(fixture, stats, 'awayPrevSeason', none);
-
-  filterChecks.push(
-    bothTeamsCheck({
-      id: 'F1_PREV_SEASON_SCORED_U35',
-      targetRule: `Both teams avg < ${maxScored.toFixed(2)} goals scored / match in domestic season`,
-      required: req.F1_PREV_SEASON_SCORED_U35,
-      auditDetails: seasonAudit,
-      home: { name: homeTeam, value: stats?.homePrevSeason?.avgGoalsScored, gap: homeGap },
-      away: { name: awayTeam, value: stats?.awayPrevSeason?.avgGoalsScored, gap: awayGap },
-      passes: (v) => v < maxScored,
-      format: (v) => v.toFixed(2),
-    }),
-    bothTeamsCheck({
-      id: 'F2_PREV_SEASON_CONCEDED_U35',
-      targetRule: `Both teams avg < ${maxConceded.toFixed(2)} goals conceded / match in domestic season`,
-      required: req.F2_PREV_SEASON_CONCEDED_U35,
-      auditDetails: seasonAudit,
-      home: { name: homeTeam, value: stats?.homePrevSeason?.avgGoalsConceded, gap: homeGap },
-      away: { name: awayTeam, value: stats?.awayPrevSeason?.avgGoalsConceded, gap: awayGap },
-      passes: (v) => v < maxConceded,
-      format: (v) => v.toFixed(2),
-    })
-  );
-
-  // Filter 3: Head-to-Head - Last 10 competitive meetings, at least the configured rate Under 3.5 Goals
-  if (stats?.h2hMatches) {
-    const h2h = evaluateH2HUnder35(stats.h2hMatches, thresholds.minH2HUnder35Rate);
+  const lastFiveCheck = (side: 'home' | 'away', name: string, matches: TeamRecentMatch[] | undefined) => {
+    const lastFive = (matches ?? []).filter((m) => m.isCompetitive).slice()
+      .sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).slice(0, 5);
+    const valid = lastFive.length === 5 && lastFive.every((m) => Number.isFinite(m.teamGoals) && m.teamGoals >= 0 && Number.isFinite(m.opponentGoals) && m.opponentGoals >= 0);
+    const scored = lastFive.reduce((sum, m) => sum + m.teamGoals, 0) / 5;
+    const conceded = lastFive.reduce((sum, m) => sum + m.opponentGoals, 0) / 5;
+    const id = side === 'home' ? 'F1_HOME_LAST5_GOALS' : 'F2_AWAY_LAST5_GOALS';
+    const maxScored = thresholds.maxLast5AvgScored ?? 1;
+    const maxConceded = thresholds.maxLast5AvgConceded ?? 1.8;
+    const actual = valid ? `${name}: scored ${scored.toFixed(2)}, conceded ${conceded.toFixed(2)} per match` : `${name}: ${lastFive.length}/5 matches available; five valid matches required. ${gapReason(fixture, stats, side === 'home' ? 'homeRecent' : 'awayRecent', '')}`;
     filterChecks.push({
-      filterId: 'F3_H2H_UNDER35',
-      filterName: FILTER_LABELS.F3_H2H_UNDER35,
-      targetRule: `Last ${H2H_UNDER35_WINDOW} competitive meetings >= ${pctLabel(thresholds.minH2HUnder35Rate)} Under 3.5 Goals`,
-      observedValue: `${h2h.under35}/${h2h.considered} matches (${h2h.ratePercent}%)`,
-      passed: h2h.passed,
-      auditDetails: `Checked ${h2h.considered} verified competitive meetings: ${h2h.under35} finished Under 3.5 Goals.`,
-      actual: h2h.summary,
-      required: req.F3_H2H_UNDER35,
+      filterId: id, filterName: FILTER_LABELS[id], targetRule: req[id], observedValue: actual,
+      passed: valid && scored < maxScored && conceded <= maxConceded,
+      auditDetails: lastFive.map((m) => `${m.teamGoals}-${m.opponentGoals} (${m.date})`).join(', '),
+      actual, required: req[id], noData: !valid,
     });
-  } else {
-    const reason = `Not available — ${gapReason(fixture, stats, 'h2h', none)}`;
-    filterChecks.push({
-      filterId: 'F3_H2H_UNDER35',
-      filterName: FILTER_LABELS.F3_H2H_UNDER35,
-      targetRule: `Last ${H2H_UNDER35_WINDOW} competitive meetings Under 3.5 Goals`,
-      observedValue: reason,
-      passed: false,
-      auditDetails: reason,
-      actual: reason,
-      required: req.F3_H2H_UNDER35,
-      noData: true,
-    });
-  }
+  };
+  lastFiveCheck('home', homeTeam, stats?.homeRecentMatches);
+  lastFiveCheck('away', awayTeam, stats?.awayRecentMatches);
 
-  // Filter 4: Recent Form - For each team independently, >= configured count of last 5 competitive matches Under 3.5
-  const minU35Count = thresholds.minRecentUnder35Count;
-  filterChecks.push(
-    recentFormCheck({
-      id: 'F4_RECENT_FORM_UNDER35',
-      targetRule: `Each team independently has >= ${minU35Count} of last 5 competitive matches Under 3.5 Goals`,
-      required: req.F4_RECENT_FORM_UNDER35,
-      minCount: minU35Count,
-      noun: 'Under 3.5 in',
-      auditDetails: `Each club's five most recent finished matches on record at TheStatsAPI were evaluated. TheStatsAPI does not label friendlies, so none are excluded.`,
-      home: { name: homeTeam, matches: stats?.homeRecentMatches, gap: gapReason(fixture, stats, 'homeRecent', none) },
-      away: { name: awayTeam, matches: stats?.awayRecentMatches, gap: gapReason(fixture, stats, 'awayRecent', none) },
-      counts: (m) => m.under35Goals,
-    })
-  );
+  // Combine each team's last ten matches against any opponents: total goals / 20.
+  const maxTotalGoals = under35MaxTotalGoals(thresholds);
+  const combined = evaluateCombinedLast10Goals(stats?.homeRecentMatches, stats?.awayRecentMatches, maxTotalGoals);
+  const actual = combined.average !== undefined
+    ? `${combined.totalGoals} total goals / 20 match entries = ${combined.average.toFixed(2)}`
+    : `Cannot calculate: ${homeTeam} ${combined.home.length}/10 matches; ${awayTeam} ${combined.away.length}/10 matches (10 valid matches per team required)`;
+  filterChecks.push({
+    filterId: 'F3_LAST10_AVG_TOTAL_GOALS',
+    filterName: FILTER_LABELS.F3_LAST10_AVG_TOTAL_GOALS,
+    targetRule: `Combined last-10 average total goals <= ${maxTotalGoals.toFixed(2)} (home last 10 + away last 10, divided by 20)`,
+    observedValue: actual,
+    passed: combined.passed,
+    auditDetails: [
+      `${homeTeam}: ${combined.home.map((m) => `${m.teamGoals}-${m.opponentGoals} (${m.date})`).join(', ')}`,
+      `${awayTeam}: ${combined.away.map((m) => `${m.teamGoals}-${m.opponentGoals} (${m.date})`).join(', ')}`,
+      combined.average === undefined ? [gapReason(fixture, stats, 'homeRecent', ''), gapReason(fixture, stats, 'awayRecent', '')].filter(Boolean).join('; ') : '',
+    ].filter(Boolean).join(' '),
+    actual,
+    required: req.F3_LAST10_AVG_TOTAL_GOALS,
+    noData: combined.average === undefined,
+  });
 
   // Filter 5: Price - Market odds (TheStatsAPI) Under 3.5 Goals decimal price >= configured minimum
   // See the equivalent guard in evaluateFootballOver15.

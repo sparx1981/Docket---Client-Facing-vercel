@@ -740,7 +740,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         return `H2H≥${Math.round(s.minH2HOver15Rate * 100)}% · recent≥${s.minRecentScoredCount}`;
       }
       const s = snapshot as RuleThresholds['footballUnder35'];
-      return `H2H≥${Math.round(s.minH2HUnder35Rate * 100)}% · recent≥${s.minRecentUnder35Count}`;
+      return s.maxLast10AvgTotalGoals === undefined
+        ? `Legacy H2H≥${Math.round((s.minH2HUnder35Rate ?? 0.8) * 100)}% · recent≥${s.minRecentUnder35Count}`
+        : `Combined last-10 avg≤${s.maxLast10AvgTotalGoals.toFixed(2)} · last-5 scored<${(s.maxLast5AvgScored ?? 1).toFixed(2)} / conceded≤${(s.maxLast5AvgConceded ?? 1.8).toFixed(2)}`;
     };
 
     return (
@@ -1757,13 +1759,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </Field>
               <fieldset disabled={under35Locked} className="contents">
               <Field
-                label="Max. previous-season avg goals scored"
+                label="Max. last-5 avg goals scored (both teams)"
                 htmlFor="under35-avg-scored"
-                hint="A team new to the league (for example newly promoted) usually has no previous season in it, so this check shows no data and the fixture can't qualify."
+                hint="Each team’s last 5 matches must independently average strictly below this scored limit."
                 action={
                   <FilterHoverPopup
                     breakdown={under35Breakdown}
-                    activeFilterId="F1_PREV_SEASON_SCORED_U35"
+                    activeFilterId="F1_HOME_LAST5_GOALS"
                     size="sm"
                   />
                 }
@@ -1773,18 +1775,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   type="number"
                   min={0}
                   step="0.01"
-                  value={formData.ruleThresholds.footballUnder35.maxPrevSeasonAvgScored}
-                  onChange={(e) => setThreshold('footballUnder35', 'maxPrevSeasonAvgScored', Number(e.target.value) || 0)}
+                  value={formData.ruleThresholds.footballUnder35.maxLast5AvgScored}
+                  onChange={(e) => setThreshold('footballUnder35', 'maxLast5AvgScored', Number(e.target.value) || 0)}
                   className={`${inputClass} font-mono`}
                 />
               </Field>
               <Field
-                label="Max. previous-season avg goals conceded"
+                label="Max. last-5 avg goals conceded (both teams)"
                 htmlFor="under35-avg-conceded"
+                hint="Each team’s last 5 matches must independently average at or below this conceded limit."
                 action={
                   <FilterHoverPopup
                     breakdown={under35Breakdown}
-                    activeFilterId="F2_PREV_SEASON_CONCEDED_U35"
+                    activeFilterId="F2_AWAY_LAST5_GOALS"
                     size="sm"
                   />
                 }
@@ -1794,54 +1797,30 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   type="number"
                   min={0}
                   step="0.01"
-                  value={formData.ruleThresholds.footballUnder35.maxPrevSeasonAvgConceded}
-                  onChange={(e) => setThreshold('footballUnder35', 'maxPrevSeasonAvgConceded', Number(e.target.value) || 0)}
+                  value={formData.ruleThresholds.footballUnder35.maxLast5AvgConceded}
+                  onChange={(e) => setThreshold('footballUnder35', 'maxLast5AvgConceded', Number(e.target.value) || 0)}
                   className={`${inputClass} font-mono`}
                 />
               </Field>
               <Field
-                label="Min. H2H Under 3.5 rate (last 10, %)"
-                htmlFor="under35-h2h-rate"
-                hint="TheStatsAPI doesn't label friendlies, so any friendly in these matches is counted."
+                label="Max. combined last-10 avg total goals"
+                htmlFor="under35-total-goals"
+                hint="Combine scored + conceded from each team’s last 10 matches and divide by 20. Ten matches per team are required; shared fixtures count in both samples."
                 action={
                   <FilterHoverPopup
                     breakdown={under35Breakdown}
-                    activeFilterId="F3_H2H_UNDER35"
+                    activeFilterId="F3_LAST10_AVG_TOTAL_GOALS"
                     size="sm"
                   />
                 }
               >
                 <input
-                  id="under35-h2h-rate"
+                  id="under35-total-goals"
                   type="number"
                   min={0}
-                  max={100}
-                  step="1"
-                  value={percentInput(formData.ruleThresholds.footballUnder35.minH2HUnder35Rate)}
-                  onChange={(e) => setThreshold('footballUnder35', 'minH2HUnder35Rate', percentToRate(Number(e.target.value) || 0))}
-                  className={`${inputClass} font-mono`}
-                />
-              </Field>
-              <Field
-                label="Min. recent Under 3.5 count (of last 5)"
-                htmlFor="under35-recent-count"
-                hint="TheStatsAPI doesn't label friendlies, so any friendly in these matches is counted."
-                action={
-                  <FilterHoverPopup
-                    breakdown={under35Breakdown}
-                    activeFilterId="F4_RECENT_FORM_UNDER35"
-                    size="sm"
-                  />
-                }
-              >
-                <input
-                  id="under35-recent-count"
-                  type="number"
-                  min={0}
-                  max={5}
-                  step="1"
-                  value={formData.ruleThresholds.footballUnder35.minRecentUnder35Count}
-                  onChange={(e) => setThreshold('footballUnder35', 'minRecentUnder35Count', Number(e.target.value) || 0)}
+                  step="0.01"
+                  value={formData.ruleThresholds.footballUnder35.maxLast10AvgTotalGoals}
+                  onChange={(e) => setThreshold('footballUnder35', 'maxLast10AvgTotalGoals', Number(e.target.value) || 0)}
                   className={`${inputClass} font-mono`}
                 />
               </Field>
@@ -1869,6 +1848,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </Field>
               </fieldset>
             </div>
+            <section aria-labelledby="under35-qualification-title" className="mt-5 border-t border-line pt-4 text-sm text-text-2">
+              <h3 id="under35-qualification-title" className="font-bold text-text">Final qualification rules</h3>
+              <p className="mt-2">A fixture must belong to a selected league and pass every statistical filter below to reach the price check.</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                <li>Home team’s last 5 matches: average scored &lt;{formData.ruleThresholds.footballUnder35.maxLast5AvgScored.toFixed(2)} AND average conceded &le;{formData.ruleThresholds.footballUnder35.maxLast5AvgConceded.toFixed(2)} goals per match. Both conditions must pass.</li>
+                <li>Combined last-10 average total goals &le;{formData.ruleThresholds.footballUnder35.maxLast10AvgTotalGoals.toFixed(2)}: add scored + conceded in the home team’s last 10 matches and the away team’s last 10 matches, then divide by 20. Ten matches per team are required. A shared fixture counts in both teams’ samples.</li>
+                <li>Away team’s last 5 matches: average scored &lt;{formData.ruleThresholds.footballUnder35.maxLast5AvgScored.toFixed(2)} AND average conceded &le;{formData.ruleThresholds.footballUnder35.maxLast5AvgConceded.toFixed(2)} goals per match. Both conditions must pass.</li>
+                <li>Under 3.5 bookmaker odds must be &ge;{formData.ruleThresholds.footballUnder35.minExchangeOdds.toFixed(2)}, with no maximum.</li>
+              </ul>
+              <p className="mt-2">All filters pass and the verification audit passes → Verified Qualifier. Any statistical filter fails or required data is missing → no qualifying bet. Statistics pass but the price is below the minimum or missing → Price Watch, pending a qualifying price.</p>
+              <p className="mt-2">These rules reflect the values above; save configuration to apply edits. TheStatsAPI does not label friendlies, so any returned friendly is included. Backtests check the statistical filters without historical odds.</p>
+            </section>
             <div className="mt-4">{renderBacktestButton('football_under_3_5', under35Locked)}</div>
             {renderBacktestResult('football_under_3_5')}
             {renderBacktestHistory('football_under_3_5')}

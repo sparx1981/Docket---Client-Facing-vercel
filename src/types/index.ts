@@ -259,10 +259,13 @@ export interface RuleThresholds {
   };
   footballUnder35: {
     enabled: boolean;
-    maxPrevSeasonAvgScored: number; // both teams, <
-    maxPrevSeasonAvgConceded: number; // both teams, <
-    minH2HUnder35Rate: number; // 0-1, over last 10 competitive meetings
-    minRecentUnder35Count: number; // out of last 5 competitive matches
+    maxLast5AvgScored: number; // each team independently, <
+    maxLast5AvgConceded: number; // each team independently, <=
+    maxPrevSeasonAvgScored?: number; // legacy historical snapshots only
+    maxPrevSeasonAvgConceded?: number; // legacy historical snapshots only
+    maxLast10AvgTotalGoals: number; // combined home last 10 + away last 10 total goals / 20, <=
+    minH2HUnder35Rate?: number; // legacy historical snapshots only
+    minRecentUnder35Count?: number; // legacy historical snapshots only
     minExchangeOdds: number;
     /** See footballOver15.selectedLeagueIds. */
     selectedLeagueIds: string[];
